@@ -1,11 +1,514 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Freasy Plants</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Arial, Helvetica, sans-serif;
+      color: #26312a;
+      background: linear-gradient(#bde6ff 0 34%, #89cf70 34% 100%);
+      overflow-x: hidden;
+      -webkit-text-size-adjust: 100%;
+    }
+    button { font: inherit; cursor: pointer; border: 0; }
+    .app { min-height: 100vh; display: grid; grid-template-rows: auto auto 1fr; }
+    .topbar {
+      display: flex; gap: 12px; align-items: center; justify-content: space-between;
+      padding: 12px 16px; background: rgba(255,255,255,.78);
+      border-bottom: 2px solid rgba(42,67,49,.16); backdrop-filter: blur(6px);
+    }
+    .title { flex: 0 0 auto; font-size: clamp(20px, 4vw, 28px); font-weight: 900; }
+    .stats { display: grid; grid-template-columns: repeat(4, minmax(82px, 1fr)); gap: 8px; align-items: center; justify-content: flex-end; width: min(560px, 100%); font-weight: 800; }
+    .pill {
+      min-width: 0; padding: 8px 9px; border: 2px solid rgba(38,49,42,.16);
+      border-radius: 8px; background: #fffaf0; text-align: center;
+      font-size: clamp(12px, 2.4vw, 15px); white-space: nowrap;
+    }
+    .modebar { display: grid; grid-template-columns: repeat(4, minmax(112px, 1fr)); gap: 8px; padding: 10px 16px; background: rgba(69,123,73,.85); overflow-x: auto; }
+    .modebar button, .primary {
+      min-height: 42px; padding: 10px 12px; border-radius: 8px; color: #152116; background: #f7dd70;
+      font-weight: 900; box-shadow: inset 0 -3px rgba(0,0,0,.12);
+    }
+    .modebar button.active { background: #fff8ca; outline: 3px solid #2f6938; }
+    .layout {
+      display: grid; grid-template-columns: minmax(176px,240px) minmax(0,1fr) minmax(170px,220px);
+      gap: 14px; width: min(1220px,100%); margin: 0 auto; padding: 14px 16px 20px;
+    }
+    .panel {
+      background: #f5f0df; border: 3px solid rgba(67,50,25,.28); border-radius: 8px;
+      padding: 10px; box-shadow: 0 5px 0 rgba(61,43,20,.16);
+    }
+    .panel h2 { margin: 0 0 10px; font-size: 16px; }
+    .plants, .mini-list, .actions, .side-list { display: grid; gap: 8px; }
+    .plant-card {
+      display: grid; grid-template-columns: 44px 1fr; gap: 8px; align-items: center;
+      width: 100%; min-height: 58px; padding: 8px; border-radius: 8px;
+      background: #fff9db; border: 2px solid transparent; text-align: left;
+    }
+    .plant-card.selected { border-color: #268e34; background: #e8ffd8; }
+    .plant-card.locked { cursor: default; opacity: .55; filter: grayscale(.4); }
+    .icon {
+      width: 40px; height: 40px; display: grid; place-items: center;
+      border-radius: 8px; background: #dff3bc; font-size: 25px; font-weight: 900;
+    }
+    .plant-name { display: block; font-weight: 900; font-size: 13px; }
+    .plant-meta { display: block; margin-top: 2px; font-size: 12px; color: #586050; }
+    .arena-wrap { position: relative; min-width: 0; overflow-x: auto; padding-bottom: 4px; overscroll-behavior-x: contain; }
+    .board {
+      position: relative; display: grid; grid-template-columns: repeat(9, minmax(48px, 1fr)); grid-template-rows: repeat(5, clamp(56px, 7vw, 86px));
+      min-width: 486px;
+      gap: 4px; padding: 8px; border: 5px solid #5a371d; border-radius: 8px;
+      background: #8a5a32; box-shadow: inset 0 0 0 3px rgba(255,255,255,.15); user-select: none;
+    }
+    .cell {
+      position: relative; overflow: hidden; display: grid; place-items: center; border-radius: 6px;
+      background: linear-gradient(90deg, rgba(255,255,255,.08), transparent), linear-gradient(#73c765,#55a84e);
+      border: 2px solid rgba(32,85,34,.22);
+    }
+    .cell:nth-child(odd) { background: linear-gradient(90deg, rgba(255,255,255,.08), transparent), linear-gradient(#68bd5f,#4c9f48); }
+    .plant {
+      width: 54px; height: 54px; display: grid; place-items: center; border-radius: 50%;
+      background: #c6ec75; border: 3px solid #2d8735; font-size: 31px; font-weight: 900; z-index: 2;
+    }
+    .hp { position: absolute; left: 7px; right: 7px; bottom: 5px; height: 5px; border-radius: 999px; background: rgba(0,0,0,.18); overflow: hidden; }
+    .hp span { display: block; height: 100%; background: #2dd44d; }
+    .zombie {
+      position: absolute; z-index: 3; width: 50px; height: 66px; display: grid; place-items: center;
+      border-radius: 18px 18px 8px 8px; background: #9aa296; border: 3px solid #4e5b50;
+      font-size: 30px; font-weight: 900; transform: translateX(-50%); pointer-events: none;
+    }
+    .zombie.fast { background: #b4b0db; }
+    .zombie.tank { background: #9cb4bd; border-width: 4px; }
+    .zombie.weak { background: #b3c89f; }
+    .zombie .hp { left: 4px; right: 4px; bottom: -10px; }
+    .notice {
+      position: fixed; z-index: 20; pointer-events: none; color: #d92727; font-weight: 900;
+      text-shadow: 0 2px 0 #fff, 0 0 8px #fff; transform: translate(12px,-22px);
+      opacity: 0; transition: opacity .12s ease; white-space: nowrap;
+    }
+    .notice.show { opacity: 1; }
+    .mini-list button {
+      padding: 9px; border-radius: 8px; background: #fff9db;
+      border: 2px solid rgba(38,49,42,.14); text-align: left; font-weight: 800;
+    }
+    .mini-list button.active { border-color: #2f8d3e; background: #e9ffd8; }
+    .log { min-height: 90px; padding: 8px; border-radius: 8px; background: rgba(255,255,255,.55); font-size: 13px; line-height: 1.35; }
+    .actions { margin-top: 10px; }
+    .actions button { width: 100%; }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      .plants { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .panel:first-child { order: 1; }
+      .arena-wrap { order: 2; }
+      .panel:last-child { order: 3; }
+      .board { grid-template-rows: repeat(5,70px); }
+      .mini-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .actions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+    @media (max-width: 620px) {
+      .topbar { align-items: stretch; flex-direction: column; padding: 10px; }
+      .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+      .modebar { grid-template-columns: repeat(4, minmax(104px, 1fr)); padding: 8px 10px; }
+      .modebar button, .primary { min-height: 40px; padding: 8px 10px; font-size: 13px; }
+      .layout { gap: 10px; padding: 10px 8px 16px; }
+      .panel { padding: 8px; border-width: 2px; box-shadow: 0 3px 0 rgba(61,43,20,.16); }
+      .panel h2 { margin-bottom: 8px; }
+      .plants { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+      .plant-card { grid-template-columns: 34px 1fr; gap: 6px; min-height: 50px; padding: 6px; }
+      .icon { width: 32px; height: 32px; font-size: 20px; border-radius: 7px; }
+      .plant-name { font-size: 12px; }
+      .plant-meta { font-size: 11px; line-height: 1.2; }
+      .board { grid-template-columns: repeat(9, minmax(38px, 1fr)); grid-template-rows: repeat(5,58px); min-width: 376px; gap: 3px; padding: 5px; border-width: 4px; }
+      .plant { width: 42px; height: 42px; font-size: 23px; }
+      .zombie { width: 40px; height: 52px; font-size: 23px; }
+      .mini-list, .actions { grid-template-columns: 1fr; }
+      .log { min-height: 76px; }
+    }
+    @media (max-width: 390px) {
+      .modebar { grid-template-columns: repeat(2, minmax(0, 1fr)); overflow-x: visible; }
+      .plants { grid-template-columns: 1fr; }
+      .board { grid-template-columns: repeat(9, minmax(0, 1fr)); grid-template-rows: repeat(5,52px); min-width: 100%; }
+      .plant { width: 36px; height: 36px; font-size: 20px; border-width: 2px; }
+      .zombie { width: 36px; height: 46px; font-size: 21px; border-width: 2px; }
+    }
+  </style>
 </head>
 <body>
-    
+  <div class="app">
+    <header class="topbar">
+      <div class="title">Freasy Plants</div>
+      <div class="stats">
+        <div class="pill" id="money">Солнца: 0</div>
+        <div class="pill" id="level">Уровень: 1</div>
+        <div class="pill" id="wave">Волна: 0</div>
+        <div class="pill" id="base">База: 5</div>
+      </div>
+    </header>
+    <nav class="modebar" id="modebar"></nav>
+    <main class="layout">
+      <aside class="panel">
+        <h2>Растения</h2>
+        <div class="plants" id="plants"></div>
+      </aside>
+      <section class="arena-wrap">
+        <div class="board" id="board"></div>
+      </section>
+      <aside class="panel">
+        <h2>Мини-игры</h2>
+        <div class="mini-list" id="minis"></div>
+        <div class="actions">
+          <button class="primary" id="start">Старт</button>
+          <button class="primary" id="next">Следующий уровень</button>
+          <button class="primary" id="reset">Сброс прогресса</button>
+        </div>
+        <div class="side-list">
+          <div class="log" id="log"></div>
+        </div>
+      </aside>
+    </main>
+  </div>
+  <div class="notice" id="notice">Не хвотоает денег</div>
+
+  <script>
+    const rows = 5;
+    const cols = 9;
+    const plants = [
+      { id: "pea", name: "Горох", icon: "P", cost: 50, hp: 95, damage: 18, rate: 950, unlock: 1, desc: "стреляет по линии" },
+      { id: "sun", name: "Подсолнух", icon: "S", cost: 25, hp: 70, income: 25, rate: 3600, unlock: 2, desc: "+25 солнц" },
+      { id: "wall", name: "Орех", icon: "W", cost: 75, hp: 330, damage: 0, rate: 0, unlock: 3, desc: "держит удар" },
+      { id: "ice", name: "Лёд", icon: "I", cost: 100, hp: 90, damage: 12, slow: 0.55, rate: 1200, unlock: 4, desc: "замедляет" },
+      { id: "double", name: "Двойной", icon: "D", cost: 150, hp: 105, damage: 32, rate: 900, unlock: 5, desc: "сильный урон" },
+      { id: "cherry", name: "Вишня", icon: "C", cost: 125, hp: 1, bomb: 165, unlock: 6, desc: "взрыв 3x3" },
+      { id: "thorn", name: "Шипы", icon: "T", cost: 80, hp: 120, melee: 10, rate: 500, unlock: 7, desc: "бьёт рядом" },
+      { id: "laser", name: "Лазер", icon: "L", cost: 180, hp: 100, damage: 50, rate: 1500, unlock: 8, desc: "пробивает ряд" }
+    ];
+    const modes = [
+      { id: "levels", name: "Уровни" },
+      { id: "endless", name: "Бесконечный" },
+      { id: "online", name: "Онлайн" },
+      { id: "mini", name: "Мини-игры" }
+    ];
+    const minis = [
+      { id: "rush", name: "Быстрая атака", text: "Много слабых врагов, быстрые волны.", money: 175 },
+      { id: "rich", name: "Солнечный сад", text: "Больше солнц, но враги крепче.", money: 300 },
+      { id: "tanks", name: "Железная ночь", text: "Медленные толстые враги.", money: 225 }
+    ];
+    const state = {
+      mode: "levels",
+      mini: "rush",
+      level: Number(localStorage.getItem("freasy-level") || 1),
+      money: 150,
+      wave: 0,
+      base: 5,
+      selected: "pea",
+      cells: [],
+      zombies: [],
+      running: false,
+      lastTick: 0,
+      spawnTimer: 0,
+      mouse: { x: 0, y: 0 },
+      message: ""
+    };
+    const board = document.getElementById("board");
+    const plantList = document.getElementById("plants");
+    const modebar = document.getElementById("modebar");
+    const miniList = document.getElementById("minis");
+    const notice = document.getElementById("notice");
+    const log = document.getElementById("log");
+
+    function unlockedPlants() {
+      const savedLevel = Number(localStorage.getItem("freasy-level") || state.level);
+      const cap = state.mode === "levels" ? state.level : savedLevel;
+      return plants.filter((plant) => plant.unlock <= cap);
+    }
+
+    function isUnlocked(id) {
+      return unlockedPlants().some((plant) => plant.id === id);
+    }
+
+    function resetBoard() {
+      state.cells = Array.from({ length: rows * cols }, () => null);
+      state.zombies = [];
+      state.wave = 0;
+      state.base = 5;
+      state.spawnTimer = 0;
+      state.running = false;
+      state.money = state.mode === "mini" ? minis.find((mini) => mini.id === state.mini).money : 150 + state.level * 20;
+      if (!isUnlocked(state.selected)) state.selected = unlockedPlants()[0].id;
+      render();
+    }
+
+    function renderModes() {
+      modebar.innerHTML = "";
+      modes.forEach((mode) => {
+        const button = document.createElement("button");
+        button.textContent = mode.name;
+        button.className = mode.id === state.mode ? "active" : "";
+        button.addEventListener("click", () => {
+          state.mode = mode.id;
+          resetBoard();
+        });
+        modebar.appendChild(button);
+      });
+    }
+
+    function renderPlants() {
+      plantList.innerHTML = "";
+      plants.forEach((plant) => {
+        const unlocked = isUnlocked(plant.id);
+        const button = document.createElement("button");
+        button.className = `plant-card ${state.selected === plant.id ? "selected" : ""} ${unlocked ? "" : "locked"}`;
+        button.innerHTML = `
+          <span class="icon">${plant.icon}</span>
+          <span>
+            <span class="plant-name">${plant.name}</span>
+            <span class="plant-meta">${unlocked ? plant.cost + " солнц - " + plant.desc : "Откроется на уровне " + plant.unlock}</span>
+          </span>
+        `;
+        button.addEventListener("click", () => {
+          if (!unlocked) return;
+          state.selected = plant.id;
+          render();
+        });
+        plantList.appendChild(button);
+      });
+    }
+
+    function renderMinis() {
+      miniList.innerHTML = "";
+      minis.forEach((mini) => {
+        const button = document.createElement("button");
+        button.className = state.mode === "mini" && state.mini === mini.id ? "active" : "";
+        button.innerHTML = `${mini.name}<br><small>${mini.text}</small>`;
+        button.addEventListener("click", () => {
+          state.mode = "mini";
+          state.mini = mini.id;
+          resetBoard();
+        });
+        miniList.appendChild(button);
+      });
+    }
+
+    function renderBoard() {
+      board.innerHTML = "";
+      state.cells.forEach((cellPlant, index) => {
+        const cell = document.createElement("div");
+        cell.className = "cell";
+        cell.addEventListener("click", () => placePlant(index));
+        if (cellPlant) {
+          const plant = plants.find((item) => item.id === cellPlant.id);
+          cell.innerHTML = `
+            <div class="plant">${plant.icon}</div>
+            <div class="hp"><span style="width:${Math.max(0, cellPlant.hp / plant.hp * 100)}%"></span></div>
+          `;
+        }
+        board.appendChild(cell);
+      });
+
+      const rect = board.getBoundingClientRect();
+      const boardStyles = getComputedStyle(board);
+      const padLeft = parseFloat(boardStyles.paddingLeft) || 0;
+      const padTop = parseFloat(boardStyles.paddingTop) || 0;
+      const innerWidth = rect.width - padLeft - (parseFloat(boardStyles.paddingRight) || 0);
+      const innerHeight = rect.height - padTop - (parseFloat(boardStyles.paddingBottom) || 0);
+      state.zombies.forEach((zombie) => {
+        const node = document.createElement("div");
+        node.className = `zombie ${zombie.type}`;
+        node.style.left = `${padLeft + (zombie.x + 0.5) / cols * innerWidth}px`;
+        node.style.top = `${padTop + zombie.row / rows * innerHeight + innerHeight / rows * 0.1}px`;
+        node.innerHTML = `Z<div class="hp"><span style="width:${Math.max(0, zombie.hp / zombie.maxHp * 100)}%"></span></div>`;
+        board.appendChild(node);
+      });
+    }
+
+    function renderStats() {
+      document.getElementById("money").textContent = `Солнца: ${Math.floor(state.money)}`;
+      document.getElementById("level").textContent = `Уровень: ${state.level}`;
+      document.getElementById("wave").textContent = `Волна: ${state.wave}`;
+      document.getElementById("base").textContent = `База: ${state.base}`;
+      const available = unlockedPlants().map((plant) => plant.name).join(", ");
+      const modeName = modes.find((mode) => mode.id === state.mode).name;
+      log.innerHTML = `${state.message || "Выбери растение и ставь его на поле."}<br><br><b>Режим:</b> ${modeName}<br><b>Доступны:</b> ${available}`;
+    }
+
+    function render() {
+      renderModes();
+      renderPlants();
+      renderMinis();
+      renderStats();
+      renderBoard();
+    }
+
+    function showNoMoney() {
+      notice.style.left = `${state.mouse.x}px`;
+      notice.style.top = `${state.mouse.y}px`;
+      notice.classList.add("show");
+      clearTimeout(showNoMoney.timer);
+      showNoMoney.timer = setTimeout(() => notice.classList.remove("show"), 900);
+    }
+
+    function placePlant(index) {
+      const selected = plants.find((plant) => plant.id === state.selected);
+      if (!selected || !isUnlocked(selected.id) || state.cells[index]) return;
+      if (state.money < selected.cost) {
+        showNoMoney();
+        return;
+      }
+      state.money -= selected.cost;
+      state.cells[index] = { id: selected.id, hp: selected.hp, last: 0 };
+
+      if (selected.bomb) {
+        const row = Math.floor(index / cols);
+        const col = index % cols;
+        state.zombies.forEach((zombie) => {
+          if (Math.abs(zombie.row - row) <= 1 && Math.abs(zombie.x - col) <= 1.4) zombie.hp -= selected.bomb;
+        });
+        state.cells[index] = null;
+        state.message = "Вишня взорвалась.";
+      }
+      render();
+    }
+
+    function spawnZombie() {
+      const mini = state.mode === "mini" ? state.mini : "";
+      const row = Math.floor(Math.random() * rows);
+      const hard = state.mode === "endless" ? state.wave * 8 : state.level * 10;
+      let type = "normal";
+      let hp = 95 + hard;
+      let speed = 0.22 + state.wave * 0.004;
+
+      if (mini === "rush" || Math.random() < 0.18) {
+        type = "fast";
+        hp *= 0.75;
+        speed *= 1.55;
+      }
+      if (mini === "tanks" || Math.random() < 0.16) {
+        type = "tank";
+        hp *= 1.85;
+        speed *= 0.62;
+      }
+      if (mini === "rush") {
+        type = "weak";
+        hp *= 0.55;
+      }
+
+      state.zombies.push({ row, x: cols - 0.2, hp, maxHp: hp, speed, bite: type === "tank" ? 18 : 12, type, slowed: 0 });
+      state.wave += 1;
+    }
+
+    function updatePlants(now) {
+      state.cells.forEach((cellPlant, index) => {
+        if (!cellPlant) return;
+        const plant = plants.find((item) => item.id === cellPlant.id);
+        const row = Math.floor(index / cols);
+        const col = index % cols;
+
+        if (plant.income && now - cellPlant.last > plant.rate) {
+          state.money += state.mode === "mini" && state.mini === "rich" ? plant.income + 15 : plant.income;
+          cellPlant.last = now;
+        }
+
+        if ((plant.damage || plant.melee) && now - cellPlant.last > plant.rate) {
+          const targets = state.zombies.filter((zombie) => zombie.row === row && zombie.x >= col - 0.2);
+          if (!targets.length) return;
+          targets.sort((a, b) => a.x - b.x);
+
+          if (plant.id === "laser") {
+            targets.forEach((zombie) => zombie.hp -= plant.damage);
+          } else if (plant.melee) {
+            targets.filter((zombie) => Math.abs(zombie.x - col) <= 1.15).forEach((zombie) => zombie.hp -= plant.melee);
+          } else {
+            targets[0].hp -= plant.damage;
+            if (plant.slow) targets[0].slowed = 1500;
+          }
+          cellPlant.last = now;
+        }
+      });
+    }
+
+    function updateZombies(dt) {
+      state.zombies.forEach((zombie) => {
+        const col = Math.max(0, Math.floor(zombie.x));
+        const index = zombie.row * cols + col;
+        const blockingPlant = state.cells[index];
+        if (blockingPlant) {
+          blockingPlant.hp -= zombie.bite * dt / 500;
+          if (blockingPlant.hp <= 0) state.cells[index] = null;
+          return;
+        }
+        const slow = zombie.slowed > 0 ? 0.45 : 1;
+        zombie.slowed = Math.max(0, zombie.slowed - dt);
+        zombie.x -= zombie.speed * slow * dt / 1000;
+        if (zombie.x < -0.2) {
+          zombie.hp = 0;
+          state.base -= 1;
+        }
+      });
+    }
+
+    function tick(now) {
+      const dt = Math.min(64, now - state.lastTick || 16);
+      state.lastTick = now;
+
+      if (state.running) {
+        state.spawnTimer -= dt;
+        const targetWaves = state.mode === "levels" ? 8 + state.level * 2 : Infinity;
+        if (state.spawnTimer <= 0 && state.wave < targetWaves) {
+          spawnZombie();
+          const pace = state.mode === "mini" && state.mini === "rush" ? 900 : 1550;
+          state.spawnTimer = Math.max(520, pace - state.level * 45 - state.wave * 12);
+        }
+
+        updatePlants(now);
+        updateZombies(dt);
+        state.zombies = state.zombies.filter((zombie) => zombie.hp > 0);
+
+        if (state.base <= 0) {
+          state.running = false;
+          state.message = "База разбита. Попробуй другую расстановку.";
+        } else if (state.mode === "levels" && state.wave >= targetWaves && state.zombies.length === 0) {
+          state.running = false;
+          const oldLevel = state.level;
+          state.level = Math.min(plants.length, state.level + 1);
+          localStorage.setItem("freasy-level", String(state.level));
+          const opened = plants.find((plant) => plant.unlock === state.level);
+          state.message = oldLevel === state.level ? "Все растения открыты. Уровень пройден!" : `Победа! Открыто растение: ${opened.name}.`;
+        }
+      }
+
+      render();
+      requestAnimationFrame(tick);
+    }
+
+    document.addEventListener("mousemove", (event) => {
+      state.mouse.x = event.clientX;
+      state.mouse.y = event.clientY;
+    });
+    document.getElementById("start").addEventListener("click", () => {
+      state.running = true;
+      state.message = "Волна началась.";
+    });
+    document.getElementById("next").addEventListener("click", () => {
+      if (state.mode !== "levels") state.mode = "levels";
+      state.level = Math.min(plants.length, state.level + 1);
+      localStorage.setItem("freasy-level", String(state.level));
+      resetBoard();
+      state.message = "Уровень переключён.";
+    });
+    document.getElementById("reset").addEventListener("click", () => {
+      state.level = 1;
+      localStorage.setItem("freasy-level", "1");
+      resetBoard();
+      state.message = "Прогресс сброшен.";
+    });
+
+    resetBoard();
+    requestAnimationFrame(tick);
+  </script>
 </body>
 </html>
