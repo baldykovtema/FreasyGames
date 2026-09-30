@@ -1,593 +1,89 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Freasy Plants</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111321">
+  <meta name="description" content="FreasyGames — бесплатные лёгкие веб-игры. Играй в RCFCG и Растения против Зомби прямо в браузере.">
+  <title>FreasyGames — бесплатные веб-игры</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
+    :root { color-scheme: dark; font-family: Manrope, system-ui, sans-serif; background: #111321; color: #f8f7ff; }
     * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      font-family: Arial, Helvetica, sans-serif;
-      color: #26312a;
-      background: linear-gradient(#bde6ff 0 34%, #89cf70 34% 100%);
-      overflow-x: hidden;
-      -webkit-text-size-adjust: 100%;
-    }
-    button { font: inherit; cursor: pointer; border: 0; }
-    .app { min-height: 100vh; display: grid; grid-template-rows: auto auto 1fr; }
-    .topbar {
-      display: flex; gap: 12px; align-items: center; justify-content: space-between;
-      padding: 12px 16px; background: rgba(255,255,255,.78);
-      border-bottom: 2px solid rgba(42,67,49,.16); backdrop-filter: blur(6px);
-    }
-    .title { flex: 0 0 auto; font-size: clamp(20px, 4vw, 28px); font-weight: 900; }
-    .stats { display: grid; grid-template-columns: repeat(4, minmax(82px, 1fr)); gap: 8px; align-items: center; justify-content: flex-end; width: min(560px, 100%); font-weight: 800; }
-    .pill {
-      min-width: 0; padding: 8px 9px; border: 2px solid rgba(38,49,42,.16);
-      border-radius: 8px; background: #fffaf0; text-align: center;
-      font-size: clamp(12px, 2.4vw, 15px); white-space: nowrap;
-    }
-    .modebar { display: grid; grid-template-columns: repeat(4, minmax(112px, 1fr)); gap: 8px; padding: 10px 16px; background: rgba(69,123,73,.85); overflow-x: auto; }
-    .modebar button, .primary {
-      min-height: 42px; padding: 10px 12px; border-radius: 8px; color: #152116; background: #f7dd70;
-      font-weight: 900; box-shadow: inset 0 -3px rgba(0,0,0,.12);
-    }
-    .modebar button.active { background: #fff8ca; outline: 3px solid #2f6938; }
-    .layout {
-      display: grid; grid-template-columns: minmax(176px,240px) minmax(0,1fr) minmax(170px,220px);
-      gap: 14px; width: min(1220px,100%); margin: 0 auto; padding: 14px 16px 20px;
-    }
-    .panel {
-      background: #f5f0df; border: 3px solid rgba(67,50,25,.28); border-radius: 8px;
-      padding: 10px; box-shadow: 0 5px 0 rgba(61,43,20,.16);
-    }
-    .panel h2 { margin: 0 0 10px; font-size: 16px; }
-    .plants, .mini-list, .actions, .side-list { display: grid; gap: 8px; }
-    .plant-card {
-      display: grid; grid-template-columns: 44px 1fr; gap: 8px; align-items: center;
-      width: 100%; min-height: 58px; padding: 8px; border-radius: 8px;
-      background: #fff9db; border: 2px solid transparent; text-align: left;
-    }
-    .plant-card.selected { border-color: #268e34; background: #e8ffd8; }
-    .plant-card.locked { cursor: default; opacity: .55; filter: grayscale(.4); }
-    .icon {
-      width: 40px; height: 40px; display: grid; place-items: center;
-      border-radius: 8px; background: #dff3bc; font-size: 25px; font-weight: 900;
-    }
-    .plant-name { display: block; font-weight: 900; font-size: 13px; }
-    .plant-meta { display: block; margin-top: 2px; font-size: 12px; color: #586050; }
-    .arena-wrap { position: relative; min-width: 0; overflow-x: auto; padding-bottom: 4px; overscroll-behavior-x: contain; }
-    .board {
-      position: relative; display: grid; grid-template-columns: repeat(9, minmax(48px, 1fr)); grid-template-rows: repeat(5, clamp(56px, 7vw, 86px));
-      min-width: 486px;
-      gap: 4px; padding: 8px; border: 5px solid #5a371d; border-radius: 8px;
-      background: #8a5a32; box-shadow: inset 0 0 0 3px rgba(255,255,255,.15); user-select: none;
-    }
-    .cell {
-      position: relative; overflow: hidden; display: grid; place-items: center; border-radius: 6px;
-      background: linear-gradient(90deg, rgba(255,255,255,.08), transparent), linear-gradient(#73c765,#55a84e);
-      border: 2px solid rgba(32,85,34,.22);
-    }
-    .cell:nth-child(odd) { background: linear-gradient(90deg, rgba(255,255,255,.08), transparent), linear-gradient(#68bd5f,#4c9f48); }
-    .plant {
-      width: 54px; height: 54px; display: grid; place-items: center; border-radius: 50%;
-      background: #c6ec75; border: 3px solid #2d8735; font-size: 31px; font-weight: 900; z-index: 2;
-    }
-    .hp { position: absolute; left: 7px; right: 7px; bottom: 5px; height: 5px; border-radius: 999px; background: rgba(0,0,0,.18); overflow: hidden; }
-    .hp span { display: block; height: 100%; background: #2dd44d; }
-    .zombie {
-      position: absolute; z-index: 3; width: 50px; height: 66px; display: grid; place-items: center;
-      border-radius: 18px 18px 8px 8px; background: #9aa296; border: 3px solid #4e5b50;
-      font-size: 30px; font-weight: 900; transform: translateX(-50%); pointer-events: none;
-    }
-    .zombie.fast { background: #b4b0db; }
-    .zombie.tank { background: #9cb4bd; border-width: 4px; }
-    .zombie.weak { background: #b3c89f; }
-    .zombie .hp { left: 4px; right: 4px; bottom: -10px; }
-    .mower {
-      position: absolute; z-index: 4; left: 10px; width: 36px; height: 26px;
-      display: grid; place-items: center; border-radius: 6px; background: #d94736;
-      border: 3px solid #7b2019; color: #fff; font-size: 15px; font-weight: 900;
-      box-shadow: inset 0 -4px rgba(0,0,0,.18); pointer-events: none;
-    }
-    .mower.used { opacity: .24; filter: grayscale(1); }
-    .sun-drop {
-      position: absolute; z-index: 6; width: 38px; height: 38px; display: grid; place-items: center;
-      border-radius: 50%; background: radial-gradient(circle at 34% 30%, #fff7a8 0 24%, #ffd84a 25% 65%, #e69b15 66%);
-      border: 3px solid #d48800; color: #6d4000; font-size: 13px; font-weight: 900;
-      box-shadow: 0 3px 10px rgba(80,54,0,.25); transform: translate(-50%,-50%);
-    }
-    .notice {
-      position: fixed; z-index: 20; pointer-events: none; color: #d92727; font-weight: 900;
-      text-shadow: 0 2px 0 #fff, 0 0 8px #fff; transform: translate(12px,-22px);
-      opacity: 0; transition: opacity .12s ease; white-space: nowrap;
-    }
-    .notice.show { opacity: 1; }
-    .mini-list button {
-      padding: 9px; border-radius: 8px; background: #fff9db;
-      border: 2px solid rgba(38,49,42,.14); text-align: left; font-weight: 800;
-    }
-    .mini-list button.active { border-color: #2f8d3e; background: #e9ffd8; }
-    .log { min-height: 90px; padding: 8px; border-radius: 8px; background: rgba(255,255,255,.55); font-size: 13px; line-height: 1.35; }
-    .actions { margin-top: 10px; }
-    .actions button { width: 100%; }
-    @media (max-width: 900px) {
-      .layout { grid-template-columns: 1fr; }
-      .plants { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .panel:first-child { order: 1; }
-      .arena-wrap { order: 2; }
-      .panel:last-child { order: 3; }
-      .board { grid-template-rows: repeat(5,70px); }
-      .mini-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-      .actions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    }
-    @media (max-width: 620px) {
-      .topbar { align-items: stretch; flex-direction: column; padding: 10px; }
-      .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
-      .modebar { grid-template-columns: repeat(4, minmax(104px, 1fr)); padding: 8px 10px; }
-      .modebar button, .primary { min-height: 40px; padding: 8px 10px; font-size: 13px; }
-      .layout { gap: 10px; padding: 10px 8px 16px; }
-      .panel { padding: 8px; border-width: 2px; box-shadow: 0 3px 0 rgba(61,43,20,.16); }
-      .panel h2 { margin-bottom: 8px; }
-      .plants { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-      .plant-card { grid-template-columns: 34px 1fr; gap: 6px; min-height: 50px; padding: 6px; }
-      .icon { width: 32px; height: 32px; font-size: 20px; border-radius: 7px; }
-      .plant-name { font-size: 12px; }
-      .plant-meta { font-size: 11px; line-height: 1.2; }
-      .board { grid-template-columns: repeat(9, minmax(38px, 1fr)); grid-template-rows: repeat(5,58px); min-width: 376px; gap: 3px; padding: 5px; border-width: 4px; }
-      .plant { width: 42px; height: 42px; font-size: 23px; }
-      .zombie { width: 40px; height: 52px; font-size: 23px; }
-      .mower { width: 30px; height: 22px; left: 7px; font-size: 12px; border-width: 2px; }
-      .sun-drop { width: 34px; height: 34px; font-size: 12px; }
-      .mini-list, .actions { grid-template-columns: 1fr; }
-      .log { min-height: 76px; }
-    }
-    @media (max-width: 390px) {
-      .modebar { grid-template-columns: repeat(2, minmax(0, 1fr)); overflow-x: visible; }
-      .plants { grid-template-columns: 1fr; }
-      .board { grid-template-columns: repeat(9, minmax(0, 1fr)); grid-template-rows: repeat(5,52px); min-width: 100%; }
-      .plant { width: 36px; height: 36px; font-size: 20px; border-width: 2px; }
-      .zombie { width: 36px; height: 46px; font-size: 21px; border-width: 2px; }
-      .mower { width: 26px; height: 20px; left: 5px; font-size: 11px; }
-    }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; min-width: 320px; background: radial-gradient(circle at 50% -12%, #3d326a 0, #181a30 31%, #111321 63%); }
+    a { color: inherit; text-decoration: none; }
+    .wrap { width: min(1120px, calc(100% - 40px)); margin-inline: auto; }
+    .topbar { min-height: 84px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+    .brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 800; font-size: 20px; letter-spacing: -.05em; }
+    .brand-icon { display: grid; place-items: center; width: 35px; height: 35px; border-radius: 11px; background: linear-gradient(135deg,#bd8cff,#7b67fc); color: #171329; font-size: 20px; box-shadow: 0 8px 26px #9d73f744; }
+    .nav-link { color: #d1cde5; font-size: 13px; font-weight: 700; padding: 10px 15px; border: 1px solid #ffffff1e; border-radius: 100px; transition: background .2s; }
+    .nav-link:hover { background: #ffffff14; }
+    .hero { text-align: center; padding: 84px 0 86px; }
+    .eyebrow { display: inline-flex; gap: 9px; align-items: center; border: 1px solid #a98aff55; background: #a98aff14; color: #d9c9ff; border-radius: 100px; padding: 8px 15px; font-size: 12px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+    .eyebrow::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #b79bff; box-shadow: 0 0 12px #b79bff; }
+    h1 { max-width: 820px; margin: 25px auto 17px; font-size: clamp(42px, 7vw, 78px); line-height: 1.08; letter-spacing: -.075em; font-weight: 800; }
+    h1 span { color: #bc9cff; }
+    .hero p { margin: 0 auto; max-width: 650px; color: #b9b6c9; font-size: clamp(16px,2vw,19px); line-height: 1.7; }
+    .hero-action { display: inline-flex; align-items: center; gap: 13px; margin-top: 31px; background: #bca0ff; color: #171225; padding: 14px 22px; border-radius: 13px; font-size: 14px; font-weight: 800; box-shadow: 0 12px 35px #a178f840; transition: transform .2s, background .2s; }
+    .hero-action:hover, .play:hover { transform: translateY(-3px); background: #d3beff; }
+    .section-heading { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 26px; }
+    .section-kicker { color: #ba9cff; font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    h2 { margin: 8px 0 0; font-size: clamp(27px,4vw,38px); letter-spacing: -.05em; }
+    .section-note { margin: 0 0 5px; color: #89879e; font-size: 13px; }
+    .games { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 22px; padding-bottom: 110px; }
+    .card { overflow: hidden; border: 1px solid #ffffff18; background: #1d1e31; border-radius: 24px; box-shadow: 0 24px 55px #07081538; transition: transform .25s, border-color .25s; }
+    .card:hover { transform: translateY(-5px); border-color: #b79aff80; }
+    .shot { position: relative; height: 270px; overflow: hidden; background: #18192a; }
+    .shot img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center; }
+    .card:first-child .shot img { object-position: 53% center; }
+    .shot::after { content: ""; position: absolute; inset: auto 0 0; height: 70px; background: linear-gradient(transparent,#1d1e31); pointer-events: none; }
+    .shot-label { position: absolute; top: 16px; left: 16px; z-index: 1; padding: 8px 11px; background: #131521d9; border: 1px solid #ffffff30; border-radius: 8px; backdrop-filter: blur(8px); color: #fff; font-size: 11px; font-weight: 800; }
+    .content { padding: 21px 25px 27px; }
+    .meta { display: flex; align-items: center; gap: 8px; color: #b89cff; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    .meta span { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+    h3 { margin: 9px 0 10px; font-size: 27px; line-height: 1.2; letter-spacing: -.045em; }
+    .description { margin: 0; min-height: 75px; color: #aaa8bb; line-height: 1.65; font-size: 14px; }
+    .card-bottom { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 22px; }
+    .player { color: #b6b3c8; font-size: 12px; font-weight: 700; }
+    .player strong { color: #f6f1ff; }
+    .play { display: inline-flex; align-items: center; gap: 8px; background: #bca0ff; color: #171225; padding: 12px 17px; border-radius: 10px; font-size: 12px; font-weight: 800; transition: transform .2s, background .2s; white-space: nowrap; }
+    footer { border-top: 1px solid #ffffff16; padding: 26px 0 33px; color: #85849a; font-size: 12px; }
+    footer .wrap { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
+    footer strong { color: #c0a7ff; }
+    @media (max-width: 760px) { .hero { padding: 62px 0 72px; } .games { grid-template-columns: 1fr; } .section-note { display: none; } .shot { height: clamp(205px,50vw,320px); } }
+    @media (max-width: 450px) { .wrap { width: min(100% - 28px,1120px); } .topbar { min-height: 70px; } .brand { font-size: 17px; } .nav-link { padding: 9px 11px; font-size: 11px; } .content { padding: 19px; } .description { min-height: 0; } .card-bottom { align-items: stretch; flex-direction: column; } .play { justify-content: center; } footer .wrap { align-items: flex-start; flex-direction: column; } }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; } }
   </style>
 </head>
 <body>
-  <div class="app">
-    <header class="topbar">
-      <div class="title">Freasy Plants</div>
-      <div class="stats">
-        <div class="pill" id="money">Солнца: 0</div>
-        <div class="pill" id="level">Уровень: 1</div>
-        <div class="pill" id="wave">Волна: 0</div>
-        <div class="pill" id="base">База: 5</div>
+  <header class="topbar wrap">
+    <a class="brand" href="#top" aria-label="FreasyGames — наверх"><span class="brand-icon" aria-hidden="true">✦</span> FreasyGames</a>
+    <a class="nav-link" href="#games">Смотреть игры ↓</a>
+  </header>
+  <main id="top">
+    <section class="hero wrap" aria-labelledby="welcome-title">
+      <div class="eyebrow">Играй прямо в браузере</div>
+      <h1 id="welcome-title">Добро пожаловать на <span>FreasyGames</span></h1>
+      <p>Бесплатные лёгкие веб-игры здесь. Выбирай игру, открывай её в браузере и наслаждайся!</p>
+      <a class="hero-action" href="#games">Выбрать игру <span aria-hidden="true">↗</span></a>
+    </section>
+    <section class="wrap" id="games" aria-labelledby="games-title">
+      <div class="section-heading"><div><div class="section-kicker">Твоя игровая коллекция</div><h2 id="games-title">Выбирай и играй</h2></div><p class="section-note">2 бесплатные игры</p></div>
+      <div class="games">
+        <article class="card">
+          <div class="shot"><img src="images/rcfcg-game.png" alt="Скриншот RCFCG: разноцветный куб, прогресс 9% и статистика игрока Player12345" width="1280" height="720"><span class="shot-label">Скриншот из игры</span></div>
+          <div class="content"><div class="meta">Аркада <span></span> Кубы</div><h3>RCFCG</h3><p class="description">Открывай яркие кубы, следи за прогрессом и улучшай свой лучший результат. Заглядывай в таблицу лидеров и соревнуйся с другими игроками.</p><div class="card-bottom"><span class="player">На скриншоте: <strong>Player12345</strong></span><a class="play" href="https://baldykovtema.github.io/RCFCG-Webgame/" target="_blank" rel="noopener noreferrer" aria-label="Открыть RCFCG в новой вкладке">Играть сейчас ↗</a></div></div>
+        </article>
+        <article class="card">
+          <div class="shot"><img src="images/pvz-game.png" alt="Скриншот PvZ: горохострел защищает сад от зомби, игрок Player12345" width="1280" height="720"><span class="shot-label">Скриншот из игры</span></div>
+          <div class="content"><div class="meta">Стратегия <span></span> Растения против зомби</div><h3>Растения против Зомби</h3><p class="description">Выбирай растения и защищай сад от волн зомби. Проходи кампанию, пробуй мини-игры и бесконечный режим или играй онлайн с друзьями.</p><div class="card-bottom"><span class="player">На скриншоте: <strong>Player12345</strong></span><a class="play" href="https://baldykovtema.github.io/PVZ-Webgame/" target="_blank" rel="noopener noreferrer" aria-label="Открыть Растения против Зомби в новой вкладке">Играть сейчас ↗</a></div></div>
+        </article>
       </div>
-    </header>
-    <nav class="modebar" id="modebar"></nav>
-    <main class="layout">
-      <aside class="panel">
-        <h2>Растения</h2>
-        <div class="plants" id="plants"></div>
-      </aside>
-      <section class="arena-wrap">
-        <div class="board" id="board"></div>
-      </section>
-      <aside class="panel">
-        <h2>Мини-игры</h2>
-        <div class="mini-list" id="minis"></div>
-        <div class="actions">
-          <button class="primary" id="start">Старт</button>
-          <button class="primary" id="next">Следующий уровень</button>
-          <button class="primary" id="reset">Сброс прогресса</button>
-        </div>
-        <div class="side-list">
-          <div class="log" id="log"></div>
-        </div>
-      </aside>
-    </main>
-  </div>
-  <div class="notice" id="notice">Не хвотоает денег</div>
-
-  <script>
-    const rows = 5;
-    const cols = 9;
-    const plants = [
-      { id: "pea", name: "Горох", icon: "P", cost: 50, hp: 95, damage: 18, rate: 950, unlock: 1, desc: "стреляет по линии" },
-      { id: "sun", name: "Подсолнух", icon: "S", cost: 25, hp: 70, income: 25, rate: 3600, unlock: 2, desc: "+25 солнц" },
-      { id: "wall", name: "Орех", icon: "W", cost: 75, hp: 330, damage: 0, rate: 0, unlock: 3, desc: "держит удар" },
-      { id: "ice", name: "Лёд", icon: "I", cost: 100, hp: 90, damage: 12, slow: 0.55, rate: 1200, unlock: 4, desc: "замедляет" },
-      { id: "double", name: "Двойной", icon: "D", cost: 150, hp: 105, damage: 32, rate: 900, unlock: 5, desc: "сильный урон" },
-      { id: "cherry", name: "Вишня", icon: "C", cost: 125, hp: 1, bomb: 165, unlock: 6, desc: "взрыв 3x3" },
-      { id: "thorn", name: "Шипы", icon: "T", cost: 80, hp: 120, melee: 10, rate: 500, unlock: 7, desc: "бьёт рядом" },
-      { id: "laser", name: "Лазер", icon: "L", cost: 180, hp: 100, damage: 50, rate: 1500, unlock: 8, desc: "пробивает ряд" }
-    ];
-    const modes = [
-      { id: "levels", name: "Уровни" },
-      { id: "endless", name: "Бесконечный" },
-      { id: "online", name: "Онлайн" },
-      { id: "mini", name: "Мини-игры" }
-    ];
-    const minis = [
-      { id: "rush", name: "Быстрая атака", text: "Много слабых врагов, быстрые волны.", money: 175 },
-      { id: "rich", name: "Солнечный сад", text: "Больше солнц, но враги крепче.", money: 300 },
-      { id: "tanks", name: "Железная ночь", text: "Медленные толстые враги.", money: 225 }
-    ];
-    const state = {
-      mode: "levels",
-      mini: "rush",
-      level: Number(localStorage.getItem("freasy-level") || 1),
-      money: 150,
-      wave: 0,
-      base: 5,
-      selected: "pea",
-      cells: [],
-      zombies: [],
-      suns: [],
-      mowers: [],
-      running: false,
-      lastTick: 0,
-      spawnTimer: 0,
-      sunTimer: 0,
-      mouse: { x: 0, y: 0 },
-      message: ""
-    };
-    const board = document.getElementById("board");
-    const plantList = document.getElementById("plants");
-    const modebar = document.getElementById("modebar");
-    const miniList = document.getElementById("minis");
-    const notice = document.getElementById("notice");
-    const log = document.getElementById("log");
-
-    function unlockedPlants() {
-      const savedLevel = Number(localStorage.getItem("freasy-level") || state.level);
-      const cap = state.mode === "levels" ? state.level : savedLevel;
-      return plants.filter((plant) => plant.unlock <= cap);
-    }
-
-    function isUnlocked(id) {
-      return unlockedPlants().some((plant) => plant.id === id);
-    }
-
-    function resetBoard() {
-      state.cells = Array.from({ length: rows * cols }, () => null);
-      state.zombies = [];
-      state.suns = [];
-      state.mowers = Array.from({ length: rows }, () => true);
-      state.wave = 0;
-      state.base = 5;
-      state.spawnTimer = 0;
-      state.sunTimer = 2200;
-      state.running = false;
-      state.money = state.mode === "mini" ? minis.find((mini) => mini.id === state.mini).money : 150 + state.level * 20;
-      if (!isUnlocked(state.selected)) state.selected = unlockedPlants()[0].id;
-      render();
-    }
-
-    function renderModes() {
-      modebar.innerHTML = "";
-      modes.forEach((mode) => {
-        const button = document.createElement("button");
-        button.textContent = mode.name;
-        button.className = mode.id === state.mode ? "active" : "";
-        button.addEventListener("click", () => {
-          state.mode = mode.id;
-          resetBoard();
-        });
-        modebar.appendChild(button);
-      });
-    }
-
-    function renderPlants() {
-      plantList.innerHTML = "";
-      plants.forEach((plant) => {
-        const unlocked = isUnlocked(plant.id);
-        const button = document.createElement("button");
-        button.className = `plant-card ${state.selected === plant.id ? "selected" : ""} ${unlocked ? "" : "locked"}`;
-        button.innerHTML = `
-          <span class="icon">${plant.icon}</span>
-          <span>
-            <span class="plant-name">${plant.name}</span>
-            <span class="plant-meta">${unlocked ? plant.cost + " солнц - " + plant.desc : "Откроется на уровне " + plant.unlock}</span>
-          </span>
-        `;
-        button.addEventListener("click", () => {
-          if (!unlocked) return;
-          state.selected = plant.id;
-          render();
-        });
-        plantList.appendChild(button);
-      });
-    }
-
-    function renderMinis() {
-      miniList.innerHTML = "";
-      minis.forEach((mini) => {
-        const button = document.createElement("button");
-        button.className = state.mode === "mini" && state.mini === mini.id ? "active" : "";
-        button.innerHTML = `${mini.name}<br><small>${mini.text}</small>`;
-        button.addEventListener("click", () => {
-          state.mode = "mini";
-          state.mini = mini.id;
-          resetBoard();
-        });
-        miniList.appendChild(button);
-      });
-    }
-
-    function renderBoard() {
-      board.innerHTML = "";
-      state.cells.forEach((cellPlant, index) => {
-        const cell = document.createElement("div");
-        cell.className = "cell";
-        cell.addEventListener("click", () => placePlant(index));
-        if (cellPlant) {
-          const plant = plants.find((item) => item.id === cellPlant.id);
-          cell.innerHTML = `
-            <div class="plant">${plant.icon}</div>
-            <div class="hp"><span style="width:${Math.max(0, cellPlant.hp / plant.hp * 100)}%"></span></div>
-          `;
-        }
-        board.appendChild(cell);
-      });
-
-      const rect = board.getBoundingClientRect();
-      const boardStyles = getComputedStyle(board);
-      const padLeft = parseFloat(boardStyles.paddingLeft) || 0;
-      const padTop = parseFloat(boardStyles.paddingTop) || 0;
-      const innerWidth = rect.width - padLeft - (parseFloat(boardStyles.paddingRight) || 0);
-      const innerHeight = rect.height - padTop - (parseFloat(boardStyles.paddingBottom) || 0);
-      state.mowers.forEach((active, row) => {
-        const node = document.createElement("div");
-        node.className = `mower ${active ? "" : "used"}`;
-        node.style.top = `${padTop + row / rows * innerHeight + innerHeight / rows * 0.36}px`;
-        node.textContent = "M";
-        board.appendChild(node);
-      });
-      state.zombies.forEach((zombie) => {
-        const node = document.createElement("div");
-        node.className = `zombie ${zombie.type}`;
-        node.style.left = `${padLeft + (zombie.x + 0.5) / cols * innerWidth}px`;
-        node.style.top = `${padTop + zombie.row / rows * innerHeight + innerHeight / rows * 0.1}px`;
-        node.innerHTML = `Z<div class="hp"><span style="width:${Math.max(0, zombie.hp / zombie.maxHp * 100)}%"></span></div>`;
-        board.appendChild(node);
-      });
-      state.suns.forEach((sun) => {
-        const node = document.createElement("button");
-        node.className = "sun-drop";
-        node.style.left = `${padLeft + sun.x / cols * innerWidth}px`;
-        node.style.top = `${padTop + sun.y / rows * innerHeight}px`;
-        node.textContent = "+25";
-        node.addEventListener("click", (event) => {
-          event.stopPropagation();
-          collectSun(sun.id);
-        });
-        board.appendChild(node);
-      });
-    }
-
-    function renderStats() {
-      document.getElementById("money").textContent = `Солнца: ${Math.floor(state.money)}`;
-      document.getElementById("level").textContent = `Уровень: ${state.level}`;
-      document.getElementById("wave").textContent = `Волна: ${state.wave}`;
-      document.getElementById("base").textContent = `База: ${state.base}`;
-      const available = unlockedPlants().map((plant) => plant.name).join(", ");
-      const modeName = modes.find((mode) => mode.id === state.mode).name;
-      log.innerHTML = `${state.message || "Выбери растение и ставь его на поле."}<br><br><b>Режим:</b> ${modeName}<br><b>Доступны:</b> ${available}`;
-    }
-
-    function render() {
-      renderModes();
-      renderPlants();
-      renderMinis();
-      renderStats();
-      renderBoard();
-    }
-
-    function showNoMoney() {
-      notice.style.left = `${state.mouse.x}px`;
-      notice.style.top = `${state.mouse.y}px`;
-      notice.classList.add("show");
-      clearTimeout(showNoMoney.timer);
-      showNoMoney.timer = setTimeout(() => notice.classList.remove("show"), 900);
-    }
-
-    function spawnSun() {
-      state.suns.push({
-        id: Date.now() + Math.random(),
-        x: 1 + Math.random() * (cols - 2),
-        y: 0.7 + Math.random() * (rows - 1.4),
-        age: 0
-      });
-    }
-
-    function collectSun(id) {
-      const before = state.suns.length;
-      state.suns = state.suns.filter((sun) => sun.id !== id);
-      if (state.suns.length !== before) {
-        state.money += 25;
-        state.message = "Солнце собрано: +25.";
-        render();
-      }
-    }
-
-    function placePlant(index) {
-      const selected = plants.find((plant) => plant.id === state.selected);
-      if (!selected || !isUnlocked(selected.id) || state.cells[index]) return;
-      if (state.money < selected.cost) {
-        showNoMoney();
-        return;
-      }
-      state.money -= selected.cost;
-      state.cells[index] = { id: selected.id, hp: selected.hp, last: 0 };
-
-      if (selected.bomb) {
-        const row = Math.floor(index / cols);
-        const col = index % cols;
-        state.zombies.forEach((zombie) => {
-          if (Math.abs(zombie.row - row) <= 1 && Math.abs(zombie.x - col) <= 1.4) zombie.hp -= selected.bomb;
-        });
-        state.cells[index] = null;
-        state.message = "Вишня взорвалась.";
-      }
-      render();
-    }
-
-    function spawnZombie() {
-      const mini = state.mode === "mini" ? state.mini : "";
-      const row = Math.floor(Math.random() * rows);
-      const hard = state.mode === "endless" ? state.wave * 8 : state.level * 10;
-      let type = "normal";
-      let hp = 95 + hard;
-      let speed = 0.22 + state.wave * 0.004;
-
-      if (mini === "rush" || Math.random() < 0.18) {
-        type = "fast";
-        hp *= 0.75;
-        speed *= 1.55;
-      }
-      if (mini === "tanks" || Math.random() < 0.16) {
-        type = "tank";
-        hp *= 1.85;
-        speed *= 0.62;
-      }
-      if (mini === "rush") {
-        type = "weak";
-        hp *= 0.55;
-      }
-
-      state.zombies.push({ row, x: cols - 0.2, hp, maxHp: hp, speed, bite: type === "tank" ? 18 : 12, type, slowed: 0 });
-      state.wave += 1;
-    }
-
-    function updatePlants(now) {
-      state.cells.forEach((cellPlant, index) => {
-        if (!cellPlant) return;
-        const plant = plants.find((item) => item.id === cellPlant.id);
-        const row = Math.floor(index / cols);
-        const col = index % cols;
-
-        if (plant.income && now - cellPlant.last > plant.rate) {
-          state.money += state.mode === "mini" && state.mini === "rich" ? plant.income + 15 : plant.income;
-          cellPlant.last = now;
-        }
-
-        if ((plant.damage || plant.melee) && now - cellPlant.last > plant.rate) {
-          const targets = state.zombies.filter((zombie) => zombie.row === row && zombie.x >= col - 0.2);
-          if (!targets.length) return;
-          targets.sort((a, b) => a.x - b.x);
-
-          if (plant.id === "laser") {
-            targets.forEach((zombie) => zombie.hp -= plant.damage);
-          } else if (plant.melee) {
-            targets.filter((zombie) => Math.abs(zombie.x - col) <= 1.15).forEach((zombie) => zombie.hp -= plant.melee);
-          } else {
-            targets[0].hp -= plant.damage;
-            if (plant.slow) targets[0].slowed = 1500;
-          }
-          cellPlant.last = now;
-        }
-      });
-    }
-
-    function updateZombies(dt) {
-      state.zombies.forEach((zombie) => {
-        const col = Math.max(0, Math.floor(zombie.x));
-        const index = zombie.row * cols + col;
-        const blockingPlant = state.cells[index];
-        if (blockingPlant) {
-          blockingPlant.hp -= zombie.bite * dt / 500;
-          if (blockingPlant.hp <= 0) state.cells[index] = null;
-          return;
-        }
-        const slow = zombie.slowed > 0 ? 0.45 : 1;
-        zombie.slowed = Math.max(0, zombie.slowed - dt);
-        zombie.x -= zombie.speed * slow * dt / 1000;
-        if (zombie.x < -0.2) {
-          if (state.mowers[zombie.row]) {
-            state.mowers[zombie.row] = false;
-            state.zombies.forEach((target) => {
-              if (target.row === zombie.row) target.hp = 0;
-            });
-            state.message = "Газонокосилка очистила линию.";
-          } else {
-            zombie.hp = 0;
-            state.base -= 1;
-          }
-        }
-      });
-    }
-
-    function tick(now) {
-      const dt = Math.min(64, now - state.lastTick || 16);
-      state.lastTick = now;
-
-      if (state.running) {
-        state.spawnTimer -= dt;
-        state.sunTimer -= dt;
-        const targetWaves = state.mode === "levels" ? 8 + state.level * 2 : Infinity;
-        if (state.spawnTimer <= 0 && state.wave < targetWaves) {
-          spawnZombie();
-          const pace = state.mode === "mini" && state.mini === "rush" ? 900 : 1550;
-          state.spawnTimer = Math.max(520, pace - state.level * 45 - state.wave * 12);
-        }
-        if (state.sunTimer <= 0) {
-          spawnSun();
-          state.sunTimer = state.mode === "mini" && state.mini === "rich" ? 2300 : 4200;
-        }
-
-        updatePlants(now);
-        updateZombies(dt);
-        state.suns.forEach((sun) => sun.age += dt);
-        state.suns = state.suns.filter((sun) => sun.age < 9000);
-        state.zombies = state.zombies.filter((zombie) => zombie.hp > 0);
-
-        if (state.base <= 0) {
-          state.running = false;
-          state.message = "База разбита. Попробуй другую расстановку.";
-        } else if (state.mode === "levels" && state.wave >= targetWaves && state.zombies.length === 0) {
-          state.running = false;
-          const oldLevel = state.level;
-          state.level = Math.min(plants.length, state.level + 1);
-          localStorage.setItem("freasy-level", String(state.level));
-          const opened = plants.find((plant) => plant.unlock === state.level);
-          state.message = oldLevel === state.level ? "Все растения открыты. Уровень пройден!" : `Победа! Открыто растение: ${opened.name}.`;
-        }
-      }
-
-      render();
-      requestAnimationFrame(tick);
-    }
-
-    document.addEventListener("pointermove", (event) => {
-      state.mouse.x = event.clientX;
-      state.mouse.y = event.clientY;
-    });
-    document.addEventListener("pointerdown", (event) => {
-      state.mouse.x = event.clientX;
-      state.mouse.y = event.clientY;
-    });
-    document.getElementById("start").addEventListener("click", () => {
-      state.running = true;
-      state.message = "Волна началась.";
-    });
-    document.getElementById("next").addEventListener("click", () => {
-      if (state.mode !== "levels") state.mode = "levels";
-      state.level = Math.min(plants.length, state.level + 1);
-      localStorage.setItem("freasy-level", String(state.level));
-      resetBoard();
-      state.message = "Уровень переключён.";
-    });
-    document.getElementById("reset").addEventListener("click", () => {
-      state.level = 1;
-      localStorage.setItem("freasy-level", "1");
-      resetBoard();
-      state.message = "Прогресс сброшен.";
-    });
-
-    resetBoard();
-    requestAnimationFrame(tick);
-  </script>
+    </section>
+  </main>
+  <footer><div class="wrap"><strong>✦ FreasyGames</strong><span>Бесплатные игры для хорошего настроения</span></div></footer>
 </body>
 </html>
