@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <title>RCFCG</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
+  <link rel="stylesheet" href="../../shared/game-navigation.css">
+</head>
+
+<body>
+  <a class="freasy-home" href="../../index.html#games" aria-label="Вернуться к играм FreasyGames">← Обратно на FreasyGames</a>
+    <div id="authScreen">
+        <div id="authBox">
+<h2>Зарегистрируйтесь, чтобы играть</h2><p>Уже есть аккаунт? Войдите на FreasyGames.</p><a class="freasy-return" href="../../index.html?account=rcfcg#account">Обратно на FreasyGames</a><div id="authMessage" role="status"></div>
+        </div>
+    </div>
+    <div id="game">
+        <div id="playerStats">
+            <div id="playerStatsName">Игрок</div>
+            <div class="statLine">Лучший процент: <span id="bestPercentageStat">0%</span></div>
+            <div class="statLine">Время игры: <span id="playTimeStat">0с</span></div>
+            <div class="statLine">Открытые кубы: <span id="cubesCompletedStat">0</span></div>
+        </div>
+        <div id="unlockInfo"></div>
+        <div id="donut">🍩</div>
+        <div id="donutBoostInfo">🍩 Бонус: шанс x2.5!</div>
+        <div id="adminPanel">
+            <div id="adminPanelTitle">⚙ Панель updatetest</div>
+            <input id="adminCubeInput" type="number" min="0" placeholder="Количество открытых кубов">
+            <button id="adminSaveButton">Сохранить количество</button>
+            <button id="adminResetButton">Установить 0</button>
+            <div id="adminMessage"></div>
+        </div>
+        <div id="gameArea">
+            <div id="cubes"></div>
+        </div>
+        <div id="topRightControls">
+            <div id="donutTimer">🍩 --:--</div>
+
+        </div>
+        <div id="controls">
+            <label id="autoClickMode">
+                <input type="checkbox" id="autoClickCheckbox" disabled>
+                <span>Автокликер</span>
+            </label>
+            <label id="fastMode">
+                <input type="checkbox" id="fastModeCheckbox" disabled>
+                <span>Быстрый режим</span>
+            </label>
+            <label id="disableAllMode">
+                <input type="checkbox" id="disableAllCheckbox">
+                <span>Отключить всё кроме заново</span>
+            </label>
+            <button id="addCube">Добавить куб 1/1</button>
+            <button id="removeCube" style="display:none">Убрать куб</button>
+            <button id="restart">Заново</button>
+            <button id="leaderboardButton">Таблицы лидеров</button>
+        </div>
+    </div>
+    <div id="leaderboardScreen">
+        <div id="leaderboardTitle">Таблица лидеров</div>
+        <div id="leaderboardTabs">
+            <button class="lbTab active" data-mode="percentage">Проценты</button>
+            <button class="lbTab" data-mode="time">Время</button>
+            <button class="lbTab" data-mode="cubes">Кубы</button>
+        </div>
+        <div id="podium">
+            <div class="lbSlot" id="slot0">
+                <div class="lbRank" style="color:#ffd700">1</div>
+                <div class="lbCubeWrap"><canvas></canvas>
+                    <div class="lbPercentage"></div>
+                </div>
+                <div class="lbName">—</div>
+            </div>
+            <div class="lbSlot" id="slot1">
+                <div class="lbRank" style="color:#c0c0c0">2</div>
+                <div class="lbCubeWrap"><canvas></canvas>
+                    <div class="lbPercentage"></div>
+                </div>
+                <div class="lbName">—</div>
+            </div>
+            <div class="lbSlot" id="slot2">
+                <div class="lbRank" style="color:#cd7f32">3</div>
+                <div class="lbCubeWrap"><canvas></canvas>
+                    <div class="lbPercentage"></div>
+                </div>
+                <div class="lbName">—</div>
+            </div>
+        </div>
+        <div id="leaderboardMessage"></div>
+        <button id="leaderboardBack">Назад</button>
+    </div>
+    <script src="js/config.js"></script>
+    <script src="js/utils.js"></script>
+    <script src="js/state.js"></script>
+    <script src="js/stats.js"></script>
+    <script src="js/cubes.js"></script>
+    <script src="js/donut.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/leaderboard.js"></script>
+    <script src="js/main.js"></script>
+</body>
+
+</html>

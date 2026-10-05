@@ -33,6 +33,7 @@
     .section-kicker { color: #ba9cff; font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
     h2 { margin: 8px 0 0; font-size: clamp(27px,4vw,38px); letter-spacing: -.05em; }
     .section-note { margin: 0 0 5px; color: #89879e; font-size: 13px; }
+    .save-note { color: #b9b6c9; font-size: 14px; line-height: 1.7; margin: 0 0 24px; padding: 16px 20px; border: 1px solid #a98aff33; border-radius: 14px; background: #a98aff0b; }
     .games { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 22px; padding-bottom: 110px; }
     .card { overflow: hidden; border: 1px solid #ffffff18; background: #1d1e31; border-radius: 24px; box-shadow: 0 24px 55px #07081538; transition: transform .25s, border-color .25s; }
     .card:hover { transform: translateY(-5px); border-color: #b79aff80; }
@@ -56,34 +57,61 @@
     @media (max-width: 760px) { .hero { padding: 62px 0 72px; } .games { grid-template-columns: 1fr; } .section-note { display: none; } .shot { height: clamp(205px,50vw,320px); } }
     @media (max-width: 450px) { .wrap { width: min(100% - 28px,1120px); } .topbar { min-height: 70px; } .brand { font-size: 17px; } .nav-link { padding: 9px 11px; font-size: 11px; } .content { padding: 19px; } .description { min-height: 0; } .card-bottom { align-items: stretch; flex-direction: column; } .play { justify-content: center; } footer .wrap { align-items: flex-start; flex-direction: column; } }
     @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; } }
+    .account-nav { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; }
+    button { cursor:pointer; font:inherit; }
+    button.nav-link { background:#ffffff08; color:#d1cde5; }
+    .account-panel { padding:28px; margin-bottom:48px; border:1px solid #a98aff55; border-radius:24px; background:#1d1e31; }
+    .account-panel p { color:#b9b6c9; line-height:1.6; }
+    #account-form { display:flex; flex-wrap:wrap; align-items:end; gap:16px; margin-top:24px; }
+    #account-form label { display:grid; gap:8px; font-size:13px; flex:1 1 200px; }
+    #account-form input, #account-form select { width:100%; padding:12px; color:#fff; background:#111321; border:1px solid #a98aff55; border-radius:10px; font:inherit; }
+    #account-submit { border:0; }
+    button:disabled { opacity:.6; cursor:wait; }
+    .session-row { display:flex; flex-wrap:wrap; gap:14px; align-items:center; margin-top:16px; }
   </style>
 </head>
 <body>
   <header class="topbar wrap">
     <a class="brand" href="#top" aria-label="FreasyGames — наверх"><span class="brand-icon" aria-hidden="true">✦</span> FreasyGames</a>
-    <a class="nav-link" href="#games">Смотреть игры ↓</a>
+    <nav class="account-nav"><a class="nav-link" href="#games">Игры</a> <button class="nav-link" data-auth-mode="login">Войти</button> <button class="nav-link" data-auth-mode="register">Регистрация</button></nav>
   </header>
   <main id="top">
     <section class="hero wrap" aria-labelledby="welcome-title">
       <div class="eyebrow">Играй прямо в браузере</div>
       <h1 id="welcome-title">Добро пожаловать на <span>FreasyGames</span></h1>
-      <p>Бесплатные лёгкие веб-игры здесь. Выбирай игру, открывай её в браузере и наслаждайся!</p>
+      <p>Все наши игры на одном сайте. Выбирай игру и продолжай играть со своим прежним аккаунтом!</p>
       <a class="hero-action" href="#games">Выбрать игру <span aria-hidden="true">↗</span></a>
+    </section>
+    <section class="wrap account-panel" id="account" aria-labelledby="account-title">
+      <h2 id="account-title">Вход на FreasyGames</h2>
+      <p>Выбери игру и используй свой прежний аккаунт. Прогресс сохраняется.</p>
+      <form id="account-form">
+        <label>Аккаунт игры<select id="account-game"><option value="rcfcg">RCFCG</option><option value="pvz">Растения против Зомби</option></select></label>
+        <label>Логин<input id="account-username" autocomplete="username" required minlength="3" maxlength="30" pattern="[A-Za-z0-9_]{3,30}" placeholder="Латинские буквы, цифры или _"></label>
+        <label>Пароль<input id="account-password" type="password" autocomplete="current-password" required minlength="6" placeholder="Минимум 6 символов"></label>
+        <button class="play" id="account-submit" type="submit">Войти</button>
+        <button class="nav-link" id="account-toggle" type="button">Создать аккаунт</button>
+      </form>
+      <p id="account-message" role="status" aria-live="polite"></p>
+      <div id="account-sessions"></div>
     </section>
     <section class="wrap" id="games" aria-labelledby="games-title">
       <div class="section-heading"><div><div class="section-kicker">Твоя игровая коллекция</div><h2 id="games-title">Выбирай и играй</h2></div><p class="section-note">2 бесплатные игры</p></div>
+      <p class="save-note">Уже играл в РЦФЦГ или ПВЗ? Войди с прежним логином и паролем здесь, на FreasyGames. Сохранённый в облаке прогресс останется доступен. Аккаунты игр пока отдельные.</p>
       <div class="games">
         <article class="card">
           <div class="shot"><img src="images/rcfcg-game.png" alt="Скриншот RCFCG: разноцветный куб, прогресс 9% и статистика игрока Player12345" width="1280" height="720"><span class="shot-label">Скриншот из игры</span></div>
-          <div class="content"><div class="meta">Аркада <span></span> Кубы</div><h3>RCFCG</h3><p class="description">Открывай яркие кубы, следи за прогрессом и улучшай свой лучший результат. Заглядывай в таблицу лидеров и соревнуйся с другими игроками.</p><div class="card-bottom"><span class="player">На скриншоте: <strong>Player12345</strong></span><a class="play" href="https://baldykovtema.github.io/RCFCG-Webgame/" target="_blank" rel="noopener noreferrer" aria-label="Открыть RCFCG в новой вкладке">Играть сейчас ↗</a></div></div>
+          <div class="content"><div class="meta">Аркада <span></span> Кубы</div><h3>RCFCG</h3><p class="description">Открывай яркие кубы, следи за прогрессом и улучшай свой лучший результат. Заглядывай в таблицу лидеров и соревнуйся с другими игроками.</p><div class="card-bottom"><span class="player">На скриншоте: <strong>Player12345</strong></span><a class="play" href="games/rcfcg/" aria-label="Открыть RCFCG на FreasyGames">Играть сейчас →</a></div></div>
         </article>
         <article class="card">
           <div class="shot"><img src="images/pvz-game.png" alt="Скриншот PvZ: горохострел защищает сад от зомби, игрок Player12345" width="1280" height="720"><span class="shot-label">Скриншот из игры</span></div>
-          <div class="content"><div class="meta">Стратегия <span></span> Растения против зомби</div><h3>Растения против Зомби</h3><p class="description">Выбирай растения и защищай сад от волн зомби. Проходи кампанию, пробуй мини-игры и бесконечный режим или играй онлайн с друзьями.</p><div class="card-bottom"><span class="player">На скриншоте: <strong>Player12345</strong></span><a class="play" href="https://baldykovtema.github.io/PVZ-Webgame/" target="_blank" rel="noopener noreferrer" aria-label="Открыть Растения против Зомби в новой вкладке">Играть сейчас ↗</a></div></div>
+          <div class="content"><div class="meta">Стратегия <span></span> Растения против зомби</div><h3>Растения против Зомби</h3><p class="description">Выбирай растения и защищай сад от волн зомби. Проходи кампанию, пробуй мини-игры и бесконечный режим или играй онлайн с друзьями.</p><div class="card-bottom"><span class="player">На скриншоте: <strong>Player12345</strong></span><a class="play" href="games/pvz/" aria-label="Открыть Растения против Зомби на FreasyGames">Играть сейчас →</a></div></div>
         </article>
       </div>
     </section>
   </main>
   <footer><div class="wrap"><strong>✦ FreasyGames</strong><span>Бесплатные игры для хорошего настроения</span></div></footer>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
+<script src="shared/site-auth.js"></script>
 </body>
 </html>

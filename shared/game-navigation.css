@@ -1,0 +1,19 @@
+/* Shared catalog navigation; each game keeps its own layout and scripts. */
+.freasy-home {
+    position: fixed;
+    left: max(12px, env(safe-area-inset-left));
+    bottom: max(12px, env(safe-area-inset-bottom));
+    z-index: 10000;
+    padding: 10px 14px;
+    border: 1px solid #bca0ff80;
+    border-radius: 12px;
+    background: #171329ed;
+    color: #e5d8ff;
+    font: 700 13px system-ui, sans-serif;
+    text-decoration: none;
+    box-shadow: 0 4px 18px #0005;
+}
+.freasy-home:hover { background: #342657; }
+.freasy-home:focus-visible { outline: 3px solid #bca0ff; outline-offset: 3px; }
+
+.freasy-return { display: inline-block; padding: 14px 20px; margin: 18px 0; border-radius: 12px; background: #bca0ff; color: #171225; text-decoration: none; font: 700 16px system-ui; }

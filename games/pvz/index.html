@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<script>
+if (/iPhone|iPod|Android.*Mobile|Windows Phone|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+    document.documentElement.classList.add("phone-device");
+}
+</script>
+
+<title>🌱 Растения против Зомби</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
+
+<link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="../../shared/game-navigation.css">
+</head>
+
+<body>
+  <a class="freasy-home" href="../../index.html#games" aria-label="Вернуться к играм FreasyGames">← Обратно на FreasyGames</a>
+
+<div id="phoneBlock" role="alert">
+    Не преднозначено для телефона попробуйте зайти на компютере или планшете
+</div>
+
+
+<!-- =========================
+     AUTH
+========================= -->
+
+<section id="authScreen" class="screen active">
+
+    <div class="auth-box">
+
+        <div class="logo">
+            🌱🧟
+        </div>
+
+        <h1 style="text-align:center">
+            Растения против Зомби
+        </h1>
+
+        <div class="subtitle">
+            Веб-версия
+        </div>
+
+<h2>Зарегистрируйтесь, чтобы играть</h2><p>Уже есть аккаунт? Войдите на FreasyGames.</p><a class="freasy-return" href="../../index.html?account=pvz#account">Обратно на FreasyGames</a><div id="authMessage" role="status"></div>
+    </div>
+
+</section>
+
+
+<!-- =========================
+     MENU
+========================= -->
+
+<section id="menuScreen" class="screen">
+
+    <div class="topbar">
+
+        <div class="player-info">
+
+            <div
+                id="avatar"
+                class="avatar">
+                ?
+            </div>
+
+            <div>
+
+                <b id="usernameLabel">
+                    Игрок
+                </b>
+
+                <div
+                    style="font-size:13px;color:#9aa99a">
+
+                    Уровень:
+                    <span id="progressLabel">
+                        0
+                    </span>/50
+
+                </div>
+
+            </div>
+
+        </div>
+
+
+
+    </div>
+
+
+    <div class="menu-content">
+
+        <div class="menu-title">
+            🌱🧟
+        </div>
+
+        <div class="menu-subtitle">
+            Растения против Зомби
+        </div>
+
+
+        <div class="menu-grid">
+
+
+            <div class="menu-card">
+
+                <div class="emoji">
+                    🏡
+                </div>
+
+                <h2>
+                    Кампания
+                </h2>
+
+                <p>
+                    50 уровней и 5 локаций
+                </p>
+
+                <button
+                    class="primary"
+                    onclick="showMap()">
+
+                    🎮 Играть
+
+                </button>
+
+            </div>
+
+
+            <div class="menu-card">
+
+                <div class="emoji">
+                    🌐
+                </div>
+
+                <h2>
+                    Онлайн
+                </h2>
+
+                <p>
+                    До 4 игроков
+                </p>
+
+                <button
+                    class="primary"
+                    onclick="showOnline()">
+
+                    👥 Онлайн
+
+                </button>
+
+            </div>
+
+
+            <div class="menu-card">
+
+                <div class="emoji">
+                    ♾️
+                </div>
+
+                <h2>
+                    Бесконечный
+                </h2>
+
+                <p>
+                    3 слота сохранения
+                </p>
+
+                <button
+                    class="primary"
+                    onclick="showSaves()">
+
+                    ♾️ Играть
+
+                </button>
+
+            </div>
+
+
+            <div class="menu-card">
+
+                <div class="emoji">
+                    🎯
+                </div>
+
+                <h2>
+                    Мини-игры
+                </h2>
+
+                <p>
+                    6 разных мини-игр
+                </p>
+
+                <button
+                    class="primary"
+                    onclick="miniGames()">
+
+                    🎯 Открыть
+
+                </button>
+
+            </div>
+
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =========================
+     MAP
+========================= -->
+
+<section id="mapScreen" class="screen">
+
+    <div class="topbar">
+
+        <button
+            class="secondary"
+            onclick="showMenu()">
+
+            ← Меню
+
+        </button>
+
+        <b>
+            🗺️ Карта уровней
+        </b>
+
+    </div>
+
+
+    <div class="map">
+
+        <h1>
+            🌱 Выбери уровень
+        </h1>
+
+        <div
+            id="locations"
+            class="locations">
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =========================
+     PLANT SELECT
+========================= -->
+
+<section id="plantsScreen" class="screen">
+
+    <div class="topbar">
+
+        <button
+            class="secondary"
+            id="plantSelectionBackButton"
+            onclick="cancelPlantSelection()">
+
+            ← Назад
+
+        </button>
+
+        <b id="selectedLevelTitle">
+            Выбор растений
+        </b>
+
+    </div>
+
+
+    <div class="plants-container">
+
+        <h1 style="text-align:center">
+            🌱 Выбор растений
+        </h1>
+
+        <p
+            id="plantDescription"
+            style="text-align:center;color:#b8c5b8">
+        </p>
+
+        <div
+            id="selectedCount"
+            class="selected-count">
+
+            Выбрано: 0 / 10
+
+        </div>
+
+
+        <div
+            id="plantGrid"
+            class="plant-grid">
+        </div>
+
+
+        <button
+            class="primary"
+            id="startPlantSelectionButton"
+            onclick="confirmPlantSelection()">
+
+            🎮 НАЧАТЬ ИГРУ
+
+        </button>
+
+    </div>
+
+</section>
+
+
+<!-- =========================
+     GAME
+========================= -->
+
+<section id="gameScreen" class="screen">
+
+    <div class="game-top">
+
+        <button
+            id="exitGameButton"
+            class="secondary"
+            aria-label="Выйти из игры"
+            title="Выйти из игры"
+            onclick="exitGame()">
+
+            ×
+
+        </button>
+
+        <button id="soundToggleButton" class="secondary sound-toggle" onclick="toggleGameSound()"
+            aria-label="Выключить звук" title="Выключить звук">🔊</button>
+
+
+        <button id="retryProgressButton" class="secondary" hidden onclick="finishLevel()">
+            Повторить сохранение
+        </button>
+
+        <div class="sun-counter">
+
+            ☀️
+            <span id="sunCount">
+                125
+            </span>
+
+        </div>
+
+
+        <div id="matchStatus" role="status" hidden></div>
+
+        <div id="levelGameName">
+            Уровень
+        </div>
+
+
+        <div class="wave-counter">
+
+            🌊 Волна
+            <span id="waveNumber">
+                1
+            </span><span id="waveLimit">/5</span>
+
+        </div>
+
+    </div>
+
+
+    <div class="side-panel">
+
+        <h3>
+            🌱 МОИ РАСТЕНИЯ
+        </h3>
+
+        <div
+            id="myPlantList"
+            class="my-plant-list">
+        </div>
+
+
+        <button
+            id="shovelButton"
+            class="secondary shovel"
+            onclick="toggleShovel()">
+
+            🪣 Лопата
+
+        </button>
+
+    </div>
+
+
+    <div class="players-panel">
+
+        <h3 style="margin:5px">
+            ☀️ Игроки
+        </h3>
+
+        <div class="player-row">
+
+            <span>
+                🔴 Ты
+            </span>
+
+            <b id="mySun">
+                125
+            </b>
+
+        </div>
+
+
+        <div class="player-row">
+
+            <span>
+                🟡 Alex
+            </span>
+
+            <b>
+                80
+            </b>
+
+        </div>
+
+
+        <div class="player-row">
+
+            <span>
+                🟢 Max
+            </span>
+
+            <b>
+                120
+            </b>
+
+        </div>
+
+
+        <div class="player-row">
+
+            <span>
+                🔵 Player
+            </span>
+
+            <b>
+                60
+            </b>
+
+        </div>
+
+    </div>
+
+
+    <div class="game-area">
+
+        <div
+            id="lawn"
+            class="lawn">
+        </div>
+
+    </div>
+
+
+    <button
+        id="chatButton"
+        class="secondary chat-button"
+        onclick="toggleChat()">
+
+        💬 Чат
+
+    </button>
+
+
+    <div
+        id="chatBox"
+        class="chat-box">
+
+        <div
+            style="padding:12px;border-bottom:1px solid #394b39">
+
+            <b>
+                💬 Чат
+            </b>
+
+        </div>
+
+
+        <div
+            id="chatMessages"
+            class="chat-messages">
+        </div>
+
+
+        <div class="chat-input">
+
+            <input
+                id="chatInput"
+                class="input"
+                placeholder="Написать...">
+
+            <button
+                class="primary"
+                style="width:auto"
+                onclick="sendChat()">
+
+                ➤
+
+            </button>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =========================
+     ONLINE
+========================= -->
+
+<section id="onlineScreen" class="screen">
+
+    <div class="topbar">
+
+        <button
+            class="secondary"
+            onclick="showMenu()">
+
+            ← Меню
+
+        </button>
+
+        <b>
+            🌐 Онлайн
+        </b>
+
+    </div>
+
+
+    <div class="online-container">
+
+        <h1 style="text-align:center">
+            🎮 Выбери сложность
+        </h1>
+
+        <div style="display:flex;justify-content:center;margin-top:12px">
+
+            <button
+                id="refreshOnlineButton"
+                class="secondary"
+                style="width:auto"
+                onclick="refreshOnlineScreen()">
+
+                Обновить
+
+            </button>
+
+        </div>
+
+        <div
+            id="difficultyGrid"
+            class="difficulty-grid"
+            style="margin-top:30px">
+        </div>
+
+        <div style="margin-top:30px">
+
+            <h2 style="text-align:center">
+                👥 Игроки онлайн
+            </h2>
+        
+            <div
+                id="onlinePlayersList"
+                class="difficulty-grid">
+            </div>
+        
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =========================
+     LOBBY
+========================= -->
+
+<section id="lobbyScreen" class="screen">
+
+    <div class="topbar">
+
+        <button
+            class="secondary"
+            onclick="leaveLobby()">
+
+            ← Выйти
+
+        </button>
+
+        <b id="lobbyTitle">
+            Лобби
+        </b>
+
+    </div>
+
+
+    <div class="lobby-container">
+
+        <h1 style="text-align:center">
+            👥 Лобби
+        </h1>
+
+        <p
+            id="lobbyInfo"
+            style="text-align:center;color:#aabaaa">
+        </p>
+
+
+        <div
+            id="lobbyPlayers"
+            class="lobby-players">
+        </div>
+
+
+        <div class="lobby-actions">
+
+            <button
+                id="readyButton"
+                class="primary"
+                style="width:auto"
+                onclick="toggleReady()">
+
+                🟢 ГОТОВ
+
+            </button>
+
+        </div>
+
+        <div class="invite-panel">
+
+            <div class="invite-panel-header">
+
+                <h2>
+                    Пригласить игрока
+                </h2>
+
+                <button
+                    id="refreshInviteButton"
+                    class="secondary"
+                    type="button"
+                    onclick="refreshInviteTargets()">
+
+                    Обновить
+
+                </button>
+
+            </div>
+
+            <div
+                id="invitePlayersList"
+                class="invite-list">
+            </div>
+
+        </div>
+
+    </div>
+
+</section>
+
+<div
+    id="gameModal"
+    class="game-modal"
+    hidden>
+
+    <div class="game-modal-card">
+
+        <div
+            id="gameModalMessage"
+            class="game-modal-message">
+        </div>
+
+        <div
+            id="gameModalActions"
+            class="game-modal-actions">
+        </div>
+
+    </div>
+
+</div>
+
+<div
+    id="invitePopup"
+    class="invite-popup"
+    hidden>
+
+    <div class="invite-popup-card">
+
+        <div
+            id="invitePopupText"
+            class="invite-popup-text">
+        </div>
+
+        <div class="invite-popup-actions">
+
+            <button
+                id="acceptInviteButton"
+                class="primary"
+                type="button">
+
+                Принять
+
+            </button>
+
+            <button
+                id="declineInviteButton"
+                class="secondary"
+                type="button">
+
+                Отклонить
+
+            </button>
+
+        </div>
+
+    </div>
+
+</div>
+
+
+<!-- =========================
+     SAVES
+========================= -->
+
+<section id="savesScreen" class="screen">
+
+    <div class="topbar">
+
+        <button
+            class="secondary"
+            onclick="showMenu()">
+
+            ← Меню
+
+        </button>
+
+        <b>
+            ♾️ Бесконечный режим
+        </b>
+
+    </div>
+
+
+    <div style="padding:30px 0">
+
+        <h1 style="text-align:center">
+            ♾️ Сохранения
+        </h1>
+
+
+        <div
+            id="saveGrid"
+            class="save-grid">
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- Shared declarations first; initialization runs after all features are loaded. -->
+<script src="js/config.js"></script>
+<script src="js/data.js"></script>
+<script src="js/state.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/screens.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/campaign.js"></script>
+<script src="js/game/board.js"></script>
+<script src="js/game/simulation.js"></script>
+<script src="js/chat.js"></script>
+<script src="js/online.js"></script>
+<script src="js/lobby.js"></script>
+<script src="js/match.js"></script>
+<script src="js/saves.js"></script>
+<script src="js/main.js"></script>
+
+</body>
+</html>
