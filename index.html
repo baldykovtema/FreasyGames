@@ -53,6 +53,13 @@
     footer { border-top: 1px solid #ffffff16; padding: 26px 0 33px; color: #85849a; font-size: 12px; }
     footer .wrap { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
     footer strong { color: #c0a7ff; }
+    .apk-offer { margin-top: 16px; padding: 22px; border: 1px solid #b79aff80; border-radius: 20px; background: #28213f; }
+    .apk-offer[hidden] { display: none; }
+    .apk-offer h2 { margin: 0 0 8px; font-size: 24px; }
+    .apk-offer p { margin: 0; color: #d1cde5; font-size: 14px; line-height: 1.65; }
+    .apk-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 16px; }
+    .apk-dismiss { font: inherit; font-size: 13px; color: #d1cde5; background: transparent; border: 1px solid #ffffff30; padding: 12px 17px; border-radius: 10px; cursor: pointer; }
+    .apk-link { text-decoration: underline; text-underline-offset: 3px; }
     @media (max-width: 760px) { .hero { padding: 62px 0 72px; } .games { grid-template-columns: 1fr; } .section-note { display: none; } .shot { height: clamp(205px,50vw,320px); } }
     @media (max-width: 450px) { .wrap { width: min(100% - 28px,1120px); } .topbar { min-height: 70px; } .brand { font-size: 17px; } .nav-link { padding: 9px 11px; font-size: 11px; } .content { padding: 19px; } .description { min-height: 0; } .card-bottom { align-items: stretch; flex-direction: column; } .play { justify-content: center; } footer .wrap { align-items: flex-start; flex-direction: column; } }
     @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; } }
@@ -64,6 +71,14 @@
     <a class="nav-link" href="#games">Смотреть игры ↓</a>
   </header>
   <main id="top">
+    <section class="apk-offer wrap" id="apk-offer" aria-labelledby="apk-title" hidden>
+      <h2 id="apk-title">FreasyGames для Android</h2>
+      <p>Скачай приложение и открывай любимые игры прямо с телефона. APK-файл · около 11 МБ.</p>
+      <div class="apk-actions">
+        <a class="play" href="FreasyGames-WebView.apk" download="FreasyGames-WebView.apk">Скачать APK ↓</a>
+        <button class="apk-dismiss" id="apk-dismiss" type="button">Остаться в браузере</button>
+      </div>
+    </section>
     <section class="hero wrap" aria-labelledby="welcome-title">
       <div class="eyebrow">Играй прямо в браузере</div>
       <h1 id="welcome-title">Добро пожаловать на <span>FreasyGames</span></h1>
@@ -84,6 +99,20 @@
       </div>
     </section>
   </main>
-  <footer><div class="wrap"><strong>✦ FreasyGames</strong><span>Бесплатные игры для хорошего настроения</span></div></footer>
+  <footer><div class="wrap"><strong>✦ FreasyGames</strong><a class="apk-link" href="FreasyGames-WebView.apk" download="FreasyGames-WebView.apk">Скачать APK для Android</a><span>Бесплатные игры для хорошего настроения</span></div></footer>
+  <script>
+    (() => {
+      const offer = document.getElementById('apk-offer');
+      const platform = navigator.userAgentData?.platform || '';
+      const supportsApk = /Android/i.test(platform) || /Android|HarmonyOS|Silk\//i.test(navigator.userAgent);
+      let dismissed = false;
+      try { dismissed = sessionStorage.getItem('freasy-apk-dismissed') === '1'; } catch {}
+      offer.hidden = !supportsApk || dismissed;
+      document.getElementById('apk-dismiss').addEventListener('click', () => {
+        offer.hidden = true;
+        try { sessionStorage.setItem('freasy-apk-dismissed', '1'); } catch {}
+      });
+    })();
+  </script>
 </body>
 </html>
