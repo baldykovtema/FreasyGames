@@ -87,6 +87,14 @@
         <button class="apk-dismiss" id="dmg-dismiss" type="button">Остаться в браузере</button>
       </div>
     </section>
+    <section class="apk-offer wrap" id="windows-offer" aria-labelledby="windows-title" hidden>
+      <h2 id="windows-title">FreasyGames для Windows</h2>
+      <p>Скачай приложение и играй на компьютере, в том числе без интернета. Windows 64-bit · ZIP-архив · около 161 МБ. Распакуй архив целиком и запусти FreasyGames.exe.</p>
+      <div class="apk-actions">
+        <a class="play" href="https://github.com/baldykovtema/FreasyGames/releases/download/windows-v1.0.0/FreasyGames-Windows-x64.zip">Скачать для Windows ↓</a>
+        <button class="apk-dismiss" id="windows-dismiss" type="button">Остаться в браузере</button>
+      </div>
+    </section>
     <section class="hero wrap" aria-labelledby="welcome-title">
       <div class="eyebrow">Играй прямо в браузере</div>
       <h1 id="welcome-title">Добро пожаловать на <span>FreasyGames</span></h1>
@@ -107,7 +115,7 @@
       </div>
     </section>
   </main>
-  <footer><div class="wrap"><strong>✦ FreasyGames</strong><a class="apk-link" href="FreasyGames-WebView.apk" download="FreasyGames-WebView.apk">Скачать APK для Android</a><a class="apk-link" href="FreasyGames.dmg" download="FreasyGames.dmg">Скачать DMG для macOS</a><span>Бесплатные игры для хорошего настроения</span></div></footer>
+  <footer><div class="wrap"><strong>✦ FreasyGames</strong><a class="apk-link" href="FreasyGames-WebView.apk" download="FreasyGames-WebView.apk">Скачать APK для Android</a><a class="apk-link" href="FreasyGames.dmg" download="FreasyGames.dmg">Скачать DMG для macOS</a><a class="apk-link" href="https://github.com/baldykovtema/FreasyGames/releases/download/windows-v1.0.0/FreasyGames-Windows-x64.zip">Скачать для Windows</a><span>Бесплатные игры для хорошего настроения</span></div></footer>
   <script>
     (() => {
       const offer = document.getElementById('apk-offer');
@@ -129,6 +137,16 @@
       document.getElementById('dmg-dismiss').addEventListener('click', () => {
         dmgOffer.hidden = true;
         try { sessionStorage.setItem('freasy-dmg-dismissed', '1'); } catch {}
+      });
+
+      const windowsOffer = document.getElementById('windows-offer');
+      const isWindows = /^Windows$/i.test(platform) || /Windows NT/i.test(navigator.userAgent);
+      let windowsDismissed = false;
+      try { windowsDismissed = sessionStorage.getItem('freasy-windows-dismissed') === '1'; } catch {}
+      windowsOffer.hidden = !isWindows || windowsDismissed;
+      document.getElementById('windows-dismiss').addEventListener('click', () => {
+        windowsOffer.hidden = true;
+        try { sessionStorage.setItem('freasy-windows-dismissed', '1'); } catch {}
       });
     })();
   </script>
