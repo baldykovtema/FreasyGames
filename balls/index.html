@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Шариковый рекорд</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#101522;color:#eef3ff;font:16px Arial,sans-serif;display:flex;justify-content:center;min-height:100vh}
+main{width:min(100%,900px);padding:18px}.top{display:flex;gap:12px;justify-content:space-between;align-items:center;flex-wrap:wrap}
+h1{margin:4px 0 12px;font-size:clamp(24px,5vw,36px)}.panel{background:#1b2639;border:1px solid #33435e;border-radius:14px;padding:12px;margin:10px 0}
+button,input{font:inherit;border:0;border-radius:9px;padding:11px 14px}input{background:#0e1727;color:white;border:1px solid #465978}button{background:#62d6ad;color:#10251f;font-weight:bold;cursor:pointer}button:disabled{opacity:.45;cursor:default}
+button.alt{background:#2c3b55;color:#eef3ff}.row{display:flex;gap:8px;flex-wrap:wrap}
+canvas{display:block;width:min(100%,560px);height:auto;margin:10px auto;background:linear-gradient(#101b30,#17243a);border:1px solid #405472;border-radius:12px}
+.stats{display:flex;gap:10px;flex-wrap:wrap}.stats span{background:#111c2d;padding:9px 12px;border-radius:9px}
+#records{max-height:260px;overflow:auto;font-size:14px}ol{padding-left:28px;margin:8px 0}li{padding:3px}li.me{color:#62d6ad}
+.note{color:#aebbd0;font-size:13px;line-height:1.5}.msg{min-height:20px;color:#ffd27a;font-size:14px;margin:4px 0}
+.overlay{position:fixed;inset:0;background:#07101ddd;display:grid;place-items:center;padding:20px;z-index:5}
+.dialog{width:min(420px,100%);background:#1b2639;border:1px solid #506582;border-radius:18px;padding:24px;text-align:center;box-shadow:0 20px 70px #0009}
+.dialog input{width:100%;margin:6px 0}.dialog button{width:100%;margin-top:8px}
+</style>
+</head>
+<body>
+<main>
+ <div class="top"><h1>🔵 Шариковый рекорд</h1><div class="row"><button id="newGame">Новая игра</button><button class="alt" id="accountBtn">Войти</button></div></div>
+ <div class="panel stats"><span>Игрок: <b id="player">—</b></span><span>Очки: <b id="score">0</b></span><span>Твой рекорд: <b id="best">—</b></span></div>
+ <canvas id="game" width="560" height="700"></canvas>
+ <div class="panel"><b>Как играть:</b> нажми «Начать бросок». Шарик отскакивает от штырьков по законам физики. Корзинки внизу добавляют или умножают очки. Красная корзинка завершает игру.</div>
+ <div class="panel"><b>🏆 Рекорды</b><div id="records">Загружаем...</div></div>
+ <p class="note">Рекорды общие для всех игроков. В таблицу попадает лучший результат каждого игрока, для этого нужно войти. Подходит аккаунт из «Растений против Зомби» и «Мемного Кота».</p>
+</main>
+<div class="overlay" id="startScreen"><div class="dialog">
+ <h2>Добро пожаловать!</h2>
+ <div id="loginBox">
+  <p>Войди, чтобы попасть в рекорды. Почта не нужна: только ник и пароль.</p>
+  <input id="nameInput" maxlength="30" placeholder="Ник (A-Z, 0-9, _)" autocomplete="username">
+  <input id="passInput" type="password" placeholder="Пароль (от 6 символов)" autocomplete="current-password">
+  <div class="msg" id="authMsg"></div>
+  <button id="loginBtn">Войти</button>
+  <button class="alt" id="registerBtn">Зарегистрироваться</button>
+  <button class="alt" id="guestBtn">Играть без входа</button>
+ </div>
+ <div id="loggedBox" style="display:none">
+  <p>Ты вошёл как <b id="loggedName"></b></p>
+  <button id="startBtn">Начать игру</button>
+  <button class="alt" id="logoutBtn">Выйти из аккаунта</button>
+ </div>
+</div></div>
+<div class="overlay" id="endScreen" style="display:none"><div class="dialog"><h2>Игра окончена!</h2><p id="finalText"></p><p class="msg" id="recordText"></p><button id="againBtn">Играть ещё</button></div></div>
+<script>
+(()=>{
+/* ===== Аккаунты и рекорды: Supabase-проект PVZ ===== */
+const SB_URL='https://ywqxrbmgmvpbeytxjkpi.supabase.co',SB_KEY='sb_publishable_igyJK68YpyJYo-0KNrVZPA_rm6_gIRg',EMAIL_DOMAIN='@pvz-game.com';
+const MAX_SCORE=1e15;
+let session=null;try{session=JSON.parse(localStorage.getItem('balls-session')||'null')}catch{}
+function saveSession(s){session=s&&s.access_token?{access_token:s.access_token,refresh_token:s.refresh_token,expires_at:s.expires_at||Math.floor(Date.now()/1000)+(s.expires_in||3600),user:s.user}:null;try{localStorage.setItem('balls-session',JSON.stringify(session))}catch{}}
+function username(){return session&&session.user&&session.user.user_metadata&&session.user.user_metadata.username||null}
+function errorText(data,status){const raw=(data&&(data.msg||data.message||data.error_description||data.error))||`Ошибка ${status}`;
+ if(/invalid login credentials/i.test(raw))return 'Неверный ник или пароль';if(/already registered|already exists/i.test(raw))return 'Такой ник уже занят';
+ if(/balls_/.test(raw)||(data&&(data.code==='PGRST205'||data.code==='PGRST202'||data.code==='42P01')))return 'Таблица рекордов ещё не включена на сервере';
+ if(/rate limit/i.test(raw))return 'Слишком много попыток, подожди немного';return raw}
+async function sb(path,{method='GET',body,auth=true}={}){
+ const h={apikey:SB_KEY,'Content-Type':'application/json'};
+ if(auth&&session){await refresh();if(session)h.Authorization='Bearer '+session.access_token}
+ let res;try{res=await fetch(SB_URL+path,{method,headers:h,body:body===undefined?undefined:JSON.stringify(body)})}catch{throw new Error('Нет связи с сервером. Проверь интернет')}
+ const text=await res.text();let data=null;try{data=text?JSON.parse(text):null}catch{data={message:text}}
+ if(!res.ok)throw new Error(errorText(data,res.status));return data}
+async function refresh(){if(!session||session.expires_at*1000>Date.now()+60000)return;
+ try{saveSession(await sb('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:{refresh_token:session.refresh_token},auth:false}))}catch{saveSession(null)}}
+async function auth(kind){
+ const name=$('nameInput').value.trim(),pass=$('passInput').value,msg=$('authMsg');
+ if(!/^[A-Za-z0-9_]{3,30}$/.test(name)){msg.textContent='Ник: 3–30 символов, латиница, цифры или _';return}
+ if(pass.length<6){msg.textContent='Пароль должен быть от 6 символов';return}
+ msg.textContent=kind==='signup'?'Создаём аккаунт...':'Входим...';
+ const email=name.toLowerCase()+EMAIL_DOMAIN;
+ try{const s=kind==='signup'
+   ?await sb('/auth/v1/signup',{method:'POST',body:{email,password:pass,data:{username:name}},auth:false})
+   :await sb('/auth/v1/token?grant_type=password',{method:'POST',body:{email,password:pass},auth:false});
+  if(!s||!s.access_token){msg.textContent='Аккаунт создан, теперь нажми «Войти»';return}
+  saveSession(s);$('passInput').value='';msg.textContent='';start(username())}catch(e){msg.textContent=e.message}}
+async function logout(){try{await sb('/auth/v1/logout',{method:'POST'})}catch{}saveSession(null);myBest=null;showStart()}
+let myBest=null,tableRows=[];
+async function loadRecords(){
+ try{tableRows=await sb('/rest/v1/balls_records?select=user_id,username,score&order=score.desc,updated_at.asc&limit=20',{auth:false});
+  const me=session&&tableRows.find(r=>r.user_id===session.user.id);
+  if(session&&!me&&myBest===null){const own=await sb(`/rest/v1/balls_records?select=score&user_id=eq.${session.user.id}`,{auth:false});myBest=own.length?own[0].score:0}
+  else if(me)myBest=me.score;
+  renderRecords()}catch(e){$('records').textContent=e.message}}
+async function submit(){
+ if(!session){$('recordText').textContent='Войди в аккаунт, чтобы результат попал в рекорды';return}
+ $('recordText').textContent='Сохраняем результат...';
+ try{const before=myBest||0,best=await sb('/rest/v1/rpc/balls_submit',{method:'POST',body:{new_score:score}});myBest=best;
+  $('recordText').textContent=score>before&&score===best?'Новый личный рекорд!':`Твой рекорд: ${best} очков`;updateUI();loadRecords()}
+ catch(e){$('recordText').textContent=e.message}}
+
+/* ===== Игра ===== */
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
+const W=canvas.width,H=canvas.height, bins=10, floorY=620;
+const pegs=[];
+for(let row=0;row<9;row++){let y=130+row*52;let count= row%2===0?8:7;let gap= W/(count+1);for(let i=0;i<count;i++)pegs.push({x:gap*(i+1)+(row%2?gap/2:0),y,r:6});}
+const baskets=[
+ {label:'+10',kind:'add',v:10,c:'#39b879'},{label:'×2',kind:'mul',v:2,c:'#4a9de8'},
+ {label:'+25',kind:'add',v:25,c:'#39b879'},{label:'×3',kind:'mul',v:3,c:'#a477ed'},
+ {label:'+50',kind:'add',v:50,c:'#39b879'},{label:'×2',kind:'mul',v:2,c:'#4a9de8'},
+ {label:'+100',kind:'add',v:100,c:'#39b879'},{label:'×5',kind:'mul',v:5,c:'#a477ed'},
+ {label:'+20',kind:'add',v:20,c:'#39b879'},{label:'СТОП',kind:'stop',v:0,c:'#e05262'}
+];
+let player='',score=0,ball=null,running=false,finished=false,trail=[];
+const $=id=>document.getElementById(id);
+function updateUI(){$('player').textContent=player||'—';$('score').textContent=score;$('best').textContent=session?(myBest===null?'…':myBest):'войди';$('accountBtn').textContent=session?'Аккаунт':'Войти'}
+function renderRecords(){$('records').innerHTML=tableRows.length?'<ol>'+tableRows.map(x=>`<li${session&&x.user_id===session.user.id?' class="me"':''}>${escapeHtml(x.username)} — <b>${x.score}</b> очков</li>`).join('')+'</ol>':'Пока рекордов нет. Стань первым!';updateUI()}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function showStart(){const inside=!!username();$('loginBox').style.display=inside?'none':'block';$('loggedBox').style.display=inside?'block':'none';$('loggedName').textContent=username()||'';$('startScreen').style.display='grid';$('endScreen').style.display='none';updateUI()}
+function start(name){player=name||'Гость';score=0;ball=null;running=false;finished=false;trail=[];$('startScreen').style.display='none';$('endScreen').style.display='none';updateUI();loadRecords();draw()}
+function drop(){if(finished||ball||running)return;ball={x:W/2+(Math.random()-.5)*22,y:45,vx:(Math.random()-.5)*1.5,vy:0,r:10};running=true;trail=[]}
+function end(){running=false;finished=true;updateUI();$('finalText').textContent=`${player}, твой результат: ${score} очков!`;$('recordText').textContent='';$('endScreen').style.display='grid';submit()}
+function collideCircle(p){let dx=ball.x-p.x,dy=ball.y-p.y,d=Math.hypot(dx,dy),min=ball.r+p.r;if(d<min&&d>0){let nx=dx/d,ny=dy/d;ball.x=p.x+nx*min;ball.y=p.y+ny*min;let dot=ball.vx*nx+ball.vy*ny;if(dot<0){ball.vx-=1.82*dot*nx;ball.vy-=1.82*dot*ny;ball.vx+=(Math.random()-.5)*.35;}}}
+function update(){
+ if(!running||!ball)return;
+ ball.vy+=0.19;ball.vx*=.999;ball.x+=ball.vx;ball.y+=ball.vy;
+ if(ball.x<ball.r){ball.x=ball.r;ball.vx=Math.abs(ball.vx)*.75}
+ if(ball.x>W-ball.r){ball.x=W-ball.r;ball.vx=-Math.abs(ball.vx)*.75}
+ for(const p of pegs)collideCircle(p);
+ if(ball.y>=floorY-18){
+  let idx=Math.max(0,Math.min(bins-1,Math.floor(ball.x/(W/bins))));
+  const b=baskets[idx];
+  if(b.kind==='add')score+=b.v;else if(b.kind==='mul')score*=b.v;
+  score=Math.min(score,MAX_SCORE);
+  updateUI();ball=null;running=false;
+  if(b.kind==='stop')end();
+ }
+ if(ball){trail.push({x:ball.x,y:ball.y});if(trail.length>10)trail.shift()}
+}
+function draw(){
+ ctx.clearRect(0,0,W,H);
+ // side rails
+ ctx.fillStyle='#31445f';ctx.fillRect(0,90,8,535);ctx.fillRect(W-8,90,8,535);
+ // pegs
+ for(const p of pegs){ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fillStyle='#a8bad4';ctx.fill();ctx.beginPath();ctx.arc(p.x-1.5,p.y-1.5,2,0,Math.PI*2);ctx.fillStyle='#fff';ctx.fill()}
+ // basket cells
+ let bw=W/bins;
+ baskets.forEach((b,i)=>{let x=i*bw;ctx.fillStyle=b.c;ctx.globalAlpha=.18;ctx.fillRect(x+2,floorY,bw-4,65);ctx.globalAlpha=1;ctx.strokeStyle=b.c;ctx.lineWidth=3;ctx.strokeRect(x+2,floorY,bw-4,65);ctx.fillStyle='#f4f7ff';ctx.font='bold 16px Arial';ctx.textAlign='center';ctx.fillText(b.label,x+bw/2,floorY+38)});
+ ctx.strokeStyle='#d5e1f5';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(0,floorY);ctx.lineTo(W,floorY);ctx.stroke();
+ if(ball){trail.forEach((t,i)=>{ctx.beginPath();ctx.arc(t.x,t.y,ball.r*(i/trail.length)*.65,0,Math.PI*2);ctx.fillStyle='rgba(91,211,255,.25)';ctx.fill()});let g=ctx.createRadialGradient(ball.x-3,ball.y-4,2,ball.x,ball.y,ball.r);g.addColorStop(0,'#fff');g.addColorStop(.35,'#69e2ff');g.addColorStop(1,'#1875c9');ctx.beginPath();ctx.arc(ball.x,ball.y,ball.r,0,Math.PI*2);ctx.fillStyle=g;ctx.fill();ctx.strokeStyle='#d6f7ff';ctx.stroke()}
+ if(!running&&!finished){ctx.fillStyle='#d6e2f5';ctx.textAlign='center';ctx.font='bold 18px Arial';ctx.fillText(ball?'':'Нажми «Начать бросок» ниже',W/2,78)}
+}
+function loop(){update();draw();requestAnimationFrame(loop)}
+const dropBtn=document.createElement('button');dropBtn.textContent='Начать бросок';dropBtn.style.display='block';dropBtn.style.margin='12px auto';dropBtn.onclick=drop;canvas.after(dropBtn);
+$('loginBtn').onclick=()=>auth('login');$('registerBtn').onclick=()=>auth('signup');
+$('passInput').addEventListener('keydown',e=>{if(e.key==='Enter')auth('login')});
+$('guestBtn').onclick=()=>start('Гость');$('startBtn').onclick=()=>start(username());$('logoutBtn').onclick=logout;
+$('againBtn').onclick=()=>start(player);$('newGame').onclick=showStart;$('accountBtn').onclick=showStart;
+showStart();loadRecords();loop();
+})();
+</script>
+</body></html>
