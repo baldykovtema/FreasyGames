@@ -129,7 +129,7 @@
 <div id="account" class="screen dim">
   <div class="panel" id="accOut">
     <h2>Аккаунт</h2>
-    <div class="sub">Нужен, чтобы публиковать уровни. Почта не нужна: только ник и пароль.</div>
+    <div class="sub">Нужен, чтобы публиковать уровни. Подходит аккаунт из «Растений против Зомби». Почта не нужна: только ник и пароль.</div>
     <input id="accName" maxlength="30" placeholder="Ник (A-Z, 0-9, _)">
     <input id="accPass" type="password" placeholder="Пароль (от 6 символов)">
     <div class="row center">
@@ -160,7 +160,8 @@
 
 const SB_URL = 'https://ywqxrbmgmvpbeytxjkpi.supabase.co';
 const SB_KEY = 'sb_publishable_igyJK68YpyJYo-0KNrVZPA_rm6_gIRg';
-const EMAIL_DOMAIN = '@memecat-game.com';
+// Общие аккаунты с PVZ. Старый адрес остался для аккаунтов, созданных в первой версии игры.
+const EMAIL_DOMAIN = '@pvz-game.com', OLD_EMAIL_DOMAIN = '@memecat-game.com';
 
 const SPEED = 8.4, G = 65, JUMP_V = 20.5, PAD_V = 28, P = 0.9, DT = 1 / 240;
 const MAX_LEN = 600, MAX_H = 10, MAX_OBJS = 2500;
@@ -687,10 +688,11 @@ async function authRequest(kind) {
   if (pass.length < 6) { msg.textContent = 'Пароль должен быть от 6 символов'; return; }
   msg.textContent = kind === 'signup' ? 'Создаём аккаунт...' : 'Входим...';
   const email = name.toLowerCase() + EMAIL_DOMAIN;
+  const login = (address) => sbFetch('/auth/v1/token?grant_type=password', { method: 'POST', body: { email: address, password: pass }, auth: false });
   try {
     const s = kind === 'signup'
       ? await sbFetch('/auth/v1/signup', { method: 'POST', body: { email, password: pass, data: { username: name } }, auth: false })
-      : await sbFetch('/auth/v1/token?grant_type=password', { method: 'POST', body: { email, password: pass }, auth: false });
+      : await login(email).catch(() => login(name.toLowerCase() + OLD_EMAIL_DOMAIN));
     if (!s || !s.access_token) { msg.textContent = 'Аккаунт создан, теперь нажми «Войти»'; return; }
     setSession(s); $('accPass').value = ''; msg.textContent = '';
     toast(`Привет, ${username()}!`); openAccount();
