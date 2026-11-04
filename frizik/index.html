@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#111321">
+<meta name="description" content="Фризик — ИИ-помощник FreasyGames: знает все игры сайта, советует, во что поиграть, решает примеры, шутит и загадывает загадки.">
+<title>Фризик — ИИ-помощник FreasyGames</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root { color-scheme: dark; --bg: #111321; --panel: #1d1e31; --line: #ffffff1a; --accent: #bca0ff; --accent-2: #7b67fc; --text: #f8f7ff; --muted: #a9a6bd; --me: #3a2f6b; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; font-family: Manrope, system-ui, sans-serif; color: var(--text); background: radial-gradient(circle at 50% -10%, #3d326a 0, #181a30 35%, var(--bg) 70%); display: flex; justify-content: center; }
+  .app { width: min(760px, 100%); height: 100%; display: flex; flex-direction: column; padding: 0 16px; }
+  header { display: flex; align-items: center; gap: 14px; padding: 18px 0 14px; border-bottom: 1px solid var(--line); }
+  .avatar { width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; font-size: 28px; color: #171329; background: linear-gradient(135deg, #bd8cff, #7b67fc); box-shadow: 0 10px 30px #9d73f755; flex: none; }
+  .avatar.small { width: 34px; height: 34px; border-radius: 11px; font-size: 18px; box-shadow: none; }
+  header h1 { margin: 0; font-size: 22px; letter-spacing: -0.03em; }
+  .status { color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 6px; }
+  .status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #5df2a5; box-shadow: 0 0 10px #5df2a5; }
+  header .grow { flex: 1; min-width: 0; }
+  .ghost { font: inherit; font-size: 13px; font-weight: 700; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; cursor: pointer; }
+  .ghost:hover { color: var(--text); background: #ffffff10; }
+  #chat { flex: 1; overflow-y: auto; padding: 18px 0; display: flex; flex-direction: column; gap: 12px; scroll-behavior: smooth; }
+  .msg { display: flex; gap: 10px; align-items: flex-end; max-width: 88%; }
+  .msg .bubble { padding: 12px 15px; border-radius: 18px; line-height: 1.55; font-size: 15px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .bot .bubble { background: var(--panel); border: 1px solid var(--line); border-bottom-left-radius: 6px; }
+  .me { align-self: flex-end; }
+  .me .bubble { background: var(--me); border-bottom-right-radius: 6px; }
+  .bubble a { color: var(--accent); font-weight: 700; }
+  .bubble b { color: #fff; }
+  .typing .bubble { display: flex; gap: 5px; padding: 15px 16px; }
+  .typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: blink 1.2s infinite; }
+  .typing i:nth-child(2) { animation-delay: .2s; } .typing i:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%, 80%, 100% { opacity: .25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
+  #chips { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0 10px; scrollbar-width: none; }
+  #chips::-webkit-scrollbar { display: none; }
+  .chip { flex: none; font: inherit; font-size: 13px; font-weight: 700; color: var(--text); background: #ffffff0d; border: 1px solid #b79aff55; border-radius: 100px; padding: 8px 13px; cursor: pointer; }
+  .chip:hover { background: #b79aff22; }
+  form { display: flex; gap: 10px; padding: 0 0 16px; }
+  input { flex: 1; min-width: 0; font: inherit; font-size: 16px; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; outline: none; }
+  input:focus { border-color: var(--accent); }
+  .send { font: inherit; font-weight: 800; font-size: 15px; color: #171225; background: var(--accent); border: 0; border-radius: 14px; padding: 0 20px; cursor: pointer; }
+  .send:hover { background: #d3beff; }
+  .note { text-align: center; color: #6f6d86; font-size: 12px; padding-bottom: 12px; }
+  .note a { color: var(--muted); }
+  @media (max-width: 480px) { .msg { max-width: 94%; } header h1 { font-size: 19px; } .ghost { padding: 7px 9px; } }
+  @media (prefers-reduced-motion: reduce) { #chat { scroll-behavior: auto; } .typing i { animation: none; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="avatar" aria-hidden="true">✦</div>
+    <div class="grow">
+      <h1>Фризик</h1>
+      <div class="status">ИИ-помощник FreasyGames</div>
+    </div>
+    <button class="ghost" id="clearBtn" type="button">Новый чат</button>
+  </header>
+  <main id="chat" aria-live="polite"></main>
+  <div id="chips"></div>
+  <form id="form" autocomplete="off">
+    <input id="input" maxlength="300" placeholder="Спроси Фризика о чём угодно…" aria-label="Сообщение">
+    <button class="send" type="submit">➤</button>
+  </form>
+  <div class="note">Фризик работает прямо в браузере · игры на <a href="https://baldykovtema.github.io/FreasyGames/" target="_blank" rel="noopener">FreasyGames</a></div>
+</div>
+<script>
+'use strict';
+
+/* ================= Что знает Фризик ================= */
+
+const SITE = 'https://baldykovtema.github.io/FreasyGames/';
+const MAKES = 'https://baldykovtema.github.io/Freasy-Makes/';
+const GAMES = [
+  {
+    id: 'memecat', name: 'Мемный Кот: Прыг', url: SITE + 'memecat/', genre: 'раннер', mood: ['сложн', 'быстр', 'динамичн', 'реакц', 'музык', 'кот', 'весел', 'смешн'],
+    keys: ['кот', 'мемн', 'прыг', 'буква а', 'букву а', 'раннер', 'тыгыдык', 'мурчащ', 'мята', 'батут', 'рыбк', 'редактор уров'],
+    about: 'Раннер, где оранжевый кот бежит сам, а ты прыгаешь через красные буквы «А», запрыгиваешь на блоки и подлетаешь на батутах. Три уровня: «Мурчащий старт», «Кошачья мята» и быстрый «Ночной тыгыдык». Ещё есть редактор, где можно построить свой уровень и опубликовать его, и поиск уровней других игроков.',
+    how: 'Пробел, стрелка вверх или клик — прыжок, можно просто держать. Буквы «А» трогать нельзя, в блоки сбоку врезаться тоже: на них только запрыгивают сверху. Батут подбрасывает высоко, рыбок собирай для рекорда. Esc — пауза, R — заново.',
+    tips: 'Держи кнопку прыжка над длинными рядами букв: кот прыгнет сразу после приземления. После батута не жми лишний раз, он и так долетит. А «Ночной тыгыдык» быстрее остальных, так что сначала разомнись на «Мурчащем старте».',
+  },
+  {
+    id: 'balls', name: 'Шариковый рекорд', url: SITE + 'balls/', genre: 'аркада на удачу', mood: ['спокойн', 'удач', 'рекорд', 'расслаб', 'прост', 'шар'],
+    keys: ['шарик', 'шары', 'шар ', 'корзин', 'штыр', 'плинко', 'х5', '×5', 'стоп'],
+    about: 'Бросаешь шарик сверху, он отскакивает от штырьков по законам физики и падает в одну из корзинок. Корзинки прибавляют очки (+10, +25, +50, +100, +20) или умножают их (×2, ×3, ×5), а красная «СТОП» заканчивает игру. Лучший результат попадает в общую таблицу рекордов.',
+    how: 'Нажимай «Начать бросок» и смотри, куда упадёт шарик. Играй, пока не попадёшь в красную корзинку «СТОП». Чтобы попасть в таблицу рекордов, войди в аккаунт — подойдёт аккаунт из «Растений против Зомби».',
+    tips: 'Здесь всё решает удача, но выгоднее всего набрать побольше очков корзинками «+», а потом поймать ×5 или ×3. Три раза ×5 подряд — это уже легенда!',
+  },
+  {
+    id: 'pvz', name: 'Растения против Зомби', url: 'https://baldykovtema.github.io/PVZ-Webgame/', genre: 'стратегия', mood: ['стратег', 'друз', 'онлайн', 'вдвоем', 'думат', 'долг', 'зомби'],
+    keys: ['растен', 'зомби', 'pvz', 'пвз', 'горох', 'сад'],
+    about: 'Стратегия, где ты выбираешь растения и защищаешь сад от волн зомби. Есть кампания, мини-игры, бесконечный режим и онлайн-игра с друзьями.',
+    how: 'Выбирай растения и расставляй их на грядках так, чтобы зомби не дошли до дома. Для онлайна с друзьями нужен аккаунт: только ник и пароль, без почты.',
+    tips: 'Начни с кампании, чтобы открыть растения, а потом зови друзей в онлайн. В бесконечном режиме проверишь, сколько волн продержишься.',
+  },
+  {
+    id: 'rcfcg', name: 'RCFCG', url: 'https://baldykovtema.github.io/RCFCG-Webgame/', genre: 'аркада', mood: ['ярк', 'цвет', 'куб', 'прогресс'],
+    keys: ['rcfcg', 'кубы', 'куб ', 'кубик цвет', 'разноцвет'],
+    about: 'Аркада с яркими разноцветными кубами: открывай их, следи за прогрессом и улучшай свой лучший результат. Есть таблица лидеров, где можно соревноваться с другими игроками.',
+    how: 'Открывай кубы и следи за процентом прогресса — чем дальше, тем лучше результат.',
+    tips: 'Заглядывай в таблицу лидеров, чтобы понять, до какого результата тянуться.',
+  },
+];
+
+const JOKES = [
+  'Почему кот не играет в прятки? Потому что всё равно все знают, что он в коробке.',
+  'Программист заходит в лифт, а там написано «Не больше 8 человек». Он выходит и говорит: «Хорошо, что я не 9-й в массиве».',
+  'Зомби в «Растениях против Зомби» тоже хотят здорово питаться. Просто их огород — твой.',
+  'Мемный Кот разбился о букву «А» 50 раз. На 51-й он сказал: «Это была не буква, это была судьба».',
+  'Шарик упал в «СТОП». Шарик: «Я просто хотел посмотреть, что там».',
+  'Учитель: «Почему ты не сделал домашку?» Ученик: «Я ставил рекорд в Шариковом рекорде». Учитель: «И как?» Ученик: «Попал в СТОП».',
+];
+const FACTS = [
+  'Кошки спят 12–16 часов в сутки. Мемный Кот — исключение, он всё время бежит.',
+  'Первая компьютерная игра для развлечения появилась ещё в 1958 году — это был теннис на экране осциллографа.',
+  'Осьминог имеет три сердца и голубую кровь.',
+  'Мёд не портится: в египетских гробницах находили мёд, которому тысячи лет.',
+  'Улитка может спать до трёх лет подряд.',
+  'В «Шариковом рекорде» шарик отскакивает по законам физики, поэтому каждый бросок неповторим.',
+  'Самая быстрая птица — сапсан: в пикировании он разгоняется больше 300 км/ч.',
+];
+const RIDDLES = [
+  { q: 'Не лает, не кусает, а в дом не пускает. Что это?', a: ['замок'] },
+  { q: 'Зимой и летом одним цветом. Что это?', a: ['ель', 'елка', 'ёлка', 'сосна'] },
+  { q: 'Сидит дед, во сто шуб одет. Кто его раздевает, тот слёзы проливает. Кто это?', a: ['лук'] },
+  { q: 'Что можно увидеть с закрытыми глазами?', a: ['сон'] },
+  { q: 'Чем больше из неё берёшь, тем больше она становится. Что это?', a: ['яма'] },
+  { q: 'Красная буква, через которую нельзя прыгать неправильно, в какой игре живёт?', a: ['кот', 'мемный кот', 'мемный кот прыг'] },
+];
+
+/* ================= Понимание сообщений ================= */
+
+const norm = (s) => ' ' + s.toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9×+\-*/^().,:% ]/g, ' ').replace(/\s+/g, ' ').trim() + ' ';
+const has = (t, words) => words.some((w) => t.includes(w));
+const pick = (list) => list[Math.floor(Math.random() * list.length)];
+const link = (g) => `[Играть в «${g.name}»](${g.url})`;
+
+let riddle = null, lastGame = null;
+
+function findGame(t) {
+  let best = null, score = 0;
+  for (const g of GAMES) {
+    const s = g.keys.filter((k) => t.includes(k)).length;
+    if (s > score) { best = g; score = s; }
+  }
+  return best;
+}
+
+function reply(raw) {
+  const t = norm(raw);
+
+  if (riddle) {
+    const r = riddle; riddle = null;
+    if (has(t, r.a.map((a) => a.replace(/ё/g, 'е')))) return pick(['Правильно! 🎉', 'Верно, молодец!', 'Точно! Ты разгадал.']) + ' Хочешь ещё загадку?';
+    if (has(t, [' сдаюсь', ' не знаю', ' ответ', ' скажи'])) return `Ответ: **${r.a[0]}**. Ещё одну?`;
+    if (!has(t, [' привет', ' игр', ' посчит', ' шутк'])) return `Не угадал. Правильный ответ: **${r.a[0]}**. Давай ещё одну?`;
+  }
+
+  if (has(t, [' привет', ' здравств', ' хай ', ' ку ', ' хеллоу', ' hello', ' hi ', ' добрый день', ' доброе утро', ' добрый вечер', ' салют']))
+    return pick(['Привет! Я Фризик, ИИ-помощник FreasyGames.', 'Здравствуй! Фризик на связи.', 'Привет-привет!']) + ' Могу рассказать про игры, посоветовать, во что поиграть, решить пример или пошутить. С чего начнём?';
+
+  if (has(t, [' кто ты', ' ты кто', ' как тебя зовут', ' твое имя', ' что ты умеешь', ' что умеешь', ' помощь', ' help', ' команды']))
+    return 'Я **Фризик** — ИИ-помощник сайта FreasyGames. Вот что я умею:\n• рассказать про любую игру FreasyGames и как в неё играть\n• посоветовать игру под настроение\n• рассказать про приложения и аккаунты\n• решить пример, например «15 * 4 + 2»\n• пошутить, загадать загадку, рассказать факт\n• подбросить монетку, бросить кубик, сыграть в камень-ножницы-бумагу\n• сказать, который час';
+
+  if (has(t, [' спасибо', ' благодар', ' спс', ' thanks'])) return pick(['Пожалуйста! Обращайся 😊', 'Рад помочь!', 'Всегда пожалуйста!']);
+  if (has(t, [' пока', ' до свидан', ' bye', ' увидимся'])) return 'Пока! Заходи поиграть на FreasyGames 👋';
+
+  const math = solveMath(raw);
+  if (math !== null) return math;
+
+  // Раньше игр: в «который час» есть буквы «кот».
+  if (has(t, [' который час', ' сколько времени', ' время ', ' времени'])) return 'Сейчас ' + new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) + '.';
+  if (has(t, [' дата', ' какое число', ' какой день', ' сегодня'])) return 'Сегодня ' + new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).replace(/\.$/, '') + '.';
+  if (has(t, [' монет', ' орел или решка', ' орёл или решка'])) return 'Подбрасываю… ' + pick(['**Орёл!**', '**Решка!**']);
+  if (has(t, [' кубик', ' брось кост', ' кости '])) return 'Бросаю кубик… выпало **' + (1 + Math.floor(Math.random() * 6)) + '** 🎲';
+  const range = t.match(/случайн[а-я]* число(?: от (\d+) до (\d+))?/);
+  if (range) { const lo = +(range[1] || 1), hi = +(range[2] || 100); return 'Случайное число: **' + (Math.min(lo, hi) + Math.floor(Math.random() * (Math.abs(hi - lo) + 1))) + '**'; }
+
+
+  if (has(t, [' какие игры', ' список игр', ' все игры', ' что за игры', ' какие есть', ' сколько игр', ' что есть на', ' игры на сайте', ' что на freasy', ' что на фризи']))
+    return `На FreasyGames сейчас ${GAMES.length} бесплатные игры:\n` + GAMES.map((g) => `• **${g.name}** — ${g.genre}`).join('\n') + `\n\nПро любую могу рассказать подробнее. Весь каталог: [FreasyGames](${SITE})`;
+
+  if (has(t, [' посовет', ' во что поиграть', ' что поиграть', ' порекоменд', ' скучно', ' нечего делать', ' какую игру', ' лучшая игра', ' выбери игру'])) {
+    const g = GAMES.find((x) => has(t, x.mood)) || pick(GAMES);
+    lastGame = g;
+    return `Советую **${g.name}** (${g.genre}). ${g.about.split('. ')[0]}.\n${link(g)}`;
+  }
+
+  if (has(t, [' скача', ' прилож', ' android', ' андроид', ' apk', ' мак ', ' mac', ' macos', ' dmg', ' windows', ' виндовс', ' компьютер', ' телефон', ' установ']))
+    return `У FreasyGames есть приложения:\n• **Android** — файл APK, около 11 МБ\n• **macOS** — файл DMG\n• **Windows** — ZIP-архив, распакуй и запусти FreasyGames.exe\nСсылки на скачивание есть внизу страницы [FreasyGames](${SITE}). А в браузере все игры работают и без установки.`;
+
+  if (has(t, ['аккаунт', 'войти', ' вход', 'регистр', 'пароль', 'логин', ' ник ']))
+    return 'Аккаунт на FreasyGames общий для «Растений против Зомби», «Мемного Кота» и «Шарикового рекорда». Почта не нужна: только ник (латиницей, от 3 символов) и пароль от 6 символов. С аккаунтом можно играть онлайн, публиковать свои уровни и попадать в таблицу рекордов.';
+
+  if (has(t, [' рекорд', ' лидер', ' таблиц'])) {
+    const b = GAMES.find((g) => g.id === 'balls'), r = GAMES.find((g) => g.id === 'rcfcg');
+    return `Таблицы рекордов есть в **${b.name}** (общая для всех игроков, нужен вход) и в **${r.name}**. А в «Мемном Коте» сохраняется твой лучший процент и число рыбок на каждом уровне.\n${link(b)}`;
+  }
+
+  if (has(t, [' freasy makes', ' фризи мейкс', ' заказ', ' сделать игру', ' сделай игру', ' создать игру', ' свою игру', ' свой сайт', ' сделать сайт']))
+    return `Свою игру или сайт можно заказать на **Freasy Makes**: опиши идею, а готовый файл появится у тебя в «Моих заказах». Есть бесплатный план.\n[Открыть Freasy Makes](${MAKES})`;
+
+  const game = findGame(t) || (has(t, [' она ', ' в нее', ' в неё', ' эту игру', ' там ', ' как играть', ' управлен', ' совет', ' как пройти']) ? lastGame : null);
+  if (game) {
+    lastGame = game;
+    if (has(t, [' как играть', ' управлен', ' правил', ' как прыг', ' кнопк', ' что нажимать', ' как в нее', ' как в неё'])) return `**${game.name}** — как играть:\n${game.how}\n${link(game)}`;
+    if (has(t, [' совет', ' как пройти', ' не могу', ' сложно', ' трудно', ' помоги', ' секрет', ' лайфхак'])) return `Совет по **${game.name}**: ${game.tips}`;
+    return `**${game.name}** (${game.genre}). ${game.about}\n${link(game)}\n\nСпроси «как играть?» или «дай совет» — расскажу подробнее.`;
+  }
+  if (has(t, [' игр', ' поиграть', ' freasy', ' фризи', ' фризик гейм', ' сайт']))
+    return `На FreasyGames есть «Мемный Кот: Прыг», «Шариковый рекорд», «Растения против Зомби» и RCFCG. Спроси про любую или напиши «посоветуй игру».`;
+
+  if (has(t, [' шутк', ' анекдот', ' рассмеши', ' смешн', ' пошути', ' юмор'])) return pick(JOKES) + ' 😄';
+  if (has(t, [' факт', ' интересн', ' удиви', ' знаешь ли'])) return 'Интересный факт: ' + pick(FACTS);
+  if (has(t, [' загадк', ' загадай'])) { riddle = pick(RIDDLES); return riddle.q + '\n(Напиши ответ или «сдаюсь».)'; }
+
+  const rps = { камень: 0, ножницы: 1, бумага: 2 }, mine = Object.keys(rps).find((k) => t.includes(' ' + k));
+  if (mine) {
+    const bot = pick(Object.keys(rps)), a = rps[mine], b = rps[bot];
+    const result = a === b ? 'Ничья!' : (a + 1) % 3 === b ? 'Ты победил! 🎉' : 'Я победил! 😎';
+    return `Я выбираю **${bot}**. ${result} Ещё раунд?`;
+  }
+  if (has(t, [' камень ножницы', ' сыграем', ' поиграем с тобой', ' игру с тобой'])) return 'Давай в камень-ножницы-бумагу! Напиши «камень», «ножницы» или «бумага».';
+
+  if (has(t, [' как дела', ' как ты', ' как жизнь'])) return pick(['Отлично! Только что прошёл «Ночной тыгыдык» 😎 А у тебя как?', 'Хорошо! Жду, когда ты спросишь про игры.']);
+  if (has(t, [' молодец', ' круто', ' класс', ' супер', ' люблю'])) return 'Спасибо! Ты тоже крутой 😊';
+
+  return pick(['Хм, не совсем понял.', 'Пока не знаю, что ответить.', 'Это для меня сложновато.']) + ' Я могу рассказать про игры FreasyGames, посоветовать игру, решить пример, пошутить или загадать загадку. Попробуй кнопки ниже!';
+}
+
+/* Примеры вида «15 * 4 + 2» или «сколько будет 7 умножить на 8». Считает без eval. */
+function solveMath(raw) {
+  let s = raw.toLowerCase().replace(/ё/g, 'е')
+    .replace(/сколько будет|посчитай|вычисли|реши|чему равно|=|\?/g, ' ')
+    .replace(/умножить на|умножь на|умножить|x|х/g, '*').replace(/разделить на|раздели на|делить на|:/g, '/')
+    .replace(/плюс/g, '+').replace(/минус/g, '-').replace(/в степени/g, '^').replace(/,/g, '.');
+  if (!/\d/.test(s) || !/[+\-*/^]/.test(s.replace(/^\s*-/, ''))) return null;
+  s = s.replace(/\s+/g, '');
+  if (!/^[\d.+\-*/^()]+$/.test(s)) return null;
+  let i = 0;
+  const peek = () => s[i], eat = (c) => (s[i] === c ? (i++, true) : false);
+  function num() {
+    if (eat('(')) { const v = expr(); if (!eat(')')) throw 0; return v; }
+    if (eat('-')) return -num();
+    const m = s.slice(i).match(/^\d+(\.\d+)?/); if (!m) throw 0;
+    i += m[0].length; return +m[0];
+  }
+  function pow() { const b = num(); return eat('^') ? Math.pow(b, pow()) : b; }
+  function term() { let v = pow(); for (;;) { if (eat('*')) v *= pow(); else if (eat('/')) { const d = pow(); if (d === 0) throw 'zero'; v /= d; } else return v; } }
+  function expr() { let v = term(); for (;;) { if (eat('+')) v += term(); else if (eat('-')) v -= term(); else return v; } }
+  try {
+    const v = expr();
+    if (i !== s.length || !isFinite(v)) return null;
+    const shown = Math.abs(v) >= 1e15 ? v.toExponential(4) : (Math.round(v * 1e8) / 1e8).toLocaleString('ru-RU', { maximumFractionDigits: 8 });
+    return `${s.replace(/\*/g, ' × ').replace(/\//g, ' ÷ ').replace(/\+/g, ' + ').replace(/(\d)-/g, '$1 − ')} = **${shown}**`;
+  } catch (e) {
+    return e === 'zero' ? 'На ноль делить нельзя — даже Фризику 🙂' : null;
+  }
+}
+
+/* ================= Чат ================= */
+
+const chat = document.getElementById('chat'), form = document.getElementById('form'), input = document.getElementById('input');
+const CHIPS = ['Какие есть игры?', 'Посоветуй игру', 'Как играть в Мемного Кота?', 'Расскажи шутку', 'Загадай загадку', 'Сколько будет 17 * 23?', 'Где скачать приложение?', 'Камень'];
+const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// Ответы бота могут содержать **жирный** текст и [ссылки](https://...); всё остальное экранируется.
+const format = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\[([^\]]+)\]\((https:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+let history = [];
+try { history = JSON.parse(localStorage.getItem('frizik-chat') || '[]'); } catch { history = []; }
+const persist = () => { try { localStorage.setItem('frizik-chat', JSON.stringify(history.slice(-60))); } catch { /* без истории */ } };
+
+function bubble(who, html) {
+  const row = document.createElement('div'); row.className = 'msg ' + who;
+  if (who === 'bot') { const a = document.createElement('div'); a.className = 'avatar small'; a.textContent = '✦'; a.setAttribute('aria-hidden', 'true'); row.appendChild(a); }
+  const b = document.createElement('div'); b.className = 'bubble'; b.innerHTML = html; row.appendChild(b);
+  chat.appendChild(row); chat.scrollTop = chat.scrollHeight;
+  return row;
+}
+function add(who, text, save = true) {
+  bubble(who, who === 'bot' ? format(text) : esc(text));
+  if (save) { history.push([who, text]); persist(); }
+}
+
+let busy = false;
+function ask(text) {
+  text = text.trim(); if (!text || busy) return;
+  add('me', text); input.value = ''; busy = true;
+  const answer = reply(text);
+  const dots = bubble('bot', '<i></i><i></i><i></i>'); dots.classList.add('typing');
+  setTimeout(() => { dots.remove(); add('bot', answer); busy = false; input.focus(); }, Math.min(1400, 450 + answer.length * 6));
+}
+
+function greet() { add('bot', 'Привет! Я **Фризик**, ИИ-помощник FreasyGames 👋\nЯ знаю всё про игры на сайте, могу посоветовать, во что поиграть, решить пример, пошутить или загадать загадку. Спрашивай!'); }
+
+form.addEventListener('submit', (e) => { e.preventDefault(); ask(input.value); });
+document.getElementById('clearBtn').onclick = () => { history = []; persist(); chat.innerHTML = ''; riddle = null; lastGame = null; greet(); };
+const chips = document.getElementById('chips');
+for (const c of CHIPS) { const b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.textContent = c; b.onclick = () => ask(c); chips.appendChild(b); }
+
+if (history.length) for (const [who, text] of history) add(who, text, false); else greet();
+</script>
+</body>
+</html>
