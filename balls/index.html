@@ -49,7 +49,7 @@ canvas{display:block;width:min(100%,560px);height:auto;margin:10px auto;backgrou
 <script>
 (()=>{
 /* ===== Аккаунты и рекорды: Supabase-проект PVZ ===== */
-const SB_URL='https://ywqxrbmgmvpbeytxjkpi.supabase.co',SB_KEY='sb_publishable_igyJK68YpyJYo-0KNrVZPA_rm6_gIRg',EMAIL_DOMAIN='@pvz-game.com';
+const SB_URL='https://ywqxrbmgmvpbeytxjkpi.supabase.co',SB_KEY='sb_publishable_igyJK68YpyJYo-0KNrVZPA_rm6_gIRg',EMAIL_DOMAIN='@pvz-game.com',OLD_EMAIL_DOMAIN='@memecat-game.com';
 const MAX_SCORE=1e15;
 let session=null;try{session=JSON.parse(localStorage.getItem('balls-session')||'null')}catch{}
 function saveSession(s){session=s&&s.access_token?{access_token:s.access_token,refresh_token:s.refresh_token,expires_at:s.expires_at||Math.floor(Date.now()/1000)+(s.expires_in||3600),user:s.user}:null;try{localStorage.setItem('balls-session',JSON.stringify(session))}catch{}}
@@ -72,9 +72,11 @@ async function auth(kind){
  if(pass.length<6){msg.textContent='Пароль должен быть от 6 символов';return}
  msg.textContent=kind==='signup'?'Создаём аккаунт...':'Входим...';
  const email=name.toLowerCase()+EMAIL_DOMAIN;
+ // Аккаунты из первой версии «Мемного Кота» созданы на старом адресе.
+ const login=address=>sb('/auth/v1/token?grant_type=password',{method:'POST',body:{email:address,password:pass},auth:false});
  try{const s=kind==='signup'
    ?await sb('/auth/v1/signup',{method:'POST',body:{email,password:pass,data:{username:name}},auth:false})
-   :await sb('/auth/v1/token?grant_type=password',{method:'POST',body:{email,password:pass},auth:false});
+   :await login(email).catch(()=>login(name.toLowerCase()+OLD_EMAIL_DOMAIN));
   if(!s||!s.access_token){msg.textContent='Аккаунт создан, теперь нажми «Войти»';return}
   saveSession(s);$('passInput').value='';msg.textContent='';start(username())}catch(e){msg.textContent=e.message}}
 async function logout(){try{await sb('/auth/v1/logout',{method:'POST'})}catch{}saveSession(null);myBest=null;showStart()}

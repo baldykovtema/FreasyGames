@@ -105,6 +105,7 @@ const MODES = {
       ['Шариковый рекорд', { freasy: 1, free: 1, mobile: 0.5, pc: 1, online: 0.3, twoD: 1, puzzle: 0.3, russian: 1, recent: 1, kids: 1, browser: 1 }],
       ['Растения против Зомби (FreasyGames)', { freasy: 1, free: 1, mobile: 0.5, pc: 1, online: 1, twoD: 1, strategy: 1, russian: 1, recent: 1, zombies: 1, kids: 0.8, browser: 1 }],
       ['RCFCG', { freasy: 1, free: 1, mobile: 0.5, pc: 1, online: 0.5, twoD: 1, puzzle: 0.3, russian: 1, recent: 1, kids: 1, browser: 1 }],
+      ['Угадайкот', { freasy: 1, free: 1, mobile: 1, pc: 1, russian: 1, recent: 1, animal: 1, kids: 1, browser: 1, puzzle: 0.5 }],
       ['Фризик (ИИ-помощник FreasyGames)', { freasy: 1, free: 1, mobile: 1, pc: 1, russian: 1, recent: 1, kids: 1, browser: 1, puzzle: 0.3 }],
       ['Minecraft', { mobile: 1, pc: 1, console: 1, online: 1, sandbox: 1, build: 1, pixel: 0.6, old: 0.3, zombies: 0.8, fantasy: 0.6, kids: 1, story: 0.1 }],
       ['Roblox', { free: 1, mobile: 1, pc: 1, console: 1, online: 1, shooter: 0.5, sandbox: 1, build: 1, horror: 0.4, royale: 0.3, racing: 0.3, old: 0.3, zombies: 0.3, kids: 1, sport: 0.3, fantasy: 0.3 }],
@@ -221,6 +222,7 @@ const store = {
   },
 };
 const normName = (s) => s.toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9]+/g, ' ').trim();
+const questionsText = (n) => n + ' ' + (n % 10 === 1 && n % 100 !== 11 ? 'вопрос' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'вопроса' : 'вопросов');
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 function candidates(mode) {
@@ -339,7 +341,7 @@ function showQuestion() {
 function showGuess(i) {
   game.guesses++; game.guessIndex = i; mood('idle');
   const pct = Math.round(game.confidence * 100);
-  screen.innerHTML = `<div class="kicker">Я думаю, это…</div><div class="guess">${esc(game.list[i].name)}</div><p>Уверен на ${pct}% после ${game.answers.length} вопросов</p>`;
+  screen.innerHTML = `<div class="kicker">Я думаю, это…</div><div class="guess">${esc(game.list[i].name)}</div><p>Уверен на ${pct}% после ${game.answers.length} ${game.answers.length % 10 === 1 && game.answers.length % 100 !== 11 ? 'вопроса' : 'вопросов'}</p>`;
   buttons([['Да, угадал!', win, 'yes'], ['Нет', () => { game.rejected.add(i); think(); }, 'no']]);
   meter(false);
 }
@@ -348,7 +350,7 @@ function win() {
   mood('happy');
   const s = store.get('ugadaykot-stats', { won: 0, lost: 0 }); s.won++; store.set('ugadaykot-stats', s);
   remember(game.list[game.guessIndex].name);
-  screen.innerHTML = `<div class="kicker">Ура!</div><h2>Я угадал «${esc(game.list[game.guessIndex].name)}» за ${game.answers.length} вопросов 😺</h2><p>Попробуешь меня обхитрить?</p>`;
+  screen.innerHTML = `<div class="kicker">Ура!</div><h2>Я угадал «${esc(game.list[game.guessIndex].name)}» за ${questionsText(game.answers.length)} 😺</h2><p>Попробуешь меня обхитрить?</p>`;
   buttons([['Сыграть ещё', () => start(game.mode), 'yes'], ['Сменить режим', showStart, 'alt']]);
   showStats(); meter(false);
 }

@@ -14,7 +14,7 @@
   * { box-sizing: border-box; }
   html, body { height: 100%; }
   body { margin: 0; font-family: Manrope, system-ui, sans-serif; color: var(--text); background: radial-gradient(circle at 50% -10%, #3d326a 0, #181a30 35%, var(--bg) 70%); display: flex; justify-content: center; }
-  .app { width: min(760px, 100%); height: 100%; display: flex; flex-direction: column; padding: 0 16px; }
+  .app { width: min(760px, 100%); height: 100%; height: 100dvh; display: flex; flex-direction: column; padding: 0 16px; }
   header { display: flex; align-items: center; gap: 14px; padding: 18px 0 14px; border-bottom: 1px solid var(--line); }
   .avatar { width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; font-size: 28px; color: #171329; background: linear-gradient(135deg, #bd8cff, #7b67fc); box-shadow: 0 10px 30px #9d73f755; flex: none; }
   .avatar.small { width: 34px; height: 34px; border-radius: 11px; font-size: 18px; box-shadow: none; }
@@ -78,8 +78,8 @@ const SITE = 'https://baldykovtema.github.io/FreasyGames/';
 const MAKES = 'https://baldykovtema.github.io/Freasy-Makes/';
 const GAMES = [
   {
-    id: 'memecat', name: 'Мемный Кот: Прыг', url: SITE + 'memecat/', genre: 'раннер', mood: ['сложн', 'быстр', 'динамичн', 'реакц', 'музык', 'кот', 'весел', 'смешн'],
-    keys: ['кот', 'мемн', 'прыг', 'буква а', 'букву а', 'раннер', 'тыгыдык', 'мурчащ', 'мята', 'батут', 'рыбк', 'редактор уров'],
+    id: 'memecat', name: 'Мемный Кот: Прыг', url: SITE + 'memecat/', genre: 'раннер', mood: ['сложн', 'быстр', 'динамичн', 'реакц', 'музык', ' кот ', ' кота ', ' котик', 'весел', 'смешн'],
+    keys: [' кот ', ' кота ', ' коте ', ' котом ', ' котик', 'мемн', 'прыг', 'буква а', 'букву а', 'раннер', 'тыгыдык', 'мурчащ', 'мята', 'батут', 'рыбк', 'редактор уров'],
     about: 'Раннер, где оранжевый кот бежит сам, а ты прыгаешь через красные буквы «А», запрыгиваешь на блоки и подлетаешь на батутах. Три уровня: «Мурчащий старт», «Кошачья мята» и быстрый «Ночной тыгыдык». Ещё есть редактор, где можно построить свой уровень и опубликовать его, и поиск уровней других игроков.',
     how: 'Пробел, стрелка вверх или клик — прыжок, можно просто держать. Буквы «А» трогать нельзя, в блоки сбоку врезаться тоже: на них только запрыгивают сверху. Батут подбрасывает высоко, рыбок собирай для рекорда. Esc — пауза, R — заново.',
     tips: 'Держи кнопку прыжка над длинными рядами букв: кот прыгнет сразу после приземления. После батута не жми лишний раз, он и так долетит. А «Ночной тыгыдык» быстрее остальных, так что сначала разомнись на «Мурчащем старте».',
@@ -104,6 +104,13 @@ const GAMES = [
     about: 'Аркада с яркими разноцветными кубами: открывай их, следи за прогрессом и улучшай свой лучший результат. Есть таблица лидеров, где можно соревноваться с другими игроками.',
     how: 'Открывай кубы и следи за процентом прогресса — чем дальше, тем лучше результат.',
     tips: 'Заглядывай в таблицу лидеров, чтобы понять, до какого результата тянуться.',
+  },
+  {
+    id: 'ugadaykot', name: 'Угадайкот', url: SITE + 'ugadaykot/', genre: 'угадайка', mood: ['угад', 'вопрос', 'мысл', 'подума'],
+    keys: ['угадайкот', 'угадай кот', 'угадайк', 'акинатор', 'угадает'],
+    about: 'Загадай любую игру или разработчика, отвечай на вопросы «да», «нет» или «не знаю» — и кот угадает. Знает игры FreasyGames и десятки известных игр и студий, а если не угадает, запомнит твой ответ.',
+    how: 'Выбери режим: игра или разработчик. Загадай что-нибудь и отвечай на вопросы кнопками «Да», «Скорее да», «Не знаю», «Скорее нет» и «Нет». Если ошибся, жми «Предыдущий вопрос».',
+    tips: 'Отвечай честно и жми «Не знаю», если не уверен. Если кот не угадал, напиши ему ответ — в следующий раз он справится.',
   },
 ];
 
@@ -139,6 +146,7 @@ const norm = (s) => ' ' + s.toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-
 const has = (t, words) => words.some((w) => t.includes(w));
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
 const link = (g) => `[Играть в «${g.name}»](${g.url})`;
+const plural = (n, one, few, many) => (n % 10 === 1 && n % 100 !== 11 ? one : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? few : many);
 
 let riddle = null, lastGame = null;
 
@@ -183,7 +191,7 @@ function reply(raw) {
 
 
   if (has(t, [' какие игры', ' список игр', ' все игры', ' что за игры', ' какие есть', ' сколько игр', ' что есть на', ' игры на сайте', ' что на freasy', ' что на фризи']))
-    return `На FreasyGames сейчас ${GAMES.length} бесплатные игры:\n` + GAMES.map((g) => `• **${g.name}** — ${g.genre}`).join('\n') + `\n\nПро любую могу рассказать подробнее. Весь каталог: [FreasyGames](${SITE})`;
+    return `На FreasyGames сейчас ${GAMES.length} ${plural(GAMES.length, 'бесплатная игра', 'бесплатные игры', 'бесплатных игр')}:\n` + GAMES.map((g) => `• **${g.name}** — ${g.genre}`).join('\n') + `\n\nПро любую могу рассказать подробнее. Весь каталог: [FreasyGames](${SITE})`;
 
   if (has(t, [' посовет', ' во что поиграть', ' что поиграть', ' порекоменд', ' скучно', ' нечего делать', ' какую игру', ' лучшая игра', ' выбери игру'])) {
     const g = GAMES.find((x) => has(t, x.mood)) || pick(GAMES);
@@ -213,7 +221,7 @@ function reply(raw) {
     return `**${game.name}** (${game.genre}). ${game.about}\n${link(game)}\n\nСпроси «как играть?» или «дай совет» — расскажу подробнее.`;
   }
   if (has(t, [' игр', ' поиграть', ' freasy', ' фризи', ' фризик гейм', ' сайт']))
-    return `На FreasyGames есть «Мемный Кот: Прыг», «Шариковый рекорд», «Растения против Зомби» и RCFCG. Спроси про любую или напиши «посоветуй игру».`;
+    return `На FreasyGames есть ${GAMES.map((g) => `«${g.name}»`).join(', ').replace(/, ([^,]+)$/, ' и $1')}. Спроси про любую или напиши «посоветуй игру».`;
 
   if (has(t, [' шутк', ' анекдот', ' рассмеши', ' смешн', ' пошути', ' юмор'])) return pick(JOKES) + ' 😄';
   if (has(t, [' факт', ' интересн', ' удиви', ' знаешь ли'])) return 'Интересный факт: ' + pick(FACTS);
@@ -287,19 +295,19 @@ function add(who, text, save = true) {
   if (save) { history.push([who, text]); persist(); }
 }
 
-let busy = false;
+let busy = false, typingTimer = 0;
 function ask(text) {
   text = text.trim(); if (!text || busy) return;
   add('me', text); input.value = ''; busy = true;
   const answer = reply(text);
   const dots = bubble('bot', '<i></i><i></i><i></i>'); dots.classList.add('typing');
-  setTimeout(() => { dots.remove(); add('bot', answer); busy = false; input.focus(); }, Math.min(1400, 450 + answer.length * 6));
+  typingTimer = setTimeout(() => { dots.remove(); add('bot', answer); busy = false; input.focus(); }, Math.min(1400, 450 + answer.length * 6));
 }
 
 function greet() { add('bot', 'Привет! Я **Фризик**, ИИ-помощник FreasyGames 👋\nЯ знаю всё про игры на сайте, могу посоветовать, во что поиграть, решить пример, пошутить или загадать загадку. Спрашивай!'); }
 
 form.addEventListener('submit', (e) => { e.preventDefault(); ask(input.value); });
-document.getElementById('clearBtn').onclick = () => { history = []; persist(); chat.innerHTML = ''; riddle = null; lastGame = null; greet(); };
+document.getElementById('clearBtn').onclick = () => { clearTimeout(typingTimer); busy = false; history = []; persist(); chat.innerHTML = ''; riddle = null; lastGame = null; greet(); };
 const chips = document.getElementById('chips');
 for (const c of CHIPS) { const b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.textContent = c; b.onclick = () => ask(c); chips.appendChild(b); }
 

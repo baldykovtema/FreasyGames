@@ -7,7 +7,7 @@
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #1b1033; font-family: "Segoe UI", Arial, sans-serif; color: #fff; user-select: none; }
-  canvas { display: block; width: 100vw; height: 100vh; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; -webkit-touch-callout: none; }
   .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 14px; padding: 24px; }
   .screen.on { display: flex; }
   .dim { background: rgba(15, 6, 35, .72); }
@@ -97,6 +97,8 @@
   <span class="sep"></span>
   <span id="tools" class="row"></span>
   <span class="sep"></span>
+  <button class="small alt" id="edLeft" title="Листать влево">◀</button>
+  <button class="small alt" id="edRight" title="Листать вправо">▶</button>
   <input id="edName" maxlength="40" placeholder="Название уровня">
   <select id="edSpeed" title="Скорость">
     <option value="0.85">Медленно</option>
@@ -328,16 +330,18 @@ function tickMusic() {
 /* ================= Отрисовка ================= */
 
 const cv = $('c'), ctx = cv.getContext('2d');
-let W = 0, H = 0, TS = 40;
+let W = 0, H = 0, TS = 40, GY = 120;
 function resize() {
   const dpr = window.devicePixelRatio || 1;
   W = cv.width = Math.floor(innerWidth * dpr); H = cv.height = Math.floor(innerHeight * dpr);
-  TS = H / VIEW_TILES;
+  // На узком экране (телефон вертикально) клетка меньше, иначе кот у правого края и препятствий не видно.
+  TS = Math.min(H / VIEW_TILES, W / 16);
+  GY = GROUND_TILES * TS + (H - VIEW_TILES * TS) * 0.4;
 }
 addEventListener('resize', resize); resize();
 
 function sx(x, camX) { return (x - camX) * TS; }
-function sy(y, camY) { return H - GROUND_TILES * TS + camY * TS - y * TS; }
+function sy(y, camY) { return H - GY + camY * TS - y * TS; }
 
 function drawBackground(theme, camX, camY, time) {
   const th = THEMES[theme];
@@ -354,7 +358,7 @@ function drawBackground(theme, camX, camY, time) {
   ctx.globalAlpha = 0.12;
   for (let i = 0; i < 6; i++) {
     const px = ((i * 640 - camX * TS * 0.45) % (W + 600) + W + 600) % (W + 600) - 300;
-    ctx.beginPath(); ctx.arc(px, H - GROUND_TILES * TS + camY * TS, TS * (3 + (i % 3)), Math.PI, 0); ctx.fill();
+    ctx.beginPath(); ctx.arc(px, H - GY + camY * TS, TS * (3 + (i % 3)), Math.PI, 0); ctx.fill();
   }
   ctx.globalAlpha = 1;
   const gy = sy(0, camY);
@@ -471,6 +475,8 @@ function startGame(lv, src, extra = {}) {
   game = { lv, src, run: newRun(), attempt: 1, deadT: 0, paused: false, won: false, camY: 0, rot: 0, word: '', best: 0, ...extra };
   game.run.ev = [];
   particles = []; acc = 0; holding = false;
+  // Иначе пробел для прыжка «нажимает» кнопку, которая осталась в фокусе.
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   setMode('play');
   startMusic(THEMES[lv.theme].bass);
 }
@@ -554,9 +560,11 @@ function renderPlay(dt) {
     ctx.fillStyle = '#ffd23f'; ctx.fillText(g.word, W / 2, H * 0.4);
   }
   if (g.attempt && r.x < 10) {
+    // На узком экране подсказка ближе к коту, чтобы не обрезалась справа.
+    const hintX = Math.min(8, W / TS / 2 - 6);
     ctx.font = `800 ${TS * 0.7}px "Segoe UI", Arial, sans-serif`; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,.85)';
-    ctx.fillText(`Попытка ${g.attempt}`, sx(8, camX), sy(5, g.camY));
-    if (g.attempt === 1 && g.src === 'builtin' && g.idx === 0) ctx.fillText('Пробел, ↑ или клик — прыжок', sx(8, camX), sy(4, g.camY));
+    ctx.fillText(`Попытка ${g.attempt}`, sx(hintX, camX), sy(5, g.camY));
+    if (g.attempt === 1 && g.src === 'builtin' && g.idx === 0) ctx.fillText('Пробел, ↑ или клик — прыжок', sx(hintX, camX), sy(4, g.camY));
   }
 }
 
@@ -600,7 +608,7 @@ function editCell(x, y, button) {
 
 function cellAt(e) {
   const dpr = window.devicePixelRatio || 1, px = e.clientX * dpr, py = e.clientY * dpr;
-  return { x: Math.floor(px / TS + editor.camX), y: Math.floor((H - GROUND_TILES * TS - py) / TS) };
+  return { x: Math.floor(px / TS + editor.camX), y: Math.floor((H - GY - py) / TS) };
 }
 
 function renderEditor() {
@@ -637,6 +645,9 @@ selectTool('B');
 $('edName').addEventListener('input', (e) => { editor.name = e.target.value; saveDraft(); });
 $('edSpeed').addEventListener('change', (e) => { editor.speed = +e.target.value; editor.verified = false; saveDraft(); });
 $('edExit').onclick = () => setMode('menu');
+// На телефоне нет колеса и стрелок, поэтому листаем кнопками.
+$('edLeft').onclick = () => { editor.camX = Math.max(-2, editor.camX - 5); };
+$('edRight').onclick = () => { editor.camX = Math.min(MAX_LEN, editor.camX + 5); };
 $('edClear').onclick = () => { if (confirm('Удалить все объекты?')) { editor.cells.clear(); editor.verified = false; saveDraft(); } };
 $('edTest').onclick = () => startGame(editorLevel(), 'editor');
 $('edPublish').onclick = publishLevel;
@@ -831,7 +842,7 @@ function pause(on) {
   game.paused = on; holding = false; show(on ? 'pause' : null);
   if (on) stopMusic(); else if (!game.run.dead) startMusic(THEMES[game.lv.theme].bass);
 }
-$('pauseBtn').onclick = () => pause(true);
+$('pauseBtn').onclick = (e) => { e.currentTarget.blur(); pause(true); };
 $('resumeBtn').onclick = () => pause(false);
 $('restartBtn').onclick = () => { game.paused = false; game.attempt = 0; restart(); };
 $('quitBtn').onclick = quitGame;
@@ -840,19 +851,23 @@ $('winQuitBtn').onclick = quitGame;
 
 const JUMP_KEYS = ['Space', 'ArrowUp', 'KeyW'];
 addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'INPUT') return;
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
   if (mode === 'play') {
     if (JUMP_KEYS.includes(e.code)) { holding = true; e.preventDefault(); }
     else if (e.code === 'Escape') pause(!game.paused);
     else if (e.code === 'KeyR' && !game.won) { game.paused = false; restart(); }
   } else if (mode === 'editor') {
-    if (e.code === 'ArrowRight') editor.camX += 3;
+    if (e.code === 'ArrowRight') editor.camX = Math.min(MAX_LEN, editor.camX + 3);
     else if (e.code === 'ArrowLeft') editor.camX = Math.max(-2, editor.camX - 3);
     else if (/^Digit[1-5]$/.test(e.code)) selectTool(TOOLS[+e.code.slice(5) - 1][0]);
     else if (e.code === 'Escape') setMode('menu');
   } else if (e.code === 'Escape') show('menu');
 });
-addEventListener('keyup', (e) => { if (JUMP_KEYS.includes(e.code)) holding = false; });
+addEventListener('keyup', (e) => {
+  if (!JUMP_KEYS.includes(e.code)) return;
+  holding = false;
+  if (mode === 'play' && e.target.tagName === 'BUTTON') e.preventDefault();
+});
 addEventListener('blur', () => { holding = false; if (mode === 'play') pause(true); });
 
 cv.addEventListener('contextmenu', (e) => e.preventDefault());
