@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Звёздная башня — FreasyGames</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #111321; color: #f8f7ff; font-family: Manrope, system-ui, sans-serif; }
+  body { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  .hud { position: fixed; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; pointer-events: none; }
+  .hud a, .hud button { pointer-events: auto; }
+  .back { color: #d1cde5; font-size: 13px; font-weight: 700; padding: 9px 14px; border: 1px solid #ffffff24; border-radius: 100px; text-decoration: none; background: #11132199; backdrop-filter: blur(6px); }
+  .sound { font: inherit; color: #d1cde5; font-size: 16px; width: 40px; height: 40px; border: 1px solid #ffffff24; border-radius: 50%; background: #11132199; cursor: pointer; }
+  .score { position: fixed; top: 70px; left: 0; right: 0; text-align: center; pointer-events: none; }
+  .score b { display: block; font-size: 72px; font-weight: 800; letter-spacing: -.05em; line-height: 1; text-shadow: 0 6px 30px #0008; }
+  .score span { color: #bca0ff; font-size: 13px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+  .screen { position: fixed; inset: 0; display: grid; place-items: center; padding: 20px; background: #0b0c18b0; backdrop-filter: blur(3px); }
+  .screen[hidden] { display: none; }
+  .box { width: min(400px, 100%); text-align: center; background: #1d1e31; border: 1px solid #b79aff80; border-radius: 28px; padding: 30px 26px; box-shadow: 0 30px 80px #0009; }
+  .eyebrow { display: inline-block; color: #d9c9ff; border: 1px solid #a98aff55; background: #a98aff14; border-radius: 100px; padding: 7px 14px; font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+  h1 { margin: 16px 0 8px; font-size: 40px; line-height: 1.05; letter-spacing: -.06em; }
+  h1 span { color: #bc9cff; }
+  p { margin: 0 0 8px; color: #b9b6c9; font-size: 15px; line-height: 1.6; }
+  .big { font-size: 64px; font-weight: 800; letter-spacing: -.05em; margin: 4px 0; }
+  .play { margin-top: 18px; width: 100%; font: inherit; font-size: 16px; font-weight: 800; color: #171225; background: #bca0ff; border: 0; border-radius: 14px; padding: 15px; cursor: pointer; box-shadow: 0 12px 35px #a178f840; }
+  .play:hover { background: #d3beff; }
+  .hint { margin-top: 14px; color: #89879e; font-size: 12px; }
+  .new { color: #5df2a5; font-weight: 800; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div>
+<div class="score" id="scoreBox" hidden><b id="score">0</b><span id="combo">&nbsp;</span></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ Новая игра</div>
+    <h1>Звёздная <span>башня</span></h1>
+    <p>Плита ездит туда-сюда. Нажми, чтобы поставить её на башню, — всё, что свисает, отвалится.</p>
+    <p>Ставь ровно: три «Идеально!» подряд снова расширяют плиту.</p>
+    <p>Рекорд: <b id="bestStart">0</b></p>
+    <button class="play" id="go" type="button">Строить ↗</button>
+    <div class="hint">Тап по экрану, клик или пробел</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow">Башня упала</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">этажей</p>
+    <p>Рекорд: <b id="bestOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <div class="hint">или нажми пробел</div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  const $ = (id) => document.getElementById(id);
+  let W = 0, H = 0, DPR = 1;
+
+  // World units: the tower base is 1 wide in the middle of the screen, floors are FLOOR tall.
+  const FLOOR = 0.16, PERFECT = 0.018, GROW = 0.06, MAX_WIDTH = 1;
+  let unit = 1; // pixels per world unit
+
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  let best = Number(store.get('bashnya-best', 0)) || 0;
+  let muted = store.get('bashnya-muted', '0') === '1';
+
+  let state = 'start', stack, moving, pieces, sparks, texts, camY, combo, score, time = 0, lastT = 0, shake = 0;
+
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    unit = Math.min(W * 0.6, H * 0.45, 400);
+  }
+
+  // Each floor gets its own colour that slowly walks around the colour wheel.
+  const hue = (i) => (265 + i * 9) % 360;
+
+  function reset() {
+    stack = [{ x: 0, w: MAX_WIDTH, i: 0 }];
+    for (let i = 1; i < 4; i++) stack.unshift({ x: 0, w: MAX_WIDTH, i: -i });
+    stack.sort((a, b) => a.i - b.i);
+    pieces = []; sparks = []; texts = []; combo = 0; score = 0; camY = 0; shake = 0;
+    spawn();
+    $('score').textContent = '0'; $('combo').innerHTML = '&nbsp;';
+  }
+
+  function top() { return stack[stack.length - 1]; }
+
+  function spawn() {
+    const t = top(), from = score % 2 ? 1 : -1;
+    const speed = Math.min(1.9, 0.75 + score * 0.035);
+    moving = { x: from * 1.25, w: t.w, i: t.i + 1, dir: -from, speed };
+  }
+
+  // Moves the slab to where it is at `now`, so a tap between frames lands exactly where the slab was.
+  let lastMove = 0;
+  function move(now) {
+    const dt = Math.max(0, (now - lastMove) / 1000); lastMove = now;
+    if (state !== 'play') return;
+    const m = moving;
+    m.x += m.dir * m.speed * dt;
+    while (Math.abs(m.x) > 1.25) { m.x = Math.sign(m.x) * 2.5 - m.x; m.dir = -m.dir; }
+  }
+  // After the tab was hidden the slab continues from where it was.
+  document.addEventListener('visibilitychange', () => { lastMove = performance.now(); });
+
+  function drop() {
+    if (state !== 'play') return;
+    move(performance.now());
+    const t = top(), m = moving, diff = m.x - t.x;
+    if (Math.abs(diff) >= t.w) {
+      // Missed the tower completely.
+      pieces.push({ x: m.x, w: m.w, i: m.i, y: m.i * FLOOR, vy: 0, vx: m.dir * 0.2, rot: 0, vr: m.dir * 1.5 });
+      sound('fail'); shake = 0.4; return gameOver();
+    }
+    let x, w;
+    if (Math.abs(diff) <= PERFECT) {
+      combo++;
+      x = t.x; w = t.w;
+      if (combo >= 3) w = Math.min(MAX_WIDTH, w + GROW);
+      sound('perfect', combo);
+      burst(x, m.i, w);
+      texts.push({ s: combo >= 3 ? `Идеально ×${combo}! Шире!` : combo > 1 ? `Идеально ×${combo}!` : 'Идеально!', i: m.i, life: 1 });
+    } else {
+      combo = 0;
+      const left = Math.max(m.x - m.w / 2, t.x - t.w / 2), right = Math.min(m.x + m.w / 2, t.x + t.w / 2);
+      w = right - left; x = (left + right) / 2;
+      // The cut-off part falls.
+      const cutW = m.w - w, cutX = diff > 0 ? right + cutW / 2 : left - cutW / 2;
+      pieces.push({ x: cutX, w: cutW, i: m.i, y: m.i * FLOOR, vy: 0, vx: Math.sign(diff) * 0.25, rot: 0, vr: Math.sign(diff) * 2.4 });
+      sound('place');
+    }
+    stack.push({ x, w, i: m.i });
+    if (stack.length > 60) stack.shift();
+    score++;
+    $('score').textContent = score;
+    $('combo').textContent = combo > 1 ? `комбо ×${combo}` : ' ';
+    spawn();
+  }
+
+  function burst(x, i, w) {
+    for (let k = 0; k < 18; k++) sparks.push({ x: x + (Math.random() - 0.5) * w, y: i * FLOOR + FLOOR, vx: (Math.random() - 0.5) * 0.8, vy: Math.random() * 0.9 + 0.3, life: 1 });
+  }
+
+  function gameOver() {
+    state = 'over';
+    const record = score > best;
+    if (record) { best = score; store.set('bashnya-best', best); }
+    setTimeout(() => {
+      if (state !== 'over') return;
+      $('final').textContent = score;
+      $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + floors(score);
+      $('bestOver').textContent = best;
+      $('over').hidden = false;
+    }, 900);
+  }
+  const floors = (n) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? 'этаж' : a >= 2 && a <= 4 && (b < 12 || b > 14) ? 'этажа' : 'этажей'; };
+
+  function start() {
+    reset(); state = 'play'; lastMove = performance.now();
+    $('start').hidden = true; $('over').hidden = true; $('scoreBox').hidden = false;
+    unlockAudio();
+  }
+
+  // Sound: a small WebAudio synth, started on the first tap.
+  let ac = null;
+  function unlockAudio() { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (ac && ac.state === 'suspended') ac.resume(); }
+  function tone(f, dur, type, vol, slide = 1, delay = 0) {
+    if (!ac || muted) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t);
+    if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function sound(kind, n = 0) {
+    if (kind === 'place') { tone(220 + Math.min(score, 40) * 6, 0.12, 'triangle', 0.18); tone(90, 0.1, 'sine', 0.2, 0.5); }
+    else if (kind === 'perfect') { const base = 523 * Math.pow(2, Math.min(n - 1, 12) / 12); tone(base, 0.18, 'triangle', 0.16); tone(base * 1.5, 0.22, 'sine', 0.1, 1, 0.06); }
+    else if (kind === 'fail') { tone(300, 0.5, 'sawtooth', 0.12, 0.3); tone(80, 0.4, 'sine', 0.25, 0.5); }
+  }
+
+  // Screen position of a world point: x from the centre, y up from the base line.
+  const baseY = () => H * 0.7;
+  const sx = (x) => W / 2 + x * unit;
+  const sy = (y) => baseY() - (y - camY) * unit;
+
+  function slab(x, w, i, y = i * FLOOR, alpha = 1, rot = 0) {
+    const px = sx(x), py = sy(y + FLOOR), pw = w * unit, ph = FLOOR * unit, h = hue(i);
+    ctx.save(); ctx.globalAlpha = alpha; ctx.translate(px, py + ph / 2); ctx.rotate(rot);
+    const g = ctx.createLinearGradient(0, -ph / 2, 0, ph / 2);
+    g.addColorStop(0, `hsl(${h} 85% 72%)`); g.addColorStop(1, `hsl(${h} 70% 52%)`);
+    ctx.fillStyle = g; ctx.beginPath(); ctx.roundRect(-pw / 2, -ph / 2, pw, ph, Math.min(8, ph * 0.25)); ctx.fill();
+    ctx.fillStyle = `hsl(${h} 100% 88% / .55)`; ctx.fillRect(-pw / 2 + 6, -ph / 2 + 3, Math.max(0, pw - 12), 3);
+    // Windows give the floors a building feel.
+    ctx.fillStyle = `hsl(${h} 60% 30% / .35)`;
+    const n = Math.floor(pw / 26);
+    for (let k = 0; k < n; k++) ctx.fillRect(-pw / 2 + (pw - n * 26) / 2 + k * 26 + 8, -ph * 0.12, 10, ph * 0.34);
+    ctx.restore();
+  }
+
+  const starField = Array.from({ length: 90 }, (_, i) => ({ x: Math.random(), y: Math.random() * 30, s: Math.random() * 1.6 + 0.4, p: i }));
+  function background() {
+    // From an evening sky to deep space as the tower grows.
+    const k = Math.min(1, camY / 6);
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, `hsl(250 ${45 - k * 20}% ${22 - k * 14}%)`);
+    g.addColorStop(1, `hsl(${280 - k * 40} ${40 - k * 15}% ${14 - k * 8}%)`);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    for (const st of starField) {
+      const y = ((st.y - camY * 0.35) % 3 + 3) % 3 / 3 * H * 1.2 - H * 0.1;
+      ctx.globalAlpha = (0.25 + k * 0.6) * (0.6 + 0.4 * Math.sin(time * 2 + st.p));
+      ctx.fillStyle = '#e7dcff'; ctx.beginPath(); ctx.arc(st.x * W, H - y, st.s, 0, 7); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    // Ground.
+    const gy = sy(-3 * FLOOR);
+    if (gy < H) { ctx.fillStyle = '#1d1e31'; ctx.fillRect(0, gy, W, H - gy); ctx.fillStyle = '#b79aff40'; ctx.fillRect(0, gy, W, 2); }
+  }
+
+  function frame(now) {
+    const dt = Math.min(0.05, (now - lastT) / 1000 || 0); lastT = now; time += dt;
+    move(performance.now());
+    // Keep the top of the tower around the middle of the screen.
+    const target = Math.max(0, (top().i + 1) * FLOOR - 0.55);
+    camY += (target - camY) * Math.min(1, dt * 5);
+
+    for (const p of pieces) { p.vy -= 3.2 * dt; p.y += p.vy * dt; p.x += p.vx * dt; p.rot += p.vr * dt; }
+    pieces = pieces.filter((p) => sy(p.y) < H + 200);
+    for (const s of sparks) { s.vy -= 1.2 * dt; s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt * 1.4; }
+    sparks = sparks.filter((s) => s.life > 0);
+    for (const t of texts) t.life -= dt * 0.9;
+    texts = texts.filter((t) => t.life > 0);
+    shake = Math.max(0, shake - dt);
+
+    background();
+    ctx.save();
+    if (shake) ctx.translate((Math.random() - 0.5) * 14 * shake, (Math.random() - 0.5) * 14 * shake);
+    for (const s of stack) if (sy(s.i * FLOOR) > -50) slab(s.x, s.w, s.i);
+    for (const p of pieces) slab(p.x, p.w, p.i, p.y, 1, p.rot);
+    if (state === 'play') {
+      const m = moving;
+      // A faint guide shows where the slab would land.
+      ctx.fillStyle = '#ffffff10'; ctx.fillRect(sx(top().x - top().w / 2), sy(m.i * FLOOR + FLOOR), top().w * unit, FLOOR * unit);
+      slab(m.x, m.w, m.i);
+    }
+    for (const s of sparks) {
+      ctx.globalAlpha = s.life; ctx.fillStyle = '#fff1a8';
+      ctx.font = `800 ${10 + s.life * 10}px Manrope`; ctx.textAlign = 'center'; ctx.fillText('✦', sx(s.x), sy(s.y));
+    }
+    ctx.globalAlpha = 1;
+    for (const t of texts) {
+      ctx.globalAlpha = Math.min(1, t.life * 2); ctx.fillStyle = '#5df2a5';
+      ctx.font = '800 22px Manrope'; ctx.textAlign = 'center';
+      ctx.fillText(t.s, W / 2, sy(t.i * FLOOR + FLOOR) - 20 - (1 - t.life) * 50);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+    requestAnimationFrame(frame);
+  }
+
+  function press(e) {
+    if (e.target.closest && e.target.closest('a, button')) return;
+    e.preventDefault();
+    if (state === 'play') drop();
+  }
+  cv.addEventListener('pointerdown', press);
+  addEventListener('keydown', (e) => {
+    if (e.code !== 'Space' && e.code !== 'Enter') return;
+    e.preventDefault();
+    if (state === 'play') drop(); else if (!$('start').hidden || !$('over').hidden) start();
+  });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('bashnya-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; });
+  $('bestStart').textContent = best;
+
+  addEventListener('resize', resize);
+  resize(); reset(); state = 'start';
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
