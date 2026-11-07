@@ -32,6 +32,35 @@
   .play:hover { background: #d3beff; }
   .hint { margin-top: 14px; color: #89879e; font-size: 12px; }
   .new { color: #5df2a5; font-weight: 800; }
+  .ghost { margin-top: 10px; width: 100%; font: inherit; font-size: 14px; font-weight: 700; color: #d1cde5; background: none; border: 1px solid #ffffff2e; border-radius: 14px; padding: 12px; cursor: pointer; }
+  .ghost:hover { background: #ffffff14; }
+  .small { font-size: 13px; color: #89879e; margin-top: 10px; }
+  .modal { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 16px; background: #0b0c18d0; backdrop-filter: blur(4px); user-select: text; -webkit-user-select: text; touch-action: auto; }
+  .modal[hidden] { display: none; }
+  .sheet { width: min(440px, 100%); max-height: calc(100vh - 32px); overflow: auto; background: #1d1e31; border: 1px solid #b79aff80; border-radius: 28px; padding: 22px; box-shadow: 0 30px 80px #0009; }
+  .sheet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .sheet-head h2 { margin: 0; font-size: 26px; letter-spacing: -.05em; }
+  .x { font: inherit; font-size: 22px; color: #d1cde5; width: 38px; height: 38px; border: 1px solid #ffffff24; border-radius: 50%; background: none; cursor: pointer; }
+  .tabs { display: flex; gap: 6px; background: #15162a; border-radius: 14px; padding: 4px; }
+  .tabs button { flex: 1; font: inherit; font-size: 14px; font-weight: 800; color: #b9b6c9; background: none; border: 0; border-radius: 10px; padding: 10px; cursor: pointer; }
+  .tabs button.on { background: #bca0ff; color: #171225; }
+  .board-note { font-size: 13px; color: #89879e; margin: 10px 2px 6px; }
+  #board { list-style: none; margin: 0; padding: 0; counter-reset: r; }
+  #board li { counter-increment: r; display: flex; gap: 10px; align-items: center; padding: 10px; border-bottom: 1px solid #ffffff0d; font-size: 15px; font-weight: 700; }
+  #board li::before { content: counter(r); width: 24px; color: #89879e; font-size: 13px; }
+  #board li:nth-child(-n+3)::before { color: #ffd23f; }
+  #board li b { margin-left: auto; color: #bca0ff; font-variant-numeric: tabular-nums; }
+  #board li.me { background: #bca0ff1f; border-radius: 12px; }
+  .msg { min-height: 20px; color: #ffd27a; font-size: 13px; margin: 8px 2px; }
+  .account { margin-top: 14px; padding-top: 14px; border-top: 1px solid #ffffff14; }
+  .account p { font-size: 13px; }
+  .account input { width: 100%; font: inherit; font-size: 15px; color: #f8f7ff; background: #15162a; border: 1px solid #ffffff24; border-radius: 12px; padding: 12px 14px; margin: 4px 0; }
+  .account input:focus { outline: 2px solid #bca0ff; outline-offset: 1px; }
+  .auth-buttons { display: flex; gap: 8px; }
+  .auth-buttons .play, .auth-buttons .ghost { margin-top: 4px; padding: 12px; font-size: 14px; }
+  #meBox { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 14px; font-weight: 700; }
+  #meBox[hidden], #authForm[hidden] { display: none; }
+  #meBox .ghost { width: auto; margin: 0; padding: 9px 14px; }
 </style>
 </head>
 <body>
@@ -45,8 +74,10 @@
     <h1>Звёздная <span>башня</span></h1>
     <p>Плита ездит туда-сюда. Нажми, чтобы поставить её на башню, — всё, что свисает, отвалится.</p>
     <p>Ставь ровно: три «Идеально!» подряд снова расширяют плиту.</p>
-    <p>Рекорд: <b id="bestStart">0</b></p>
+    <p>Не тяни: после двух проездов плита падает сама.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · дольше всего: <b id="bestTimeStart">00:00</b></p>
     <button class="play" id="go" type="button">Строить ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
     <div class="hint">Тап по экрану, клик или пробел</div>
   </div>
 </div>
@@ -56,9 +87,31 @@
     <div class="eyebrow">Башня упала</div>
     <div class="big" id="final">0</div>
     <p id="overText">этажей</p>
-    <p>Рекорд: <b id="bestOver">0</b></p>
+    <p>Время: <b id="timeOver">00:00</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · дольше всего: <b id="bestTimeOver">00:00</b></p>
     <button class="play" id="again" type="button">Ещё раз ↗</button>
-    <div class="hint">или нажми пробел</div>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<div class="modal" id="leaders" hidden>
+  <div class="sheet" role="dialog" aria-labelledby="leadersTitle">
+    <div class="sheet-head"><h2 id="leadersTitle">🏆 Лидеры</h2><button class="x" id="leadersClose" type="button" aria-label="Закрыть">×</button></div>
+    <div class="tabs"><button type="button" data-board="floors" class="on">Рекорд</button><button type="button" data-board="time">Время</button></div>
+    <p class="board-note" id="boardNote"></p>
+    <ol id="board"></ol>
+    <div class="msg" id="boardMsg"></div>
+    <div class="account">
+      <div id="meBox" hidden><span id="meText"></span><button class="ghost" id="logoutBtn" type="button">Выйти</button></div>
+      <form id="authForm" autocomplete="on">
+        <p>Войди, чтобы попасть в таблицу. Подходит аккаунт из других игр FreasyGames, почта не нужна.</p>
+        <input id="authName" maxlength="30" placeholder="Ник (A-Z, 0-9, _)" autocomplete="username" autocapitalize="off" spellcheck="false">
+        <input id="authPass" type="password" placeholder="Пароль (от 6 символов)" autocomplete="current-password">
+        <div class="msg" id="authMsg"></div>
+        <div class="auth-buttons"><button class="play" type="submit">Войти</button><button class="ghost" type="button" id="registerBtn">Регистрация</button></div>
+      </form>
+    </div>
   </div>
 </div>
 
@@ -74,9 +127,12 @@
 
   const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
   let best = Number(store.get('bashnya-best', 0)) || 0;
+  let bestTime = Number(store.get('bashnya-best-time', 0)) || 0;
   let muted = store.get('bashnya-muted', '0') === '1';
+  const clock = (t) => `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 
-  let state = 'start', stack, moving, pieces, sparks, texts, camY, combo, score, time = 0, lastT = 0, shake = 0;
+  // playTime counts only the seconds the game was actually running, for the time leaderboard.
+  let state = 'start', stack, moving, pieces, sparks, texts, camY, combo, score, playTime = 0, time = 0, lastT = 0, shake = 0;
 
   function resize() {
     DPR = Math.min(2, window.devicePixelRatio || 1);
@@ -103,7 +159,7 @@
   function spawn() {
     const t = top(), from = score % 2 ? 1 : -1;
     const speed = Math.min(1.9, 0.75 + score * 0.035);
-    moving = { x: from * 1.25, w: t.w, i: t.i + 1, dir: -from, speed };
+    moving = { x: from * 1.25, w: t.w, i: t.i + 1, dir: -from, speed, bounces: 0 };
   }
 
   // Moves the slab to where it is at `now`, so a tap between frames lands exactly where the slab was.
@@ -112,15 +168,20 @@
     const dt = Math.max(0, (now - lastMove) / 1000); lastMove = now;
     if (state !== 'play') return;
     const m = moving;
+    playTime += Math.min(dt, 1);
     m.x += m.dir * m.speed * dt;
-    while (Math.abs(m.x) > 1.25) { m.x = Math.sign(m.x) * 2.5 - m.x; m.dir = -m.dir; }
+    while (Math.abs(m.x) > 1.25) {
+      // Waiting forever is not allowed: after two full trips the slab drops off the edge by itself.
+      if (++m.bounces >= 4) { m.x = Math.sign(m.x) * 1.25; return drop(true); }
+      m.x = Math.sign(m.x) * 2.5 - m.x; m.dir = -m.dir;
+    }
   }
   // After the tab was hidden the slab continues from where it was.
   document.addEventListener('visibilitychange', () => { lastMove = performance.now(); });
 
-  function drop() {
+  function drop(auto = false) {
     if (state !== 'play') return;
-    move(performance.now());
+    if (!auto) move(performance.now());
     const t = top(), m = moving, diff = m.x - t.x;
     if (Math.abs(diff) >= t.w) {
       // Missed the tower completely.
@@ -158,20 +219,27 @@
 
   function gameOver() {
     state = 'over';
-    const record = score > best;
+    const record = score > best, seconds = Math.floor(playTime);
     if (record) { best = score; store.set('bashnya-best', best); }
+    if (seconds > bestTime) { bestTime = seconds; store.set('bashnya-best-time', bestTime); }
+    online.submit(score, seconds);
     setTimeout(() => {
       if (state !== 'over') return;
       $('final').textContent = score;
       $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + floors(score);
-      $('bestOver').textContent = best;
+      $('timeOver').textContent = clock(seconds);
+      showBests();
       $('over').hidden = false;
     }, 900);
+  }
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('bestTimeStart').textContent = $('bestTimeOver').textContent = clock(bestTime);
   }
   const floors = (n) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? 'этаж' : a >= 2 && a <= 4 && (b < 12 || b > 14) ? 'этажа' : 'этажей'; };
 
   function start() {
-    reset(); state = 'play'; lastMove = performance.now();
+    reset(); state = 'play'; playTime = 0; lastMove = performance.now();
     $('start').hidden = true; $('over').hidden = true; $('scoreBox').hidden = false;
     unlockAudio();
   }
@@ -279,6 +347,7 @@
   }
   cv.addEventListener('pointerdown', press);
   addEventListener('keydown', (e) => {
+    if (!$('leaders').hidden) { if (e.key === 'Escape') online.close(); return; }
     if (e.code !== 'Space' && e.code !== 'Enter') return;
     e.preventDefault();
     if (state === 'play') drop(); else if (!$('start').hidden || !$('over').hidden) start();
@@ -287,7 +356,113 @@
   $('again').addEventListener('click', start);
   $('sound').textContent = muted ? '🔇' : '🔊';
   $('sound').addEventListener('click', () => { muted = !muted; store.set('bashnya-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; });
-  $('bestStart').textContent = best;
+
+  // Accounts and leaderboards. The Supabase project and the nick@pvz-game.com accounts are shared with the other FreasyGames games.
+  const online = (() => {
+    const SB_URL = 'https://ywqxrbmgmvpbeytxjkpi.supabase.co', SB_KEY = 'sb_publishable_igyJK68YpyJYo-0KNrVZPA_rm6_gIRg';
+    const EMAIL_DOMAIN = '@pvz-game.com', OLD_EMAIL_DOMAIN = '@memecat-game.com';
+    const BOARDS = {
+      floors: { query: 'select=user_id,username,best_floors&best_floors=gt.0&order=best_floors.desc,updated_at.asc', value: (r) => `${r.best_floors} ${floors(r.best_floors)}`, note: 'Больше всего этажей за одну игру.' },
+      time: { query: 'select=user_id,username,best_time&best_time=gt.0&order=best_time.desc,updated_at.asc', value: (r) => clock(r.best_time), note: 'Дольше всех продержались в одной игре.' },
+    };
+    const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    let session = null, board = 'floors';
+    try { session = JSON.parse(store.get('bashnya-session', 'null')); } catch { session = null; }
+    function setSession(x) {
+      session = x && x.access_token ? { access_token: x.access_token, refresh_token: x.refresh_token, expires_at: x.expires_at || Math.floor(Date.now() / 1000) + (x.expires_in || 3600), user: x.user } : null;
+      store.set('bashnya-session', JSON.stringify(session));
+    }
+    const username = () => session && session.user && session.user.user_metadata && session.user.user_metadata.username;
+
+    function errorText(data, status) {
+      const raw = (data && (data.msg || data.message || data.error_description || data.error)) || `Ошибка ${status}`;
+      if (/invalid login credentials/i.test(raw)) return 'Неверный ник или пароль';
+      if (/already registered|already exists/i.test(raw)) return 'Такой ник уже занят';
+      if (/bashnya_/.test(raw) || (data && ['PGRST205', 'PGRST202', '42P01'].includes(data.code))) return 'Таблица лидеров ещё не включена на сервере';
+      if (/rate limit/i.test(raw)) return 'Слишком много попыток, подожди немного';
+      return raw;
+    }
+    async function sb(path, { method = 'GET', body, auth = true } = {}) {
+      const headers = { apikey: SB_KEY, 'Content-Type': 'application/json' };
+      if (auth && session) { await refresh(); if (session) headers.Authorization = 'Bearer ' + session.access_token; }
+      let res;
+      try { res = await fetch(SB_URL + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) }); }
+      catch { throw new Error('Нет связи с сервером. Проверь интернет'); }
+      const text = await res.text(); let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch { data = { message: text }; }
+      if (!res.ok) throw new Error(errorText(data, res.status));
+      return data;
+    }
+    async function refresh() {
+      if (!session || session.expires_at * 1000 > Date.now() + 60000) return;
+      try { setSession(await sb('/auth/v1/token?grant_type=refresh_token', { method: 'POST', body: { refresh_token: session.refresh_token }, auth: false })); }
+      catch { setSession(null); }
+    }
+
+    // The server keeps each player's most floors and longest game, so sending the local bests is always safe.
+    async function submit(floorsNow = best, secondsNow = bestTime) {
+      const note = $('onlineNote');
+      if (!session) { note.textContent = 'Войди в «Таблице лидеров», чтобы твои рекорды попали туда.'; return; }
+      if (floorsNow <= 0 && secondsNow <= 0) { note.textContent = ''; return; }
+      note.textContent = 'Отправляем результат…';
+      try {
+        await sb('/rest/v1/rpc/bashnya_submit', { method: 'POST', body: { new_floors: floorsNow, new_time: secondsNow } });
+        note.textContent = `Результат в таблице лидеров как ${username()}`;
+      } catch (e) { note.textContent = e.message; }
+    }
+
+    async function loadBoard() {
+      const list = $('board'), msg = $('boardMsg');
+      $('boardNote').textContent = BOARDS[board].note;
+      document.querySelectorAll('[data-board]').forEach((b) => b.classList.toggle('on', b.dataset.board === board));
+      list.innerHTML = ''; msg.textContent = 'Загружаем…';
+      try {
+        const rows = await sb(`/rest/v1/bashnya_scores?${BOARDS[board].query}&limit=20`, { auth: false });
+        msg.textContent = rows.length ? '' : 'Пока пусто. Стань первым!';
+        list.innerHTML = rows.map((r) => `<li${session && r.user_id === session.user.id ? ' class="me"' : ''}>${esc(r.username)}<b>${BOARDS[board].value(r)}</b></li>`).join('');
+      } catch (e) { msg.textContent = e.message; }
+    }
+
+    function renderAccount() {
+      const inside = !!username();
+      $('meBox').hidden = !inside; $('authForm').hidden = inside;
+      if (inside) $('meText').textContent = `Ты в таблице как ${username()}`;
+    }
+
+    async function auth(kind) {
+      const name = $('authName').value.trim(), pass = $('authPass').value, msg = $('authMsg');
+      if (!/^[A-Za-z0-9_]{3,30}$/.test(name)) { msg.textContent = 'Ник: 3–30 символов, латиница, цифры или _'; return; }
+      if (pass.length < 6) { msg.textContent = 'Пароль должен быть от 6 символов'; return; }
+      msg.textContent = kind === 'signup' ? 'Создаём аккаунт…' : 'Входим…';
+      const login = (email) => sb('/auth/v1/token?grant_type=password', { method: 'POST', body: { email, password: pass }, auth: false });
+      try {
+        const x = kind === 'signup'
+          ? await sb('/auth/v1/signup', { method: 'POST', body: { email: name.toLowerCase() + EMAIL_DOMAIN, password: pass, data: { username: name } }, auth: false })
+          // Old Мемный Кот accounts were made with another address.
+          : await login(name.toLowerCase() + EMAIL_DOMAIN).catch((e) => login(name.toLowerCase() + OLD_EMAIL_DOMAIN).catch(() => { throw e; }));
+        if (!x || !x.access_token) { msg.textContent = 'Аккаунт создан, теперь нажми «Войти»'; return; }
+        setSession(x); $('authPass').value = ''; msg.textContent = '';
+        renderAccount(); await submit(); loadBoard();
+      } catch (e) { msg.textContent = e.message; }
+    }
+
+    function open() { $('leaders').hidden = false; renderAccount(); loadBoard(); }
+    function close() { $('leaders').hidden = true; }
+
+    document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', open));
+    $('leadersClose').addEventListener('click', close);
+    $('leaders').addEventListener('click', (e) => { if (e.target.id === 'leaders') close(); });
+    document.querySelectorAll('[data-board]').forEach((b) => b.addEventListener('click', () => { board = b.dataset.board; loadBoard(); }));
+    $('authForm').addEventListener('submit', (e) => { e.preventDefault(); auth('login'); });
+    $('registerBtn').addEventListener('click', () => auth('signup'));
+    $('logoutBtn').addEventListener('click', async () => {
+      try { await sb('/auth/v1/logout', { method: 'POST' }); } catch { /* выходим локально */ }
+      setSession(null); renderAccount(); loadBoard();
+    });
+    return { submit, open, close };
+  })();
+  showBests();
+  if (best > 0) online.submit();
 
   addEventListener('resize', resize);
   resize(); reset(); state = 'start';
