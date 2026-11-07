@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Молния — FreasyGames</title>
+<meta name="description" content="Молния на FreasyGames: лови мишени, пока они не исчезли, не трогай красные и проверь, у кого самая быстрая реакция.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">⚡ Новая игра</div>
+    <h1><span>Молния</span></h1>
+    <p>Мишени появляются и сжимаются. Нажми на каждую, пока она не исчезла: чем быстрее, тем больше очков.</p>
+    <p>Красные с черепом не трогай. Пропуск или красная мишень — минус жизнь, всего их три.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · лучшая реакция: <b id="bestReactionStart">—</b></p>
+    <button class="play" id="go" type="button">Начать ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Касание или клик мышью</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow">Жизни кончились</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">очков</p>
+    <p>Попаданий: <b id="hitsOver">0</b> · средняя реакция: <b id="reactionOver">—</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · лучшая реакция: <b id="bestReactionOver">—</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script>
+(() => {
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  const $ = (id) => document.getElementById(id);
+  let W = 0, H = 0, DPR = 1, S = 1;
+
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  let best = Number(store.get('molniya-best', 0)) || 0, bestReaction = Number(store.get('molniya-best-reaction', 0)) || 0;
+  // The whole results of the best games, sent after signing in: the server checks score, hits and time together.
+  const runs = (() => { try { return JSON.parse(store.get('molniya-runs', '{}')) || {}; } catch { return {}; } })();
+  let muted = store.get('molniya-muted', '0') === '1';
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const pointsWord = (n) => plural(n, 'очко', 'очка', 'очков');
+  const ms = (v) => (v ? `${v} мс` : '—');
+
+  // The average reaction counts only after this many hits, so one lucky tap is not a record.
+  const MIN_HITS = 10;
+  let state = 'start', targets, parts, popups, score, lives, hits, reactionSum, combo, playTime, spawnIn, time = 0, lastT = 0, shake = 0, flash = 0;
+
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    S = Math.min(W, H);
+  }
+
+  function reset() {
+    targets = []; parts = []; popups = []; score = 0; lives = 3; hits = 0; reactionSum = 0; combo = 0; playTime = 0; spawnIn = 0.6; shake = 0;
+  }
+
+  // Difficulty grows with time: targets come more often, live shorter and red ones appear.
+  const lifeNow = () => Math.max(0.65, 1.6 - playTime * 0.02);
+  const gapNow = () => Math.max(0.3, 0.85 - playTime * 0.014);
+  const bombChance = () => (playTime < 8 ? 0 : Math.min(0.22, 0.08 + playTime * 0.003));
+
+  function spawn() {
+    const r = Math.max(30, S * 0.075);
+    let x, y, tries = 0;
+    do {
+      x = r + 10 + Math.random() * (W - 2 * r - 20);
+      y = 120 + r + Math.random() * (H - 2 * r - 150);
+      tries++;
+    } while (tries < 30 && targets.some((t) => Math.hypot(t.x - x, t.y - y) < t.r + r + 16));
+    targets.push({ x, y, r, age: 0, life: lifeNow(), bomb: Math.random() < bombChance(), hue: 250 + Math.random() * 60 });
+  }
+
+  function step(dt) {
+    playTime += dt;
+    spawnIn -= dt;
+    if (spawnIn <= 0) { spawn(); spawnIn = gapNow() * (0.75 + Math.random() * 0.5); }
+    for (const t of targets) {
+      t.age += dt;
+      if (t.age >= t.life) {
+        t.gone = true;
+        if (!t.bomb) { lose(t.x, t.y, 'Мимо!'); if (state !== 'play') return; }
+      }
+    }
+    targets = targets.filter((t) => !t.gone);
+  }
+
+  function lose(x, y, text) {
+    lives--; combo = 0; shake = 0.35; flash = 1;
+    popups.push({ x, y, text, color: '#ff7a6b', life: 1 });
+    sound('miss');
+    if (lives <= 0) gameOver();
+  }
+
+  function tap(px, py) {
+    if (state !== 'play') return;
+    // The newest target on top wins when two overlap.
+    for (let i = targets.length - 1; i >= 0; i--) {
+      const t = targets[i], r = t.r * radiusK(t);
+      if (Math.hypot(px - t.x, py - t.y) > r + 8) continue;
+      targets.splice(i, 1);
+      if (t.bomb) { burst(t.x, t.y, '#ff5f5f', 26); lose(t.x, t.y, 'Красная!'); return; }
+      const reaction = Math.round(t.age * 1000), fast = 1 - t.age / t.life;
+      combo++; hits++; reactionSum += reaction;
+      const gain = Math.round((10 + 10 * fast) * (1 + Math.min(combo, 20) * 0.05));
+      score += gain;
+      burst(t.x, t.y, `hsl(${t.hue} 90% 75%)`, 16);
+      popups.push({ x: t.x, y: t.y, text: `+${gain} · ${reaction} мс`, color: '#5df2a5', life: 1 });
+      sound('hit', combo);
+      return;
+    }
+    combo = 0;
+  }
+  // Targets shrink as they age, down to 35% of their size.
+  const radiusK = (t) => 1 - 0.65 * Math.min(1, t.age / t.life);
+
+  function burst(x, y, color, n) {
+    for (let k = 0; k < n; k++) {
+      const a = Math.random() * Math.PI * 2, v = 80 + Math.random() * 260;
+      parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, color });
+    }
+  }
+
+  function start() {
+    reset(); state = 'play';
+    $('start').hidden = true; $('over').hidden = true;
+    unlockAudio();
+  }
+
+  function gameOver() {
+    state = 'over';
+    const seconds = Math.floor(playTime), avg = hits >= MIN_HITS ? Math.round(reactionSum / hits) : 0, record = score > best;
+    const run = { new_score: score, new_reaction: avg || null, new_hits: hits, new_time: seconds };
+    if (record) { best = score; store.set('molniya-best', best); runs.score = run; }
+    if (avg && (!bestReaction || avg < bestReaction)) { bestReaction = avg; store.set('molniya-best-reaction', bestReaction); runs.reaction = run; }
+    store.set('molniya-runs', JSON.stringify(runs));
+    lb.submit(run);
+    setTimeout(() => {
+      if (state !== 'over') return;
+      $('final').textContent = score;
+      $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + pointsWord(score);
+      $('hitsOver').textContent = hits;
+      $('reactionOver').textContent = avg ? ms(avg) : hits ? `${Math.round(reactionSum / hits)} мс (нужно ${MIN_HITS} попаданий)` : '—';
+      showBests();
+      $('over').hidden = false;
+    }, 900);
+  }
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('bestReactionStart').textContent = $('bestReactionOver').textContent = ms(bestReaction);
+  }
+
+  // Sound: a small WebAudio synth, started on the first tap.
+  let ac = null;
+  function unlockAudio() { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (ac && ac.state === 'suspended') ac.resume(); }
+  function tone(f, dur, type, vol, slide = 1, delay = 0) {
+    if (!ac || muted) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t);
+    if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function sound(kind, n = 0) {
+    if (kind === 'hit') { const f = 587 * Math.pow(2, Math.min(n, 12) / 12); tone(f, 0.1, 'square', 0.06); tone(f * 1.5, 0.12, 'triangle', 0.08, 1, 0.03); }
+    else if (kind === 'miss') { tone(180, 0.35, 'sawtooth', 0.12, 0.5); tone(60, 0.3, 'sine', 0.25, 0.6); }
+  }
+
+  function draw() {
+    ctx.fillStyle = '#111321'; ctx.fillRect(0, 0, W, H);
+    const g = ctx.createRadialGradient(W / 2, -H * 0.12, 0, W / 2, -H * 0.12, H * 1.05);
+    g.addColorStop(0, '#3d326a'); g.addColorStop(0.31, '#181a30'); g.addColorStop(0.63, '#111321');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    // A faint grid gives the field depth.
+    ctx.strokeStyle = '#ffffff08'; ctx.lineWidth = 1;
+    for (let x = (W / 2) % 60; x < W; x += 60) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = 0; y < H; y += 60) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+    ctx.save();
+    if (shake > 0) ctx.translate((Math.random() - 0.5) * 16 * shake, (Math.random() - 0.5) * 16 * shake);
+    for (const t of targets) {
+      const k = radiusK(t), r = t.r * k, appear = Math.min(1, t.age / 0.12), left = 1 - t.age / t.life;
+      ctx.save(); ctx.translate(t.x, t.y); ctx.scale(appear, appear);
+      // Countdown ring around the target.
+      ctx.strokeStyle = t.bomb ? '#ff7a6b' : '#ffffffaa'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.arc(0, 0, t.r + 8, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * left); ctx.stroke();
+      const fill = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
+      if (t.bomb) { fill.addColorStop(0, '#ff9a8a'); fill.addColorStop(1, '#c8343b'); }
+      else { fill.addColorStop(0, `hsl(${t.hue} 95% 82%)`); fill.addColorStop(1, `hsl(${t.hue} 75% 55%)`); }
+      ctx.shadowColor = t.bomb ? '#ff5f5f' : `hsl(${t.hue} 90% 70%)`; ctx.shadowBlur = 24;
+      ctx.fillStyle = fill; ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.fill();
+      ctx.shadowBlur = 0; ctx.fillStyle = t.bomb ? '#2a0b0e' : '#171225';
+      ctx.font = `800 ${Math.round(r * 0.95)}px Manrope, system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(t.bomb ? '☠' : '⚡', 0, r * 0.04);
+      ctx.restore();
+    }
+    for (const p of parts) { ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, 2 + p.life * 3, 0, 7); ctx.fill(); }
+    ctx.globalAlpha = 1;
+    for (const p of popups) {
+      ctx.globalAlpha = Math.min(1, p.life * 2); ctx.fillStyle = p.color; ctx.font = '800 20px Manrope'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+      ctx.fillText(p.text, p.x, p.y - 30 - (1 - p.life) * 40);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    if (state !== 'start') {
+      ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = '#ffffff'; ctx.font = '800 56px Manrope'; ctx.fillText(score, W / 2, 104);
+      ctx.font = '800 22px Manrope'; ctx.fillStyle = '#ff7a8a';
+      ctx.fillText('♥'.repeat(Math.max(0, lives)) + '♡'.repeat(Math.max(0, 3 - lives)), W / 2, 134);
+      if (combo > 1) { ctx.fillStyle = '#bca0ff'; ctx.font = '800 13px Manrope'; ctx.fillText(`СЕРИЯ ×${combo}`, W / 2, 156); }
+    }
+    if (flash > 0) { ctx.fillStyle = `rgba(255,95,95,${flash * 0.25})`; ctx.fillRect(0, 0, W, H); }
+  }
+
+  function frame(now) {
+    const dt = Math.min(0.1, (now - lastT) / 1000 || 0); lastT = now; time += dt;
+    if (state === 'play') step(dt);
+    for (const p of parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.95; p.vy *= 0.95; p.life -= dt * 1.4; }
+    parts = parts.filter((p) => p.life > 0);
+    for (const p of popups) p.life -= dt * 1.2;
+    popups = popups.filter((p) => p.life > 0);
+    shake = Math.max(0, shake - dt); flash = Math.max(0, flash - dt * 2.5);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'molniya',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за одну игру.', format: (v) => `${v} ${pointsWord(v)}` },
+      { id: 'reaction', title: 'Реакция', column: 'best_reaction', order: 'asc', note: `Самая быстрая средняя реакция за игру (от ${MIN_HITS} попаданий).`, format: ms },
+    ],
+    bests: () => [runs.score, runs.reaction].filter(Boolean),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); tap(e.clientX, e.clientY); });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && state !== 'play' && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); }
+  });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('molniya-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; });
+
+  addEventListener('resize', resize);
+  resize(); reset(); showBests();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
