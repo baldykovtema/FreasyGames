@@ -13,7 +13,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<div class="hud"><a class="back" href="../">← FreasyGames</a><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" id="settings" type="button" aria-label="Настройки">⚙️</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
 
 <div class="screen" id="start">
   <div class="box">
@@ -42,6 +42,7 @@
 </div>
 
 <script src="../shared/leaderboard.js"></script>
+<script src="../shared/multiplayer.js"></script>
 <script>
 (() => {
   const cv = document.getElementById('c'), ctx = cv.getContext('2d');
@@ -58,7 +59,7 @@
   // The world is 100 units wide on every screen (10 units = 1 m), y grows upward.
   // A jump rises JUMP²/2G ≈ 45 units, so a gap between clouds is never more than 38.
   const WORLD = 100, G = 300, JUMP = 165, SPRING = 330, SPEED = 100, R = 5;
-  let state = 'start', p, clouds, stars, topY, camY, maxY, starCount, playTime, input = 0, time = 0, lastT = 0, parts = [], pops = [];
+  let run = 0, state = 'start', p, clouds, stars, topY, camY, maxY, starCount, playTime, input = 0, time = 0, lastT = 0, parts = [], pops = [];
 
   function resize() {
     DPR = Math.min(2, window.devicePixelRatio || 1);
@@ -142,7 +143,7 @@
   }
 
   function start() {
-    reset(); state = 'play'; input = 0;
+    reset(); state = 'play'; run++; input = 0;
     $('start').hidden = true; $('over').hidden = true;
     unlockAudio();
   }
@@ -242,6 +243,20 @@
       ctx.restore();
     }
 
+    // Other players in the room: see-through fluffies at their own height, or an arrow at the edge when out of view.
+    const ghosts = mp.peers().filter((g) => g.s.st === 'play');
+    for (const g of ghosts) {
+      const x = sx(g.s.x), y = sy(g.s.y), r = R * S;
+      if (y < -r || y > H + r) continue;
+      ctx.save(); ctx.globalAlpha = 0.5; ctx.fillStyle = g.color;
+      ctx.beginPath(); for (let k = 0; k < 12; k++) { const a = k / 12 * Math.PI * 2; ctx.arc(x + Math.cos(a) * r * 0.78, y + Math.sin(a) * r * 0.78, r * 0.36, 0, 7); } ctx.fill();
+      ctx.beginPath(); ctx.arc(x, y, r * 0.85, 0, 7); ctx.fill();
+      ctx.fillStyle = '#171225'; for (const e of [-1, 1]) { ctx.beginPath(); ctx.arc(x + e * r * 0.3, y - r * 0.12, r * 0.15, 0, 7); ctx.fill(); }
+      ctx.globalAlpha = 0.9; ctx.textAlign = 'center'; ctx.font = `800 ${Math.round(Math.max(11, S * 3.4))}px Manrope`;
+      ctx.fillText(g.name, x, y - r * 1.5);
+      ctx.restore();
+    }
+
     // The fluffy hero, drawn twice near an edge so wrapping looks seamless.
     if (state !== 'over' || p.y > camY - R * 3) for (const off of [0, -WORLD, WORLD]) {
       const x = sx(p.x + off), y = sy(p.y), r = R * S;
@@ -265,6 +280,15 @@
     ctx.textAlign = 'center';
     for (const q of pops) { ctx.globalAlpha = Math.max(0, q.life); ctx.fillStyle = '#ffd23f'; ctx.font = `800 ${Math.round(Math.max(14, S * 5))}px Manrope`; ctx.fillText(q.text, q.x, q.y - (1 - q.life) * 40); }
     ctx.globalAlpha = 1;
+
+    for (const g of ghosts) {
+      const y = sy(g.s.y);
+      if (y >= -R * S && y <= H + R * S) continue;
+      const up = y < 0, x = Math.max(colX + 40, Math.min(colX + colW - 40, sx(g.s.x))), ay = up ? 150 : H - 26;
+      ctx.globalAlpha = 0.9; ctx.fillStyle = g.color; ctx.textAlign = 'center'; ctx.font = `800 ${Math.round(Math.max(11, S * 3.2))}px Manrope`;
+      ctx.fillText(`${up ? '▲' : '▼'} ${g.name} · ${Math.floor(g.s.h)} м`, x, ay);
+      ctx.globalAlpha = 1;
+    }
 
     if (state !== 'start') {
       ctx.shadowColor = '#171225'; ctx.shadowBlur = 12;
@@ -291,6 +315,7 @@
     for (const q of parts) { q.x += q.vx * dt; q.y -= q.vy * dt; q.vx *= 0.96; q.vy *= 0.96; q.life -= dt * 1.4; }
     for (const q of pops) q.life -= dt * 1.4;
     parts = parts.filter((q) => q.life > 0); pops = pops.filter((q) => q.life > 0);
+    mp.send({ st: state, run, x: p.x, y: p.y, h: height(), stars: starCount });
     draw();
     requestAnimationFrame(frame);
   }
@@ -305,6 +330,12 @@
     onStatus: (text) => { $('onlineNote').textContent = text; },
   });
 
+  const mp = FreasyMultiplayer({
+    key: 'oblaka', sessionKey: 'oblaka-session', wrap: { x: WORLD },
+    describe: (s) => (s.st === 'play' ? `${s.h} м · ✦ ${s.stars}` : s.st === 'over' ? `упал на ${s.h} м` : 'ждёт'),
+  });
+  $('settings').addEventListener('click', () => mp.openSettings());
+
   // Holding a half of the screen moves that way; several fingers count by the last one.
   const held = new Map();
   const side = (x) => (x < W / 2 ? -1 : 1);
@@ -317,6 +348,7 @@
   const KEYS = { ArrowLeft: 'L', KeyA: 'L', ArrowRight: 'R', KeyD: 'R' };
   addEventListener('keydown', (e) => {
     if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (mp.settingsOpen()) return;
     if (KEYS[e.code]) { e.preventDefault(); down.add(KEYS[e.code]); if (!held.size) input = keys(); return; }
     if ((e.code === 'Space' || e.code === 'Enter') && state !== 'play' && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); }
   });

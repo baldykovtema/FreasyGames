@@ -63,6 +63,7 @@
   <button data-go="editor">Редактор</button>
   <button data-go="search">Поиск уровней</button>
   <button class="alt" data-go="account" id="accBtn">Аккаунт</button>
+  <button class="alt" id="settingsBtn">Настройки</button>
   <button class="alt small" id="muteBtn">Звук: вкл</button>
 </div>
 
@@ -155,6 +156,7 @@
 
 <div id="toast"></div>
 
+<script src="../shared/multiplayer.js"></script>
 <script>
 'use strict';
 
@@ -552,6 +554,7 @@ function renderPlay(dt) {
   const g = game, r = g.run, camX = r.x - 6;
   drawBackground(g.lv.theme, camX, g.camY, time);
   drawLevel(g.lv, camX, g.camY, time);
+  drawGhosts(camX, g.camY);
   if (!r.dead) drawCat(sx(r.x + P / 2, camX), sy(r.y + P / 2, g.camY), P * TS, g.rot, 'ok');
   drawParticles(dt, camX, g.camY);
   if (r.dead) {
@@ -566,6 +569,29 @@ function renderPlay(dt) {
     ctx.fillText(`Попытка ${g.attempt}`, sx(hintX, camX), sy(5, g.camY));
     if (g.attempt === 1 && g.src === 'builtin' && g.idx === 0) ctx.fillText('Пробел, ↑ или клик — прыжок', sx(hintX, camX), sy(4, g.camY));
   }
+}
+
+// Other players in the room who play the same level run next to you as see-through cats.
+function drawGhosts(camX, camY) {
+  if (!game.lid) return;
+  for (const p of mp.peers()) {
+    const s = p.s;
+    if (s.st !== 'play' || s.lv !== game.lid || s.dead) continue;
+    const x = sx(s.x + P / 2, camX), y = sy(s.y + P / 2, camY);
+    if (x < -TS * 2 || x > W + TS * 2) continue;
+    ctx.save(); ctx.globalAlpha = 0.45; drawCat(x, y, P * TS, s.rot, 'ok'); ctx.restore();
+    ctx.font = `800 ${Math.max(12, TS * 0.38)}px "Segoe UI", Arial, sans-serif`; ctx.textAlign = 'center';
+    ctx.lineWidth = Math.max(3, TS * 0.08); ctx.strokeStyle = 'rgba(20,8,42,.8)'; ctx.strokeText(p.name, x, y - TS * 0.85);
+    ctx.fillStyle = p.color; ctx.fillText(p.name, x, y - TS * 0.85);
+  }
+}
+
+function mpState() {
+  if (mode === 'play' && game) {
+    const r = game.run;
+    return { st: 'play', lv: game.lid || '', ln: game.lv.name || '', run: game.attempt, x: r.x, y: r.y, rot: game.rot, pct: game.won ? 100 : percent(), dead: r.dead ? 1 : 0, won: game.won ? 1 : 0 };
+  }
+  return { st: mode === 'editor' ? 'edit' : 'menu' };
 }
 
 function renderMenu(dt) {
@@ -784,10 +810,21 @@ async function playOnline(id, btn) {
     if (!rows.length) throw new Error('Уровень удалён');
     const lv = prepare({ ...sanitize(rows[0].data), name: rows[0].name, theme: 2 });
     sbFetch('/rest/v1/rpc/catjump_played', { method: 'POST', body: { level_id: id } }).catch(() => {});
-    startGame(lv, 'online');
+    startGame(lv, 'online', { lid: 'o' + id });
   } catch (e) { toast(e.message); }
   btn.disabled = false;
 }
+
+/* ================= Мультиплеер ================= */
+
+const mp = FreasyMultiplayer({
+  key: 'catjump', sessionKey: 'catjump-session', boardTop: 64,
+  describe: (s) => {
+    if (s.st === 'play') { const n = String(s.ln || 'Уровень'); return `${n.length > 14 ? n.slice(0, 13) + '…' : n} · ${s.won ? '✓' : Math.floor(s.pct) + '%'}`; }
+    return s.st === 'edit' ? 'в редакторе' : 'в меню';
+  },
+});
+$('settingsBtn').onclick = () => { audio(); mp.openSettings(); };
 
 /* ================= Экраны и ввод ================= */
 
@@ -808,7 +845,7 @@ function openLevels() {
     const p = progress[i] || { best: 0, fish: 0 };
     const card = document.createElement('div'); card.className = 'card';
     card.innerHTML = `<b>${i + 1}. ${esc(lv.name)}</b><span>${lv.diff}</span><div class="bar"><i style="width:${p.best}%"></i></div><small>Лучший результат: ${p.best}% · рыбок ${p.fish}/${lv.fishTotal}</small>`;
-    card.onclick = () => startGame(lv, 'builtin', { idx: i });
+    card.onclick = () => startGame(lv, 'builtin', { idx: i, lid: 'b' + i });
     box.appendChild(card);
   });
   show('levels');
@@ -851,7 +888,7 @@ $('winQuitBtn').onclick = quitGame;
 
 const JUMP_KEYS = ['Space', 'ArrowUp', 'KeyW'];
 addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || mp.settingsOpen()) return;
   if (mode === 'play') {
     if (JUMP_KEYS.includes(e.code)) { holding = true; e.preventDefault(); }
     else if (e.code === 'Escape') pause(!game.paused);
@@ -892,10 +929,12 @@ cv.addEventListener('wheel', (e) => {
 
 let last = performance.now();
 function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000); last = now; time += dt;
+  // The first frame can be stamped a little before the script finished, so dt is never negative.
+  const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; time += dt;
   if (mode === 'play' && game) { updatePlay(dt); renderPlay(dt); }
   else if (mode === 'editor') renderEditor();
   else renderMenu(dt);
+  mp.send(mpState());
   requestAnimationFrame(frame);
 }
 updateAccountButton();
