@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Звёздный змей — FreasyGames</title>
+<meta name="description" content="Звёздный змей на FreasyGames: управляй змеем свайпами, собирай звёзды, расти и не врезайся в стены и в себя.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ Новая игра</div>
+    <h1>Звёздный <span>змей</span></h1>
+    <p>Веди змея свайпами или стрелками. Каждая звезда делает его длиннее и быстрее.</p>
+    <p>Не врезайся в стены и в свой хвост. Планета ✺ даёт +3, но быстро исчезает.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · дольше всего: <b id="bestTimeStart">00:00</b></p>
+    <button class="play" id="go" type="button">Поползли ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Свайп, тап сбоку от головы, стрелки или WASD</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow" id="overWhy">Столкновение</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">звёзд</p>
+    <p>Время: <b id="timeOver">00:00</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · дольше всего: <b id="bestTimeOver">00:00</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script>
+(() => {
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  const $ = (id) => document.getElementById(id);
+  let W = 0, H = 0, DPR = 1, cell = 20, bx = 0, by = 0;
+
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  let best = Number(store.get('zmey-best', 0)) || 0, bestTime = Number(store.get('zmey-best-time', 0)) || 0;
+  let muted = store.get('zmey-muted', '0') === '1';
+  const clock = (t) => `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const starsWord = (n) => plural(n, 'звезда', 'звезды', 'звёзд');
+
+  // The board is the same size on every screen, so results are fair in the leaderboard.
+  const COLS = 15, ROWS = 21, BONUS_LIFE = 6;
+  const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+  let state = 'start', snake, prev, dir, queue, grow, food, bonus, eaten, score, playTime, acc, time = 0, lastT = 0, parts = [], shake = 0, flash = 0, pops = [];
+
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    cell = Math.floor(Math.min((W - 24) / COLS, (H - 130) / ROWS));
+    bx = Math.round((W - cell * COLS) / 2); by = Math.round(78 + (H - 100 - cell * ROWS) / 2);
+  }
+
+  function reset() {
+    const x = Math.floor(COLS / 2);
+    snake = [0, 1, 2, 3].map((k) => ({ x, y: ROWS - 6 + k }));
+    prev = snake.map((s) => ({ ...s }));
+    dir = DIRS.up; queue = []; grow = 0; eaten = 0; score = 0; playTime = 0; acc = 0; bonus = null; pops = [];
+    food = freeCell();
+  }
+
+  const tick = () => Math.max(0.075, 0.16 - eaten * 0.0028);
+  const busy = (x, y) => snake.some((s) => s.x === x && s.y === y) || (food && food.x === x && food.y === y) || (bonus && bonus.x === x && bonus.y === y);
+  function freeCell() {
+    for (let k = 0; k < 500; k++) { const x = Math.floor(Math.random() * COLS), y = Math.floor(Math.random() * ROWS); if (!busy(x, y)) return { x, y }; }
+    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (!busy(x, y)) return { x, y };
+    return null;
+  }
+
+  // Turns are queued, so two quick swipes make a U-turn without hitting the neck.
+  function turn(name) {
+    if (state !== 'play') return;
+    const last = queue.length ? queue[queue.length - 1] : dir, d = DIRS[name];
+    if (d === last || (d[0] === -last[0] && d[1] === -last[1]) || queue.length >= 3) return;
+    queue.push(d);
+  }
+
+  function stepSnake() {
+    if (queue.length) dir = queue.shift();
+    const head = snake[0], x = head.x + dir[0], y = head.y + dir[1];
+    const tailMoves = grow === 0;
+    const body = tailMoves ? snake.slice(0, -1) : snake;
+    if (x < 0 || y < 0 || x >= COLS || y >= ROWS) return die('Стена');
+    if (body.some((s) => s.x === x && s.y === y)) return die('Укусил хвост');
+    prev = snake.map((s) => ({ ...s }));
+    snake.unshift({ x, y });
+    if (food && x === food.x && y === food.y) eat(food, 1), (food = freeCell());
+    else if (bonus && x === bonus.x && y === bonus.y) { eat(bonus, 3); bonus = null; }
+    if (grow > 0) grow--; else snake.pop();
+    if (prev.length < snake.length) prev.push({ ...prev[prev.length - 1] });
+  }
+
+  function eat(item, value) {
+    score += value; grow += value; eaten++;
+    const [px, py] = center(item.x, item.y);
+    burst(px, py, value > 1 ? '#5df2a5' : '#ffd23f', value > 1 ? 26 : 14);
+    pops.push({ x: px, y: py, text: `+${value}`, life: 1, color: value > 1 ? '#5df2a5' : '#ffd23f' });
+    sound(value > 1 ? 'bonus' : 'star');
+    if (!bonus && eaten % 7 === 0) { const c = freeCell(); if (c) bonus = { ...c, life: BONUS_LIFE }; }
+  }
+
+  function die(why) {
+    const [hx, hy] = center(snake[0].x, snake[0].y);
+    burst(hx, hy, '#ff7a6b', 34); burst(hx, hy, '#bca0ff', 20);
+    sound('crash'); shake = 0.45; flash = 1;
+    gameOver(why);
+  }
+
+  function step(dt) {
+    playTime += dt; acc += dt;
+    if (bonus) { bonus.life -= dt; if (bonus.life <= 0) bonus = null; }
+    while (state === 'play' && acc >= tick()) { acc -= tick(); stepSnake(); }
+  }
+
+  const center = (x, y) => [bx + (x + 0.5) * cell, by + (y + 0.5) * cell];
+
+  function burst(x, y, color, n) {
+    for (let k = 0; k < n; k++) {
+      const a = Math.random() * Math.PI * 2, v = 50 + Math.random() * 200;
+      parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, color });
+    }
+  }
+
+  function start() {
+    reset(); state = 'play';
+    $('start').hidden = true; $('over').hidden = true;
+    unlockAudio();
+  }
+
+  function gameOver(why) {
+    state = 'over';
+    const seconds = Math.floor(playTime), record = score > best;
+    if (record) { best = score; store.set('zmey-best', best); }
+    if (seconds > bestTime) { bestTime = seconds; store.set('zmey-best-time', bestTime); }
+    lb.submit({ new_score: score, new_time: seconds });
+    setTimeout(() => {
+      if (state !== 'over') return;
+      $('overWhy').textContent = why;
+      $('final').textContent = score;
+      $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + starsWord(score);
+      $('timeOver').textContent = clock(seconds);
+      showBests();
+      $('over').hidden = false;
+    }, 1000);
+  }
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('bestTimeStart').textContent = $('bestTimeOver').textContent = clock(bestTime);
+  }
+
+  // Sound: a small WebAudio synth, started on the first tap.
+  let ac = null;
+  function unlockAudio() { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (ac && ac.state === 'suspended') ac.resume(); }
+  function tone(f, dur, type, vol, slide = 1, delay = 0) {
+    if (!ac || muted) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t);
+    if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function sound(kind) {
+    if (kind === 'turn') tone(300, 0.05, 'sine', 0.05, 1.3);
+    else if (kind === 'star') { const f = 520 * Math.pow(2, (score % 10) / 12); tone(f, 0.14, 'triangle', 0.14); tone(f * 2, 0.1, 'sine', 0.05, 1, 0.03); }
+    else if (kind === 'bonus') { [660, 830, 990, 1320].forEach((f, i) => tone(f, 0.14, 'triangle', 0.12, 1, i * 0.06)); }
+    else if (kind === 'crash') { tone(200, 0.6, 'sawtooth', 0.14, 0.25); tone(70, 0.5, 'sine', 0.3, 0.5); }
+  }
+
+  const sky = Array.from({ length: 120 }, (_, i) => ({ x: Math.random(), y: Math.random(), s: Math.random() * 1.5 + 0.3, p: i }));
+  function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, h, r) : ctx.rect(x, y, w, h); }
+
+  function draw() {
+    ctx.fillStyle = '#111321'; ctx.fillRect(0, 0, W, H);
+    const g = ctx.createRadialGradient(W / 2, -H * 0.1, 0, W / 2, -H * 0.1, H * 1.1);
+    g.addColorStop(0, '#3d326a'); g.addColorStop(0.35, '#181a30'); g.addColorStop(0.7, '#111321');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    for (const s of sky) { ctx.globalAlpha = 0.3 + 0.3 * Math.sin(time * 1.5 + s.p); ctx.fillStyle = '#e7dcff'; ctx.beginPath(); ctx.arc(s.x * W, s.y * H, s.s, 0, 7); ctx.fill(); }
+    ctx.globalAlpha = 1;
+
+    // Score above the board.
+    ctx.textAlign = 'center';
+    if (state !== 'start') {
+      ctx.fillStyle = '#ffffff'; ctx.font = `800 ${Math.round(Math.min(34, cell * 1.3))}px Manrope`;
+      ctx.fillText(`✦ ${score}`, W / 2 - cell * 2.2, by - 14);
+      ctx.fillStyle = '#ffffffb0'; ctx.font = `800 ${Math.round(Math.min(22, cell * 0.9))}px Manrope`;
+      ctx.fillText(clock(playTime), W / 2 + cell * 2.6, by - 16);
+    }
+
+    ctx.save();
+    if (shake > 0) ctx.translate((Math.random() - 0.5) * 16 * shake, (Math.random() - 0.5) * 16 * shake);
+    // Board.
+    ctx.save(); ctx.shadowColor = '#07081590'; ctx.shadowBlur = 40; ctx.shadowOffsetY = 14;
+    ctx.fillStyle = '#1d1e31'; roundRect(bx - 6, by - 6, cell * COLS + 12, cell * ROWS + 12, 18); ctx.fill(); ctx.restore();
+    ctx.strokeStyle = '#b79aff60'; ctx.lineWidth = 2; roundRect(bx - 6, by - 6, cell * COLS + 12, cell * ROWS + 12, 18); ctx.stroke();
+    ctx.fillStyle = '#ffffff07';
+    for (let y = 0; y < ROWS; y++) for (let x = (y % 2); x < COLS; x += 2) ctx.fillRect(bx + x * cell, by + y * cell, cell, cell);
+
+    // Star food and the bonus planet.
+    if (food) {
+      const [fx, fy] = center(food.x, food.y), k = 1 + 0.1 * Math.sin(time * 6);
+      ctx.save(); ctx.translate(fx, fy); ctx.rotate(time * 1.5); ctx.scale(k, k);
+      ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 16; ctx.fillStyle = '#ffd23f';
+      ctx.font = `800 ${Math.round(cell * 1.05)}px Manrope`; ctx.textBaseline = 'middle'; ctx.fillText('✦', 0, 0);
+      ctx.restore();
+    }
+    if (bonus) {
+      const [px, py] = center(bonus.x, bonus.y), blink = bonus.life < 2 && Math.sin(time * 20) < 0;
+      if (!blink) {
+        const r = cell * 0.42, pg = ctx.createRadialGradient(px - r * 0.3, py - r * 0.3, r * 0.1, px, py, r);
+        pg.addColorStop(0, '#c8ffe2'); pg.addColorStop(1, '#22a86a');
+        ctx.save(); ctx.shadowColor = '#5df2a5'; ctx.shadowBlur = 18; ctx.fillStyle = pg; ctx.beginPath(); ctx.arc(px, py, r, 0, 7); ctx.fill(); ctx.restore();
+        ctx.strokeStyle = '#ffffffaa'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(px, py, r * 1.5, r * 0.4, -0.4, 0, Math.PI * 2); ctx.stroke();
+      }
+      // How long the bonus stays.
+      ctx.strokeStyle = '#5df2a5'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(px, py, cell * 0.62, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * bonus.life / BONUS_LIFE); ctx.stroke();
+    }
+
+    // The snake glides between cells: each segment is drawn between its last and its new cell.
+    const k = state === 'play' ? Math.min(1, acc / tick()) : state === 'start' ? Math.min(1, demoAcc / 0.22) : 1;
+    const pts = snake.map((s, i) => { const p = prev[i] || s, [ax, ay] = center(p.x, p.y), [cx2, cy2] = center(s.x, s.y); return [ax + (cx2 - ax) * k, ay + (cy2 - ay) * k]; });
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.save(); ctx.shadowColor = state === 'over' ? '#ff7a6b' : '#9d73f7'; ctx.shadowBlur = 18;
+    for (let i = pts.length - 1; i > 0; i--) {
+      const t = i / pts.length;
+      ctx.strokeStyle = state === 'over' ? `hsl(4, 70%, ${62 - t * 20}%)` : `hsl(${262 - t * 40}, 90%, ${76 - t * 22}%)`;
+      ctx.lineWidth = cell * (0.78 - t * 0.28);
+      ctx.beginPath(); ctx.moveTo(pts[i][0], pts[i][1]); ctx.lineTo(pts[i - 1][0], pts[i - 1][1]); ctx.stroke();
+    }
+    ctx.restore();
+    // Head with eyes looking where it goes.
+    const [hx, hy] = pts[0], d = queue.length && state === 'play' ? queue[0] : dir;
+    ctx.fillStyle = state === 'over' ? '#ffb1a8' : '#e9dcff'; ctx.beginPath(); ctx.arc(hx, hy, cell * 0.44, 0, 7); ctx.fill();
+    for (const side of [-1, 1]) {
+      const ex = hx + d[0] * cell * 0.14 + -d[1] * side * cell * 0.19, ey = hy + d[1] * cell * 0.14 + d[0] * side * cell * 0.19;
+      ctx.fillStyle = '#171225'; ctx.beginPath(); ctx.arc(ex, ey, cell * 0.11, 0, 7); ctx.fill();
+      ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(ex + d[0] * cell * 0.04, ey + d[1] * cell * 0.04, cell * 0.04, 0, 7); ctx.fill();
+    }
+
+    for (const p of parts) { ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, 2 + p.life * 3, 0, 7); ctx.fill(); }
+    for (const p of pops) { ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.color; ctx.font = `800 ${Math.round(cell * 0.9)}px Manrope`; ctx.fillText(p.text, p.x, p.y - (1 - p.life) * cell * 1.5); }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+    if (flash > 0) { ctx.fillStyle = `rgba(255,122,107,${flash * 0.35})`; ctx.fillRect(0, 0, W, H); }
+  }
+
+  // On the start screen the snake crawls a small loop by itself.
+  const demo = ['up', 'up', 'right', 'right', 'down', 'down', 'left', 'left'];
+  let demoAcc = 0, demoI = 0;
+  function frame(now) {
+    const dt = Math.min(0.1, (now - lastT) / 1000 || 0); lastT = now; time += dt;
+    if (state === 'play') step(dt);
+    else if (state === 'start') {
+      demoAcc += dt;
+      if (demoAcc > 0.22) {
+        demoAcc = 0; dir = DIRS[demo[demoI++ % demo.length]];
+        prev = snake.map((s) => ({ ...s }));
+        snake.unshift({ x: snake[0].x + dir[0], y: snake[0].y + dir[1] }); snake.pop();
+      }
+    }
+    for (const p of parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.95; p.vy *= 0.95; p.life -= dt * 1.4; }
+    for (const p of pops) p.life -= dt * 1.5;
+    parts = parts.filter((p) => p.life > 0); pops = pops.filter((p) => p.life > 0);
+    shake = Math.max(0, shake - dt); flash = Math.max(0, flash - dt * 2);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'zmey',
+    boards: [
+      { id: 'score', title: 'Рекорд', column: 'best_score', order: 'desc', note: 'Больше всего звёзд за одну игру.', format: (v) => `${v} ${starsWord(v)}` },
+      { id: 'time', title: 'Время', column: 'best_time', order: 'desc', note: 'Дольше всех продержались в одной игре.', format: clock },
+    ],
+    bests: () => (best > 0 || bestTime > 0 ? { new_score: best, new_time: bestTime } : null),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  // Swipes turn as soon as the finger has moved far enough; a tap turns toward the tap from the head.
+  let touch = null;
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); touch = { x: e.clientX, y: e.clientY, moved: false }; });
+  cv.addEventListener('pointermove', (e) => {
+    if (!touch) return;
+    const dx = e.clientX - touch.x, dy = e.clientY - touch.y;
+    if (Math.hypot(dx, dy) < 22) return;
+    turn(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
+    touch = { x: e.clientX, y: e.clientY, moved: true };
+  });
+  cv.addEventListener('pointerup', (e) => {
+    if (touch && !touch.moved && state === 'play') {
+      const [hx, hy] = center(snake[0].x, snake[0].y), last = queue.length ? queue[queue.length - 1] : dir;
+      if (last[0]) turn(e.clientY < hy ? 'up' : 'down'); else turn(e.clientX < hx ? 'left' : 'right');
+    }
+    touch = null;
+  });
+  cv.addEventListener('pointercancel', () => { touch = null; });
+  const KEYS = { ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right' };
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (KEYS[e.code] && state === 'play') { e.preventDefault(); turn(KEYS[e.code]); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && state !== 'play' && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); }
+  });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('zmey-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; });
+
+  addEventListener('resize', resize);
+  resize(); reset(); showBests();
+  if (best > 0 && lb.signedIn()) lb.submit({ new_score: best, new_time: bestTime });
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

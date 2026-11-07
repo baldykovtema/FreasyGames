@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Облака — FreasyGames</title>
+<meta name="description" content="Облака на FreasyGames: прыгай с облака на облако всё выше, собирай звёзды и не упади вниз.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ Новая игра</div>
+    <h1><span>Облака</span></h1>
+    <p>Пушистик сам подпрыгивает. Держи левую или правую половину экрана, чтобы лететь в сторону.</p>
+    <p>Серые облака рассыпаются, на пружинке улетишь высоко. Собирай звёзды и не падай вниз.</p>
+    <p>Высота: <b id="bestStart">0 м</b> · звёзд: <b id="bestStarsStart">0</b></p>
+    <button class="play" id="go" type="button">Прыгать ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Держи половину экрана, стрелки или A и D</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow">Упал вниз</div>
+    <div class="big" id="final">0 м</div>
+    <p id="overText">высота</p>
+    <p>Звёзд: <b id="starsOver">0</b> · время: <b id="timeOver">00:00</b></p>
+    <p>Рекорд: <b id="bestOver">0 м</b> · звёзд: <b id="bestStarsOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script>
+(() => {
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  const $ = (id) => document.getElementById(id);
+  let W = 0, H = 0, DPR = 1, S = 1, colX = 0, colW = 0, viewH = 100;
+
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  let best = Number(store.get('oblaka-best', 0)) || 0, bestStars = Number(store.get('oblaka-best-stars', 0)) || 0, bestTime = Number(store.get('oblaka-best-time', 0)) || 0;
+  let muted = store.get('oblaka-muted', '0') === '1';
+  const clock = (t) => `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const starsWord = (n) => plural(n, 'звезда', 'звезды', 'звёзд');
+
+  // The world is 100 units wide on every screen (10 units = 1 m), y grows upward.
+  // A jump rises JUMP²/2G ≈ 45 units, so a gap between clouds is never more than 38.
+  const WORLD = 100, G = 300, JUMP = 165, SPRING = 330, SPEED = 100, R = 5;
+  let state = 'start', p, clouds, stars, topY, camY, maxY, starCount, playTime, input = 0, time = 0, lastT = 0, parts = [], pops = [];
+
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    colW = Math.min(W, H * 0.62); colX = (W - colW) / 2; S = colW / WORLD; viewH = H / S;
+  }
+  const sx = (x) => colX + x * S, sy = (y) => H - (y - camY) * S;
+
+  function reset() {
+    p = { x: 50, y: 6, vx: 0, vy: JUMP, squash: 0 };
+    clouds = [{ x: 50, y: 0, w: 60, kind: 'base' }]; stars = [];
+    topY = 0; camY = -viewH * 0.15; maxY = 0; starCount = 0; playTime = 0; parts = []; pops = [];
+    fill();
+  }
+
+  // Clouds get narrower, further apart and trickier with height.
+  function fill() {
+    while (topY < camY + viewH + 60) {
+      const h = topY / 10, hard = Math.min(1, h / 600);
+      topY += 13 + Math.random() * (10 + 15 * hard);
+      const w = 26 - 9 * hard + Math.random() * 6, x = w / 2 + Math.random() * (WORLD - w);
+      const roll = Math.random();
+      let kind = 'cloud';
+      if (h > 30 && roll < 0.08 + 0.27 * hard) kind = 'moving';
+      else if (h > 60 && roll < 0.14 + 0.43 * hard) kind = 'fragile';
+      const c = { x, y: topY, w, kind, v: (Math.random() < 0.5 ? -1 : 1) * (18 + 22 * hard), spring: kind === 'cloud' && h > 15 && Math.random() < 0.07 };
+      clouds.push(c);
+      // A fragile cloud is never the only way up: another one is always close by.
+      if (kind === 'fragile') clouds.push({ x: 11 + (x + WORLD / 2 + Math.random() * 20 - 10 - 11 + WORLD) % (WORLD - 22), y: topY + 4 + Math.random() * 6, w: 22, kind: 'cloud' });
+      if (Math.random() < 0.22) stars.push({ x: Math.max(6, Math.min(WORLD - 6, x + Math.random() * 24 - 12)), y: topY + 16 + Math.random() * 14 });
+    }
+    clouds = clouds.filter((c) => c.y > camY - 40 && !c.gone);
+    stars = stars.filter((s) => s.y > camY - 40 && !s.got);
+  }
+
+  function step(dt) {
+    playTime += dt;
+    p.vx += (input * SPEED - p.vx) * Math.min(1, dt * 10);
+    const lastY = p.y;
+    p.x += p.vx * dt; p.vy -= G * dt; p.y += p.vy * dt;
+    // The screen wraps around: leave on the left, come back on the right.
+    if (p.x < 0) p.x += WORLD; else if (p.x > WORLD) p.x -= WORLD;
+    for (const c of clouds) {
+      if (c.kind === 'moving') { c.x += c.v * dt; if (c.x < c.w / 2 || c.x > WORLD - c.w / 2) { c.v = -c.v; c.x = Math.max(c.w / 2, Math.min(WORLD - c.w / 2, c.x)); } }
+      if (p.vy > 0 || c.gone || c.falling) continue;
+      if (lastY - R >= c.y && p.y - R <= c.y && Math.abs(p.x - c.x) < c.w / 2 + R * 0.6) {
+        p.y = c.y + R; p.squash = 1;
+        const spring = c.spring && Math.abs(p.x - c.x) < 7;
+        p.vy = spring ? SPRING : JUMP;
+        sound(spring ? 'spring' : 'jump');
+        if (c.kind === 'fragile') { c.falling = true; puff(c, '#a8a6bd'); }
+        else if (spring) puff({ x: c.x, y: c.y, w: 8 }, '#ffd23f');
+      }
+    }
+    for (const c of clouds) if (c.falling) { c.y -= 90 * dt; c.fade = (c.fade || 0) + dt * 2.5; if (c.fade >= 1) c.gone = true; }
+    for (const s of stars) {
+      if (!s.got && Math.hypot(p.x - s.x, p.y - s.y) < R + 5) {
+        s.got = true; starCount++; sound('star');
+        burst(sx(s.x), sy(s.y), '#ffd23f', 12);
+        pops.push({ x: sx(s.x), y: sy(s.y), text: '+1 ✦', life: 1 });
+      }
+    }
+    maxY = Math.max(maxY, p.y);
+    camY = Math.max(camY, p.y - viewH * 0.42);
+    fill();
+    if (p.y < camY - R * 2) gameOver();
+  }
+
+  const height = () => Math.floor(maxY / 10);
+
+  function burst(x, y, color, n) {
+    for (let k = 0; k < n; k++) {
+      const a = Math.random() * Math.PI * 2, v = 40 + Math.random() * 180;
+      parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, color });
+    }
+  }
+  function puff(c, color) {
+    for (let k = 0; k < 10; k++) parts.push({ x: sx(c.x + (Math.random() - 0.5) * c.w), y: sy(c.y), vx: (Math.random() - 0.5) * 80, vy: Math.random() * 60, life: 0.8, color });
+  }
+
+  function start() {
+    reset(); state = 'play'; input = 0;
+    $('start').hidden = true; $('over').hidden = true;
+    unlockAudio();
+  }
+
+  function gameOver() {
+    state = 'over'; sound('fall');
+    const h = height(), seconds = Math.floor(playTime), record = h > best;
+    if (record) { best = h; store.set('oblaka-best', best); }
+    if (starCount > bestStars) { bestStars = starCount; store.set('oblaka-best-stars', bestStars); }
+    if (seconds > bestTime) { bestTime = seconds; store.set('oblaka-best-time', bestTime); }
+    lb.submit({ new_height: h, new_stars: starCount, new_time: seconds });
+    setTimeout(() => {
+      if (state !== 'over') return;
+      $('final').textContent = `${h} м`;
+      $('overText').innerHTML = record && h > 0 ? '<span class="new">Новый рекорд!</span> высота' : 'высота';
+      $('starsOver').textContent = starCount;
+      $('timeOver').textContent = clock(seconds);
+      showBests();
+      $('over').hidden = false;
+    }, 700);
+  }
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = `${best} м`;
+    $('bestStarsStart').textContent = $('bestStarsOver').textContent = bestStars;
+  }
+
+  // Sound: a small WebAudio synth, started on the first tap.
+  let ac = null;
+  function unlockAudio() { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (ac && ac.state === 'suspended') ac.resume(); }
+  function tone(f, dur, type, vol, slide = 1, delay = 0) {
+    if (!ac || muted) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t);
+    if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function sound(kind) {
+    if (state !== 'play' && kind !== 'fall') return;
+    if (kind === 'jump') tone(330, 0.12, 'sine', 0.1, 1.8);
+    else if (kind === 'spring') { tone(300, 0.35, 'triangle', 0.14, 3.5); tone(600, 0.3, 'sine', 0.05, 2.5, 0.05); }
+    else if (kind === 'star') { const f = 660 * Math.pow(2, (starCount % 8) / 12); tone(f, 0.16, 'triangle', 0.14); tone(f * 2, 0.12, 'sine', 0.05, 1, 0.04); }
+    else if (kind === 'fall') { tone(500, 0.8, 'sine', 0.14, 0.2); tone(250, 0.8, 'triangle', 0.08, 0.3, 0.1); }
+  }
+
+  // Sky colour moves from dusk to deep space with height.
+  const sky = Array.from({ length: 120 }, (_, i) => ({ x: Math.random(), y: Math.random(), s: Math.random() * 1.5 + 0.3, p: i }));
+  function mix(a, b, t) { return a.map((v, i) => Math.round(v + (b[i] - v) * t)); }
+  function drawCloud(c) {
+    const x = sx(c.x), y = sy(c.y), w = c.w * S, h = 7 * S;
+    ctx.save(); ctx.globalAlpha = c.fade ? Math.max(0, 1 - c.fade) : 1;
+    const color = c.kind === 'fragile' ? '#a8a6bd' : c.kind === 'moving' ? '#bfe3ff' : '#f8f7ff';
+    ctx.shadowColor = c.kind === 'moving' ? '#7cc4ff' : '#bca0ff'; ctx.shadowBlur = 14;
+    ctx.fillStyle = color;
+    for (const wx of [-0.5, 0.5]) { const xx = wx === -0.5 ? -w / 2 + h * 0.4 : w / 2 - h * 0.4; ctx.beginPath(); ctx.arc(x + xx, y + h * 0.15, h * 0.55, 0, 7); ctx.fill(); }
+    ctx.beginPath(); ctx.arc(x - w * 0.16, y - h * 0.05, h * 0.8, 0, 7); ctx.arc(x + w * 0.14, y - h * 0.15, h * 0.95, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x - w / 2 + h * 0.4, y - h * 0.2, w - h * 0.8, h * 0.9, h * 0.4) : ctx.rect(x - w / 2, y - h * 0.2, w, h * 0.9); ctx.fill();
+    ctx.shadowBlur = 0;
+    if (c.kind === 'fragile') { ctx.strokeStyle = '#6d6a85'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x - w * 0.1, y - h * 0.6); ctx.lineTo(x, y); ctx.lineTo(x - w * 0.05, y + h * 0.5); ctx.moveTo(x + w * 0.22, y - h * 0.4); ctx.lineTo(x + w * 0.16, y + h * 0.3); ctx.stroke(); }
+    if (c.spring) {
+      ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = Math.max(2, S * 0.9); ctx.beginPath();
+      for (let k = 0; k <= 4; k++) ctx.lineTo(x + (k % 2 ? 2.5 : -2.5) * S, y - h * 0.4 - k * 1.3 * S);
+      ctx.stroke(); ctx.fillStyle = '#ffd23f'; ctx.fillRect(x - 4 * S, y - h * 0.4 - 6.5 * S, 8 * S, 1.6 * S);
+    }
+    ctx.restore();
+  }
+
+  function draw() {
+    const t = Math.min(1, camY / 8000), top = mix([61, 50, 106], [17, 19, 33], t), bot = mix([110, 72, 140], [40, 30, 80], t);
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, `rgb(${top})`); g.addColorStop(1, `rgb(${bot})`);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    // Stars in the sky scroll slowly, so climbing feels like climbing.
+    for (const s of sky) {
+      const y = ((s.y * H + camY * S * 0.15) % H + H) % H;
+      ctx.globalAlpha = (0.25 + 0.3 * Math.sin(time * 1.5 + s.p)) * (0.4 + t); ctx.fillStyle = '#e7dcff'; ctx.beginPath(); ctx.arc(s.x * W, y, s.s, 0, 7); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    // On wide screens the playing column is lit, the sides are dimmer.
+    if (colX > 0) { ctx.fillStyle = '#0b0c1855'; ctx.fillRect(0, 0, colX, H); ctx.fillRect(colX + colW, 0, colX, H); ctx.fillStyle = '#b79aff30'; ctx.fillRect(colX - 1, 0, 2, H); ctx.fillRect(colX + colW - 1, 0, 2, H); }
+
+    // Height marks every 50 m.
+    ctx.textAlign = 'left'; ctx.font = `800 ${Math.round(Math.max(11, S * 3.2))}px Manrope`;
+    for (let m = Math.ceil(camY / 500) * 500; m < camY + viewH; m += 500) {
+      if (m <= 0) continue;
+      const y = sy(m); ctx.fillStyle = '#ffffff18'; ctx.fillRect(colX, y, colW, 1);
+      ctx.fillStyle = '#ffffff55'; ctx.fillText(`${m / 10} м`, colX + 8, y - 6);
+    }
+
+    ctx.save(); ctx.beginPath(); ctx.rect(colX, 0, colW, H); ctx.clip();
+    for (const c of clouds) drawCloud(c);
+    for (const s of stars) {
+      if (s.got) continue;
+      ctx.save(); ctx.translate(sx(s.x), sy(s.y) + Math.sin(time * 3 + s.x) * S); ctx.rotate(time * 2);
+      ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 16; ctx.fillStyle = '#ffd23f';
+      ctx.font = `800 ${Math.round(S * 8)}px Manrope`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('✦', 0, 0);
+      ctx.restore();
+    }
+
+    // The fluffy hero, drawn twice near an edge so wrapping looks seamless.
+    if (state !== 'over' || p.y > camY - R * 3) for (const off of [0, -WORLD, WORLD]) {
+      const x = sx(p.x + off), y = sy(p.y), r = R * S;
+      if (x < colX - r * 2 || x > colX + colW + r * 2) continue;
+      const sq = p.squash * 0.25;
+      ctx.save(); ctx.translate(x, y); ctx.scale(1 + sq, 1 - sq);
+      const pg = ctx.createRadialGradient(-r * 0.3, -r * 0.35, r * 0.1, 0, 0, r * 1.1);
+      pg.addColorStop(0, '#f1e8ff'); pg.addColorStop(1, '#9d73f7');
+      ctx.shadowColor = '#bca0ff'; ctx.shadowBlur = 20; ctx.fillStyle = pg;
+      ctx.beginPath(); for (let k = 0; k < 12; k++) { const a = k / 12 * Math.PI * 2; ctx.arc(Math.cos(a) * r * 0.78, Math.sin(a) * r * 0.78, r * 0.36, 0, 7); } ctx.fill();
+      ctx.beginPath(); ctx.arc(0, 0, r * 0.85, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
+      const look = Math.max(-1, Math.min(1, p.vx / SPEED)) * r * 0.18;
+      for (const e of [-1, 1]) { ctx.fillStyle = '#171225'; ctx.beginPath(); ctx.arc(e * r * 0.3 + look, -r * 0.12, r * 0.16, 0, 7); ctx.fill(); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(e * r * 0.3 + look + r * 0.05, -r * 0.18, r * 0.06, 0, 7); ctx.fill(); }
+      ctx.fillStyle = '#ff9ec2aa'; for (const e of [-1, 1]) { ctx.beginPath(); ctx.arc(e * r * 0.55, r * 0.15, r * 0.12, 0, 7); ctx.fill(); }
+      ctx.strokeStyle = '#171225'; ctx.lineWidth = Math.max(1.5, r * 0.08); ctx.beginPath(); ctx.arc(look, r * 0.12, r * 0.2, 0.3, Math.PI - 0.3); ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
+
+    for (const q of parts) { ctx.globalAlpha = Math.max(0, q.life); ctx.fillStyle = q.color; ctx.beginPath(); ctx.arc(q.x, q.y, 2 + q.life * 3, 0, 7); ctx.fill(); }
+    ctx.textAlign = 'center';
+    for (const q of pops) { ctx.globalAlpha = Math.max(0, q.life); ctx.fillStyle = '#ffd23f'; ctx.font = `800 ${Math.round(Math.max(14, S * 5))}px Manrope`; ctx.fillText(q.text, q.x, q.y - (1 - q.life) * 40); }
+    ctx.globalAlpha = 1;
+
+    if (state !== 'start') {
+      ctx.shadowColor = '#171225'; ctx.shadowBlur = 12;
+      ctx.fillStyle = '#ffffff'; ctx.font = `800 ${Math.round(Math.min(44, Math.max(28, S * 10)))}px Manrope`;
+      ctx.fillText(`${height()} м`, W / 2, 96);
+      ctx.fillStyle = '#ffd23f'; ctx.font = `800 ${Math.round(Math.min(22, Math.max(15, S * 5)))}px Manrope`;
+      ctx.fillText(`✦ ${starCount}`, W / 2, 126);
+      ctx.shadowBlur = 0;
+    }
+  }
+
+  function frame(now) {
+    const dt = Math.min(0.1, (now - lastT) / 1000 || 0); lastT = now; time += dt;
+    if (state === 'play') {
+      // Small steps keep landings exact even when frames are slow.
+      const n = Math.ceil(dt / (1 / 120));
+      for (let k = 0; k < n && state === 'play'; k++) step(dt / n);
+    } else if (state === 'start') {
+      // On the start screen the hero bounces on the first cloud.
+      p.vy -= G * dt; p.y += p.vy * dt;
+      if (p.y < R) { p.y = R; p.vy = JUMP * 0.75; p.squash = 1; }
+    } else { p.vy -= G * dt; p.y += p.vy * dt; }
+    p.squash = Math.max(0, p.squash - dt * 5);
+    for (const q of parts) { q.x += q.vx * dt; q.y -= q.vy * dt; q.vx *= 0.96; q.vy *= 0.96; q.life -= dt * 1.4; }
+    for (const q of pops) q.life -= dt * 1.4;
+    parts = parts.filter((q) => q.life > 0); pops = pops.filter((q) => q.life > 0);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'oblaka',
+    boards: [
+      { id: 'height', title: 'Высота', column: 'best_height', order: 'desc', note: 'Выше всех забрались за одну игру.', format: (v) => `${v} м` },
+      { id: 'stars', title: 'Звёзды', column: 'best_stars', order: 'desc', note: 'Больше всего звёзд за одну игру.', format: (v) => `${v} ${starsWord(v)}` },
+    ],
+    bests: () => (best > 0 || bestStars > 0 ? { new_height: best, new_stars: bestStars, new_time: bestTime } : null),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  // Holding a half of the screen moves that way; several fingers count by the last one.
+  const held = new Map();
+  const side = (x) => (x < W / 2 ? -1 : 1);
+  const fromPointers = () => { input = held.size ? [...held.values()].pop() : keys(); };
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); held.set(e.pointerId, side(e.clientX)); fromPointers(); });
+  cv.addEventListener('pointermove', (e) => { if (held.has(e.pointerId)) { held.set(e.pointerId, side(e.clientX)); fromPointers(); } });
+  for (const kind of ['pointerup', 'pointercancel', 'pointerleave']) cv.addEventListener(kind, (e) => { held.delete(e.pointerId); fromPointers(); });
+  const down = new Set();
+  const keys = () => (down.has('L') ? -1 : 0) + (down.has('R') ? 1 : 0);
+  const KEYS = { ArrowLeft: 'L', KeyA: 'L', ArrowRight: 'R', KeyD: 'R' };
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (KEYS[e.code]) { e.preventDefault(); down.add(KEYS[e.code]); if (!held.size) input = keys(); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && state !== 'play' && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); }
+  });
+  addEventListener('keyup', (e) => { if (KEYS[e.code]) { down.delete(KEYS[e.code]); if (!held.size) input = keys(); } });
+  addEventListener('blur', () => { down.clear(); held.clear(); input = 0; });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('oblaka-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; });
+
+  addEventListener('resize', resize);
+  resize(); reset(); showBests();
+  if (best > 0 && lb.signedIn()) lb.submit({ new_height: best, new_stars: bestStars, new_time: bestTime });
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
