@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ScratchCode Studio</title>
+<title>FreasyCode Studio</title>
 <style>
 :root{
   --bg:#1e1e1e; --side:#252526; --act:#333333; --title:#3c3c3c; --tab:#2d2d2d; --border:#3c3c3c;
@@ -68,6 +68,11 @@ input,select{font:inherit}
 .saveRow .nm small{color:var(--dim)}
 .saveRow button{padding:2px 6px;border-radius:3px;opacity:.8}
 .saveRow button:hover{background:#45494e;opacity:1}
+.cTabs{display:flex;gap:4px}.cTabs button{flex:1;padding:5px;border-radius:3px;background:#3a3d41;font-size:12px}.cTabs button.on{background:var(--accent);color:#fff}
+.proj{display:flex;gap:8px;padding:6px 14px;cursor:pointer;align-items:center}.proj:hover{background:var(--hover)}
+.proj img{width:64px;height:48px;object-fit:cover;border-radius:3px;background:#111;flex:none}
+.proj .nm{flex:1;min-width:0}.proj .nm b{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.proj .nm small{color:var(--dim)}
+.proj button{padding:2px 6px;border-radius:3px;opacity:.8}.proj button:hover{background:#45494e;opacity:1}
 .help{padding:4px 14px 20px;line-height:1.55;font-size:12.5px}
 .help code,.help pre{font-family:Menlo,Consolas,monospace;background:#1e1e1e;color:#ce9178;border-radius:3px}
 .help code{padding:1px 4px}
@@ -186,13 +191,14 @@ body.full .props,body.full .shint{display:none}
 <body>
 <div id="app">
   <div id="titlebar">
-    <span class="logo">◆ ScratchCode</span>
+    <span class="logo">◆ FreasyCode</span>
     <button class="menu" id="mNew">Новый</button>
     <button class="menu" id="mSave">Сохранить</button>
     <button class="menu" id="mExport">Экспорт</button>
     <button class="menu" id="mImport">Импорт</button>
+    <button class="menu" id="mCommunity" style="color:#ffbf00">🌍 Проекты игроков</button>
     <a class="menu" href="../" style="text-decoration:none">← FreasyGames</a>
-    <div class="center" id="titleName">Мой проект — ScratchCode Studio</div>
+    <div class="center" id="titleName">Мой проект — FreasyCode Studio</div>
     <div class="run">
       <button class="runbtn" id="flagBtn" title="Запустить (Ctrl+Enter)">⚑</button>
       <button class="runbtn" id="stopBtn" title="Стоп">■</button>
@@ -203,6 +209,7 @@ body.full .props,body.full .shint{display:none}
       <button data-p="files" class="on" title="Проводник">📁</button>
       <button data-p="blocks" title="Блоки (все команды)">🧩</button>
       <button data-p="saves" title="Сохранения">💾</button>
+      <button data-p="community" title="Проекты игроков">🌍</button>
       <button data-p="help" title="Как писать код">❓</button>
     </div>
     <div id="sidebar">
@@ -232,6 +239,19 @@ body.full .props,body.full .shint{display:none}
         <div class="secHead" style="margin-top:8px">Сохранённые проекты</div>
         <div id="saveList"></div>
         <div class="hint">Проекты хранятся в этом браузере. Экспорт сохраняет файл .json, который можно открыть на другом компьютере.<br><br>В самой игре тоже можно сохранять: <code style="color:#ce9178">save "рекорд", очки</code> и <code style="color:#ce9178">load("рекорд")</code>.</div>
+      </div>
+      <div class="pane" id="p-community">
+        <div class="sideHead">ПРОЕКТЫ ИГРОКОВ<span></span></div>
+        <div class="form">
+          <div class="hint" style="padding:0" id="cAcc"></div>
+          <button class="btn sec" id="cLogin">👤 Войти / аккаунт</button>
+          <button class="btn" id="cPublish">🌍 Опубликовать мой проект</button>
+          <div class="hint" style="padding:0">Опубликуй проект — его смогут открыть, запустить и изучить другие. Повторная публикация с тем же названием обновит проект.</div>
+          <div style="display:flex;gap:6px"><input class="inp" id="cSearch" placeholder="Поиск: название или автор"><button class="btn sec" id="cGo">🔍</button></div>
+          <div class="cTabs"><button data-cs="new" class="on">Новые</button><button data-cs="top">Популярные</button><button data-cs="mine">Мои</button></div>
+        </div>
+        <div class="hint" id="cMsg"></div>
+        <div id="cList"></div>
       </div>
       <div class="pane" id="p-help">
         <div class="sideHead">КАК ПИСАТЬ КОД<span></span></div>
@@ -349,7 +369,7 @@ save "рекорд", очки</pre>
   <div id="statusbar">
     <span>⎇ main</span><span id="stErr">⊗ 0  ⚠ 0</span><span id="stRun">■ остановлено</span>
     <span class="sp"></span>
-    <span id="stPos">Стр 1, Стлб 1</span><span>Пробелы: 2</span><span>UTF-8</span><span>ScratchCode</span><span id="stSave">✓ Сохранено</span>
+    <span id="stPos">Стр 1, Стлб 1</span><span>Пробелы: 2</span><span>UTF-8</span><span>FreasyCode</span><span id="stSave">✓ Сохранено</span>
   </div>
 </div>
 <input type="file" id="fileIn" accept=".json,application/json" hidden>
@@ -357,6 +377,7 @@ save "рекорд", очки</pre>
 <input type="file" id="audIn" accept="audio/*" hidden>
 <div class="toast" id="toast"></div>
 
+<script src="../shared/account.js"></script>
 <script>
 "use strict";
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
@@ -591,11 +612,11 @@ when message "ночь":
 function serialize(){
   const sp=s=>({name:s.name,code:s.code,costumes:s.costumes.map(c=>({name:c.name,data:c.data})),costume:s.costume,x:s.x,y:s.y,dir:s.dir,size:s.size,visible:s.visible,rotationStyle:s.rotationStyle,sounds:s.sounds.map(serSnd)});
   const st=project.stage;
-  return {format:'scratchcode-1',name:project.name,sprites:project.sprites.map(sp),stage:{code:st.code,backdrops:st.backdrops.map(c=>({name:c.name,data:c.data})),backdrop:st.backdrop,sounds:st.sounds.map(serSnd)}};
+  return {format:'freasycode-1',name:project.name,sprites:project.sprites.map(sp),stage:{code:st.code,backdrops:st.backdrops.map(c=>({name:c.name,data:c.data})),backdrop:st.backdrop,sounds:st.sounds.map(serSnd)}};
 }
 function serSnd(s){return s.type==='synth'?{name:s.name,type:'synth',p:{...s.p}}:{name:s.name,type:'rec',data:s.data,rate:s.rate||1,vol:s.vol??100};}
 function deserialize(o){
-  if(!o||!o.stage||!Array.isArray(o.sprites)) throw new Error('Это не файл проекта ScratchCode');
+  if(!o||!o.stage||!Array.isArray(o.sprites)) throw new Error('Это не файл проекта FreasyCode');
   const snd=s=>({id:uid++,...s,p:s.p?{...s.p}:undefined});
   const sprites=o.sprites.map(s=>newSprite(s.name||'Спрайт',(s.costumes&&s.costumes.length?s.costumes:[{name:'костюм1',data:blankData(200,200)}]).map(c=>({name:c.name,data:c.data})),s.code||'',{costume:s.costume|0,x:+s.x||0,y:+s.y||0,dir:s.dir??90,size:s.size??100,visible:s.visible!==false,rotationStyle:s.rotationStyle||'all',sounds:(s.sounds||[]).map(snd)}));
   const st=o.stage;
@@ -1196,7 +1217,7 @@ function renderExplorer(){
   $('#stageItem').innerHTML='<div class="item'+(selId==='stage'?' sel':'')+'" data-id="stage"><img src="'+thumbOf(st)+'"><span class="nm">Сцена</span><span class="ext">.sc</span></div>';
   $('#spriteList').innerHTML=project.sprites.map(s=>'<div class="item'+(selId===s.id?' sel':'')+'" data-id="'+s.id+'"><img src="'+thumbOf(s)+'"><span class="nm">'+esc(s.name)+'</span><span class="ext">.sc</span></div>').join('');
   $$('#p-files .item').forEach(d=>{const id=d.dataset.id==='stage'?'stage':+d.dataset.id;d.onclick=()=>select(id);d.ondblclick=()=>{if(id!=='stage')renameSprite();};});
-  $('#titleName').textContent=project.name+' — ScratchCode Studio';
+  $('#titleName').textContent=project.name+' — FreasyCode Studio';
 }
 function select(id){selId=id;renderExplorer();renderTabs();openTab();updateProps(true);}
 function renderTabs(){
@@ -1225,7 +1246,7 @@ function renameSprite(){const o=curObj();if(o.isStage)return;const n=prompt('Н�
 $('#renSprite').onclick=renameSprite;
 $('#delSprite').onclick=()=>{const o=curObj();if(o.isStage)return;if(!confirm('Удалить спрайт «'+o.name+'»?'))return;
   project.sprites.splice(project.sprites.indexOf(o),1);world.list=world.list.filter(i=>i.src!==o);select(project.sprites[0]?project.sprites[0].id:'stage');markDirty();};
-$$('#activity button').forEach(b=>b.onclick=()=>{$$('#activity button').forEach(x=>x.classList.toggle('on',x===b));$$('.pane').forEach(p=>p.classList.toggle('on',p.id==='p-'+b.dataset.p));if(b.dataset.p==='saves')renderSaves();});
+$$('#activity button').forEach(b=>b.onclick=()=>{$$('#activity button').forEach(x=>x.classList.toggle('on',x===b));$$('.pane').forEach(p=>p.classList.toggle('on',p.id==='p-'+b.dataset.p));if(b.dataset.p==='saves')renderSaves();if(b.dataset.p==='community')loadCommunity();});
 
 /* свойства спрайта */
 function updateProps(force){
@@ -1405,7 +1426,7 @@ function renderSaves(){
 }
 $('#projName').onchange=()=>{const n=$('#projName').value.trim();if(n){project.name=n;renderExplorer();markDirty();}};
 $('#saveBtn').onclick=$('#mSave').onclick=saveProject;
-function exportProject(){const b=new Blob([JSON.stringify(serialize())],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=project.name.replace(/[\\/:*?"<>|]/g,'_')+'.scode.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);log('Экспортирован файл '+a.download,'ok');}
+function exportProject(){const b=new Blob([JSON.stringify(serialize())],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=project.name.replace(/[\\/:*?"<>|]/g,'_')+'.freasycode.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);log('Экспортирован файл '+a.download,'ok');}
 $('#expBtn').onclick=$('#mExport').onclick=exportProject;
 $('#impBtn').onclick=$('#mImport').onclick=()=>$('#fileIn').click();
 $('#fileIn').onchange=e=>{const f=e.target.files[0];e.target.value='';if(!f)return;const r=new FileReader();r.onload=()=>{try{loadProject(deserialize(JSON.parse(r.result)));toast('Импортирован проект');markDirty();}catch(err){toast('Ошибка: '+err.message);}};r.readAsText(f);};
@@ -1427,11 +1448,63 @@ $('#stopBtn').onclick=()=>{stopAll();log('■ Остановлено');};
 $('#askOk').onclick=submitAsk;$('#askIn').addEventListener('keydown',e=>{if(e.key==='Enter')submitAsk();e.stopPropagation();});
 addEventListener('beforeunload',()=>{if(dirty&&$('#autoSave').checked)autoSave();});
 
+
+/* ============ ПРОЕКТЫ ИГРОКОВ ============ */
+const acc=FreasyAccount({sessionKey:'freasycode-session',onChange:()=>{renderCommunityAcc();if($('#p-community').classList.contains('on'))loadCommunity();}});
+let cSort='new';
+function renderCommunityAcc(){const n=acc.username();$('#cAcc').innerHTML=n?'Ты вошёл как <b style="color:#fff">'+esc(n)+'</b>':'Войди в аккаунт FreasyGames, чтобы публиковать проекты. Смотреть можно и без аккаунта.';$('#cLogin').textContent=n?'👤 '+n:'👤 Войти / аккаунт';}
+function stageThumb(){const c=mkCanvas(240,180);c.getContext('2d').drawImage(stageC,0,0,240,180);return c.toDataURL('image/jpeg',0.7);}
+async function publishProject(){
+  if(!acc.username()){toast('Сначала войди в аккаунт');acc.open();return;}
+  const name=(project.name||'').trim().slice(0,40);if(!name){toast('Дай проекту название во вкладке 💾');return;}
+  const data=serialize();const size=JSON.stringify(data).length;
+  if(size>3.5e6){toast('Проект слишком большой ('+(size/1e6).toFixed(1)+' МБ, можно до 3.5 МБ). Убери большие картинки или записи.');return;}
+  const b=$('#cPublish');b.disabled=true;b.textContent='Публикуем…';
+  try{await acc.fetch('/rest/v1/freasycode_projects?on_conflict=author_id,name',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},
+      body:{author_id:acc.userId(),author_name:acc.username(),name,data,thumb:stageThumb(),updated_at:new Date().toISOString()}});
+    toast('🌍 Проект «'+name+'» опубликован!');log('Проект «'+name+'» опубликован в «Проекты игроков»','ok');loadCommunity();}
+  catch(e){toast(e.message);log('Публикация не удалась: '+e.message,'e');}
+  b.disabled=false;b.textContent='🌍 Опубликовать мой проект';
+}
+const okThumb=t=>/^data:image\/(jpeg|png);base64,[A-Za-z0-9+/=]+$/.test(t||'');
+async function loadCommunity(){
+  const list=$('#cList'),msg=$('#cMsg');list.innerHTML='';msg.textContent='Загружаем…';
+  if(cSort==='mine'&&!acc.userId()){msg.textContent='Войди в аккаунт, чтобы увидеть свои проекты';return;}
+  const q=$('#cSearch').value.trim().replace(/[,()*%\\:."]/g,' ').trim();
+  let path='/rest/v1/freasycode_projects?select=id,name,author_name,author_id,plays,thumb,updated_at&limit=40&order='+(cSort==='top'?'plays.desc,updated_at.desc':'updated_at.desc');
+  if(cSort==='mine')path+='&author_id=eq.'+acc.userId();
+  if(q)path+='&or='+encodeURIComponent('(name.ilike.*'+q+'*,author_name.ilike.*'+q+'*)');
+  try{const rows=await acc.fetch(path);
+    msg.textContent=rows.length?'':(q?'Ничего не нашли':cSort==='mine'?'Ты ещё ничего не опубликовал':'Проектов пока нет. Опубликуй первый!');
+    for(const r of rows){const d=document.createElement('div');d.className='proj';d.title='Открыть проект';
+      d.innerHTML='<img alt="" src="'+(okThumb(r.thumb)?r.thumb:'')+'"><span class="nm"><b>'+esc(r.name)+'</b><small>'+esc(r.author_name)+' · открыт '+(r.plays|0)+' раз</small></span>';
+      if(r.author_id&&r.author_id===acc.userId()){const del=document.createElement('button');del.textContent='🗑';del.title='Удалить с сервера';
+        del.onclick=async ev=>{ev.stopPropagation();if(!confirm('Удалить «'+r.name+'» из проектов игроков?'))return;try{await acc.fetch('/rest/v1/freasycode_projects?id=eq.'+r.id,{method:'DELETE'});loadCommunity();}catch(e){toast(e.message);}};d.appendChild(del);}
+      d.onclick=()=>openCommunity(r);list.appendChild(d);}
+  }catch(e){msg.textContent=e.message;}
+}
+async function openCommunity(r){
+  if(dirty&&!confirm('Открыть «'+r.name+'» от '+r.author_name+'? Несохранённые изменения текущего проекта пропадут.'))return;
+  toast('Загружаем «'+r.name+'»…');
+  try{const rows=await acc.fetch('/rest/v1/freasycode_projects?select=name,author_name,data&id=eq.'+r.id);if(!rows.length)throw new Error('Проект удалён');
+    const p=deserialize(rows[0].data);p.name=String(rows[0].name).slice(0,40);
+    acc.fetch('/rest/v1/rpc/freasycode_opened',{method:'POST',body:{project_id:r.id}}).catch(()=>{});
+    loadProject(p);markDirty();
+    log('Открыт проект «'+rows[0].name+'» от '+rows[0].author_name+'. Нажми ⚑, чтобы запустить. Твои изменения сохранятся только у тебя.','ok');toast('Открыт «'+rows[0].name+'» — жми ⚑');
+  }catch(e){toast(e.message);}
+}
+$('#cLogin').onclick=()=>acc.open();
+$('#cPublish').onclick=publishProject;
+$('#cGo').onclick=loadCommunity;$('#cSearch').addEventListener('keydown',e=>{if(e.key==='Enter')loadCommunity();});
+$$('#p-community [data-cs]').forEach(b=>b.onclick=()=>{cSort=b.dataset.cs;$$('#p-community [data-cs]').forEach(x=>x.classList.toggle('on',x===b));loadCommunity();});
+$('#mCommunity').onclick=()=>$('#activity [data-p="community"]').click();
+renderCommunityAcc();
+
 /* ============ СТАРТ ============ */
 measure();buildPalette();
 let start=null;try{const a=localStorage.getItem('scode_autosave');if(a)start=deserialize(JSON.parse(a));}catch(e){start=null;}
 loadProject(start||defaultProject());
-log('Добро пожаловать в ScratchCode Studio! Нажми ⚑ чтобы запустить, или ❓ слева, чтобы узнать как писать код.','i');
+log('Добро пожаловать в FreasyCode Studio! Нажми ⚑ чтобы запустить, или ❓ слева, чтобы узнать как писать код.','i');
 if(start)log('Загружено автосохранение проекта «'+project.name+'»','ok');
 requestAnimationFrame(loop);
 </script>
