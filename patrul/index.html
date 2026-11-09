@@ -39,6 +39,7 @@ h2{margin:0;font-size:32px;color:#7ef9ff}
   <button class="btn" id="bPlay">▶ Новая игра</button>
   <button class="btn gold" id="bCont">⟳ Продолжить</button>
   <button class="btn sec" id="bShop">🛠 Мастерская</button>
+  <button class="btn sec" data-lb>🏆 Таблица лидеров</button>
   <div class="muted" id="menuInfo"></div>
   <div style="display:flex;gap:8px"><button class="btn sec" style="min-width:0;font-size:13px;padding:8px 14px" id="bReset">Сбросить прогресс</button><a class="btn sec" style="min-width:0;font-size:13px;padding:8px 14px;text-decoration:none" href="../">← FreasyGames</a></div>
 </div>
@@ -48,9 +49,10 @@ h2{margin:0;font-size:32px;color:#7ef9ff}
   <div class="muted">Корабли</div><div class="ships" id="shipGrid"></div>
   <button class="btn sec" data-back>Назад</button>
 </div>
-<div class="ui" id="overUI"><h2 id="overT">Корабль уничтожен</h2><div class="muted" id="overInfo" style="font-size:17px"></div><button class="btn gold" id="bOverCont">⟳ С точки сохранения</button><button class="btn" id="bAgain">▶ Сначала</button><button class="btn sec" id="bOverShop">🛠 Мастерская</button><button class="btn sec" data-back>Меню</button></div>
+<div class="ui" id="overUI"><h2 id="overT">Корабль уничтожен</h2><div class="muted" id="overInfo" style="font-size:17px"></div><button class="btn gold" id="bOverCont">⟳ С точки сохранения</button><button class="btn" id="bAgain">▶ Сначала</button><button class="btn sec" id="bOverShop">🛠 Мастерская</button><button class="btn sec" data-lb>🏆 Таблица лидеров</button><button class="btn sec" data-back>Меню</button><div class="muted" id="lbNote"></div></div>
 <div class="ui" id="pauseUI"><h2>Пауза</h2><button class="btn" id="bResume">Продолжить</button><button class="btn sec" id="bQuit">Выйти в меню</button><div class="muted">Монеты уже сохранены</div></div>
 
+<script src="../shared/leaderboard.js"></script>
 <script>
 "use strict";
 const $=s=>document.querySelector(s);
@@ -88,7 +90,7 @@ for(let i=0;i<120;i++)stars.push({x:Math.random()*W,y:Math.random()*H,z:Math.ran
 function newRun(fromWave){
   const u=save.ups;
   P={x:W/2,y:H-120,hp:3+u.hp,maxHp:3+u.hp,cool:0,inv:60*(1+u.shield),dbl:0,dead:false};
-  bul=[];ebul=[];en=[];drops=[];parts=[];score=0;runCoins=0;wave=fromWave||0;waveQ=[];waveT=60;
+  bul=[];ebul=[];en=[];drops=[];parts=[];score=0;runCoins=0;wave=fromWave||0;waveQ=[];waveT=60;runStart=wave;runT=0;
   state='play';showUI(null);nextWave();
 }
 function nextWave(){
@@ -116,7 +118,9 @@ function boom(x,y,col,n=20,sp=5){for(let i=0;i<n;i++){const a=Math.random()*7,v=
 function hurt(){if(P.inv>0)return;P.hp--;P.inv=90;shake=12;S.hurt();boom(P.x,P.y,'#fff',20,4);if(P.hp<=0)gameOver();}
 function gameOver(){P.dead=true;S.big();boom(P.x,P.y,SHIPS[save.ship].c,80,8);state='dying';
   setTimeout(()=>{state='over';
-    const newBest=score>save.best;save.best=Math.max(save.best,score);save.bestWave=Math.max(save.bestWave,wave);store();
+    const newBest=score>save.best,run={new_score:score,new_wave:wave,new_start:runStart,new_time:Math.floor(runT)};
+    if(newBest)save.runScore=run;if(wave>save.bestWave)save.runWave=run;
+    save.best=Math.max(save.best,score);save.bestWave=Math.max(save.bestWave,wave);store();lb.submit(run);
     $('#overT').textContent=newBest?'🏆 Новый рекорд!':'Корабль уничтожен';
     $('#overInfo').innerHTML='Очки: <b>'+score+'</b> (рекорд '+save.best+')<br>Волна: '+wave+'<br>Собрано монет: 🪙 '+runCoins+' (всего '+save.coins+')';
     $('#bOverCont').style.display=save.check>0?'':'none';$('#bOverCont').textContent='⟳ С волны '+(save.check+1);
@@ -127,6 +131,7 @@ function update(){
   for(const p of parts){p.x+=p.vx;p.y+=p.vy;p.vx*=.96;p.vy*=.96;p.life-=.02;}parts=parts.filter(p=>p.life>0);
   if(shake>0)shake--;
   if(state==='dying')return;
+  runT+=1/60;
   const u=save.ups;
   // движение
   let dx=0,dy=0;if(keys.ArrowLeft||keys.KeyA)dx-=1;if(keys.ArrowRight||keys.KeyD)dx+=1;if(keys.ArrowUp||keys.KeyW)dy-=1;if(keys.ArrowDown||keys.KeyS)dy+=1;
@@ -228,7 +233,7 @@ function loop(ts){acc+=Math.min(100,ts-lastT)/16.67;lastT=ts;let n=0;while(acc>=
 requestAnimationFrame(loop);
 
 /* ---------- ввод ---------- */
-addEventListener('keydown',e=>{keys[e.code]=true;if(e.code.startsWith('Arrow')||e.code==='Space')e.preventDefault();
+addEventListener('keydown',e=>{if(lb.isOpen())return;keys[e.code]=true;if(e.code.startsWith('Arrow')||e.code==='Space')e.preventDefault();
   if((e.code==='Escape'||e.code==='KeyP')){if(state==='play'){state='pause';showUI('pauseUI');}else if(state==='pause')resume();}});
 addEventListener('keyup',e=>keys[e.code]=false);
 addEventListener('blur',()=>{keys={};if(state==='play'){state='pause';showUI('pauseUI');}});
@@ -254,6 +259,12 @@ function renderShop(){
     d.onclick=()=>{if(!own){if(save.coins<s.p)return;save.coins-=s.p;save.owned.push(i);S.coin();}save.ship=i;store();renderShop();};sg.appendChild(d);});
   showUI('shopUI');
 }
+let runStart=0,runT=0;
+const lb=FreasyLeaderboard({key:'patrul',
+  boards:[{id:'score',title:'Очки',column:'best_score',order:'desc',note:'Больше всего очков за один полёт.',format:v=>v+' очк.'},
+    {id:'wave',title:'Волна',column:'best_wave',order:'desc',note:'Самая дальняя волна, до которой удалось долететь.',format:v=>'волна '+v}],
+  bests:()=>[save.runScore,save.runWave].filter(Boolean),onStatus:t=>{$('#lbNote').textContent=t;}});
+document.querySelectorAll('[data-lb]').forEach(b=>b.onclick=()=>lb.open());
 $('#bPlay').onclick=()=>{ac();newRun(0);};
 $('#bCont').onclick=$('#bOverCont').onclick=()=>{ac();newRun(save.check);};
 $('#bAgain').onclick=()=>{ac();newRun(0);};

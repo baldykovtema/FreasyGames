@@ -246,6 +246,7 @@ body.full .props,body.full .shint{display:none}
           <div class="hint" style="padding:0" id="cAcc"></div>
           <button class="btn sec" id="cLogin">👤 Войти / аккаунт</button>
           <button class="btn" id="cPublish">🌍 Опубликовать мой проект</button>
+          <button class="btn sec" id="cLeaders">🏆 Таблица лидеров</button>
           <div class="hint" style="padding:0">Опубликуй проект — его смогут открыть, запустить и изучить другие. Повторная публикация с тем же названием обновит проект.</div>
           <div style="display:flex;gap:6px"><input class="inp" id="cSearch" placeholder="Поиск: название или автор"><button class="btn sec" id="cGo">🔍</button></div>
           <div class="cTabs"><button data-cs="new" class="on">Новые</button><button data-cs="top">Популярные</button><button data-cs="mine">Мои</button></div>
@@ -378,6 +379,7 @@ save "рекорд", очки</pre>
 <div class="toast" id="toast"></div>
 
 <script src="../shared/account.js"></script>
+<script src="../shared/leaderboard.js"></script>
 <script>
 "use strict";
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
@@ -1493,6 +1495,12 @@ async function openCommunity(r){
     log('Открыт проект «'+rows[0].name+'» от '+rows[0].author_name+'. Нажми ⚑, чтобы запустить. Твои изменения сохранятся только у тебя.','ok');toast('Открыт «'+rows[0].name+'» — жми ⚑');
   }catch(e){toast(e.message);}
 }
+// Лидеры считаются на сервере по опубликованным проектам (вид freasycode_scores), отправлять ничего не нужно.
+const lb=FreasyLeaderboard({key:'freasycode',
+  boards:[{id:'plays',title:'Популярные авторы',column:'total_plays',order:'desc',note:'Сколько раз другие открывали проекты автора.',format:v=>'открыто '+v},
+    {id:'projects',title:'Больше проектов',column:'projects',order:'desc',note:'Сколько проектов опубликовал автор.',format:v=>v+' пр.'}],
+  onStatus:()=>{}});
+$('#cLeaders').onclick=()=>lb.open();
 $('#cLogin').onclick=()=>acc.open();
 $('#cPublish').onclick=publishProject;
 $('#cGo').onclick=loadCommunity;$('#cSearch').addEventListener('keydown',e=>{if(e.key==='Enter')loadCommunity();});

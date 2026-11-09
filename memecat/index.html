@@ -63,6 +63,7 @@
   <button data-go="editor">Редактор</button>
   <button data-go="search">Поиск уровней</button>
   <button class="alt" data-go="account" id="accBtn">Аккаунт</button>
+  <button class="alt" id="lbBtn">🏆 Таблица лидеров</button>
   <button class="alt" id="settingsBtn">Настройки</button>
   <button class="alt small" id="muteBtn">Звук: вкл</button>
 </div>
@@ -157,6 +158,7 @@
 <div id="toast"></div>
 
 <script src="../shared/multiplayer.js"></script>
+<script src="../shared/leaderboard.js"></script>
 <script>
 'use strict';
 
@@ -516,7 +518,29 @@ function saveBest(pct, fishGot) {
   const p = progress[game.idx] || { best: 0, fish: 0 };
   p.best = Math.max(p.best, pct); p.fish = Math.max(p.fish, fishGot);
   progress[game.idx] = p; save('catjump-progress', progress);
+  // Отправляем только когда сумма выросла, а не после каждой попытки.
+  const t = progressTotals(), key = t.new_progress + '/' + t.new_fish;
+  if (key !== lastTotals) { lastTotals = key; lb.submit(t); }
 }
+let lastTotals = '';
+
+/* ================= Таблица лидеров ================= */
+
+// Сумма лучших процентов и рыбок по встроенным уровням: сервер хранит лучшие значения игрока.
+function progressTotals() {
+  let pct = 0, fish = 0;
+  builtins.forEach((_, i) => { const p = progress[i]; if (p) { pct += p.best; fish += p.fish; } });
+  return { new_progress: Math.round(pct), new_fish: fish };
+}
+const lb = FreasyLeaderboard({
+  key: 'catjump',
+  boards: [
+    { id: 'progress', title: 'Прогресс', column: 'best_progress', order: 'desc', note: 'Сумма лучших результатов на встроенных уровнях: 100% за каждый пройденный.', format: (v) => v + '%' },
+    { id: 'fish', title: 'Рыбки', column: 'best_fish', order: 'desc', note: 'Сколько рыбок собрано на встроенных уровнях.', format: (v) => v + ' 🐟' },
+  ],
+  bests: () => progressTotals(),
+  onStatus: () => {},
+});
 
 function quitGame() {
   stopMusic(); holding = false;
@@ -825,6 +849,7 @@ const mp = FreasyMultiplayer({
   },
 });
 $('settingsBtn').onclick = () => { audio(); mp.openSettings(); };
+$('lbBtn').onclick = () => lb.open();
 
 /* ================= Экраны и ввод ================= */
 
@@ -888,7 +913,7 @@ $('winQuitBtn').onclick = quitGame;
 
 const JUMP_KEYS = ['Space', 'ArrowUp', 'KeyW'];
 addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || mp.settingsOpen()) return;
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || mp.settingsOpen() || lb.isOpen()) return;
   if (mode === 'play') {
     if (JUMP_KEYS.includes(e.code)) { holding = true; e.preventDefault(); }
     else if (e.code === 'Escape') pause(!game.paused);

@@ -20,7 +20,10 @@ window.FreasyAccount = (opts) => {
     if (/payload too large|too large/i.test(raw) || status === 413) return 'Слишком большой файл';
     return raw;
   }
+  // The leaderboard window (shared/leaderboard.js) may sign in too, with the same storage key.
+  function sync() { const x = load(); session = x && x.access_token ? x : null; }
   async function raw(path, { method = 'GET', body, headers = {}, auth = true } = {}) {
+    if (auth) sync();
     const h = { apikey: SB_KEY, 'Content-Type': 'application/json', ...headers };
     if (auth && session) { await refreshIfNeeded(); if (session) h.Authorization = 'Bearer ' + session.access_token; }
     let res;
@@ -41,8 +44,8 @@ window.FreasyAccount = (opts) => {
     try { setSession(await raw('/auth/v1/token?grant_type=refresh_token', { method: 'POST', body: { refresh_token: session.refresh_token }, auth: false })); }
     catch { setSession(null); }
   }
-  const username = () => session && session.user && session.user.user_metadata && session.user.user_metadata.username || null;
-  const userId = () => session && session.user && session.user.id || null;
+  const username = () => (sync(), session) && session.user && session.user.user_metadata && session.user.user_metadata.username || null;
+  const userId = () => (sync(), session) && session.user && session.user.id || null;
 
   async function auth(kind) {
     const name = q('#fa-name').value.trim(), pass = q('#fa-pass').value, msg = q('.fa-msg');

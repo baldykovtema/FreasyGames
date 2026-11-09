@@ -59,7 +59,7 @@ h2{margin:0;font-size:36px;color:#ffd84d}
   <button class="btn" id="bPlay">▶ Играть</button>
   <div class="row"><button class="btn sec" id="bLevels" style="min-width:160px">Уровни</button><button class="btn sec" id="bSkins" style="min-width:160px">Скины</button></div>
   <div class="row"><button class="btn sec" id="bEditor" style="min-width:160px">🛠 Редактор</button><button class="btn sec" id="bOnline" style="min-width:160px">🌍 Уровни игроков</button></div>
-  <div class="row"><button class="btn sec small" id="bAcc">👤 Аккаунт</button><button class="btn sec small" id="bMp">👥 Мультиплеер</button></div>
+  <div class="row"><button class="btn sec small" id="bLb">🏆 Лидеры</button><button class="btn sec small" id="bAcc">👤 Аккаунт</button><button class="btn sec small" id="bMp">👥 Мультиплеер</button></div>
   <div class="muted" id="menuInfo"></div>
   <div class="row"><button class="btn sec small" id="bReset">Сбросить сохранение</button><a class="btn sec small" href="../">← FreasyGames</a></div>
 </div>
@@ -80,7 +80,7 @@ h2{margin:0;font-size:36px;color:#ffd84d}
   <div class="list" id="myList"></div>
   <button class="btn sec" data-back>Назад</button>
 </div>
-<div class="ui" id="winUI"><h2 id="winT">Уровень пройден!</h2><div id="winInfo" class="muted" style="font-size:18px"></div><button class="btn" id="bNext">Дальше ▶</button><button class="btn sec" id="bRetry">Ещё раз</button><button class="btn sec" id="bWinBack">Меню</button></div>
+<div class="ui" id="winUI"><h2 id="winT">Уровень пройден!</h2><div id="winInfo" class="muted" style="font-size:18px"></div><button class="btn" id="bNext">Дальше ▶</button><button class="btn sec" id="bRetry">Ещё раз</button><button class="btn sec" id="bWinBack">Меню</button><button class="btn sec small" data-lb>🏆 Таблица лидеров</button><div class="muted" id="lbNote"></div></div>
 <div class="ui" id="pauseUI"><h2>Пауза</h2><button class="btn" id="bResume">Продолжить</button><button class="btn sec" id="bRestart">Заново</button><button class="btn sec" id="bPauseBack">Меню</button><div class="muted">Прогресс сохраняется автоматически</div></div>
 
 <div id="edTop"><input class="inp" id="edName" maxlength="30" placeholder="Название уровня" style="width:220px;padding:6px 10px;font-size:14px">
@@ -94,6 +94,7 @@ h2{margin:0;font-size:36px;color:#ffd84d}
 
 <script src="../shared/multiplayer.js"></script>
 <script src="../shared/account.js"></script>
+<script src="../shared/leaderboard.js"></script>
 <script>
 "use strict";
 const $=s=>document.querySelector(s);
@@ -232,7 +233,7 @@ function win(){
   if(cur.kind==='main'){
     const lvl=cur.idx;const stars=1+(got===total?1:0)+(t<cur.def.rows[0].length*0.55?1:0);
     save.stars[lvl]=Math.max(save.stars[lvl]||0,stars);if(!save.best[lvl]||t<save.best[lvl])save.best[lvl]=+t.toFixed(2);
-    save.unlocked=Math.max(save.unlocked,Math.min(LEVELS.length,lvl+2));store();
+    save.unlocked=Math.max(save.unlocked,Math.min(LEVELS.length,lvl+2));store();lb.submit(lbTotals());
     $('#winT').textContent=lvl===LEVELS.length-1?'🏆 Ты прошёл игру!':'Уровень пройден!';
     $('#winInfo').innerHTML='⭐'.repeat(stars)+'<span style="opacity:.3">'+'⭐'.repeat(3-stars)+'</span><br>Монеты: '+got+' / '+total+'<br>Время: '+t.toFixed(1)+' с (лучшее '+save.best[lvl]+' с)<br><small>⭐ за финиш, ⭐ за все монеты, ⭐ за скорость</small>';
     $('#bNext').style.display=lvl<LEVELS.length-1?'':'none';$('#bWinBack').textContent='Меню';
@@ -335,6 +336,18 @@ function frame(ts){const t=ts/1000;let dt=Math.min(3,(ts-lastT)/16.67);lastT=ts;
   frame.acc=(frame.acc||0)+dt;let n=0;while(frame.acc>=1&&n<4){update(1);frame.acc-=1;n++;}if(n>=4)frame.acc=0;
   if(state==='edit')edScroll();
   draw(t);sendMp();requestAnimationFrame(frame);}
+
+/* ---------- Таблица лидеров ---------- */
+// Звёзды за все встроенные уровни и время всей игры: сумма лучших времён, когда пройдены все уровни.
+function lbTotals(){
+  const stars=LEVELS.reduce((n,_,i)=>n+(save.stars[i]||0),0);
+  const all=LEVELS.every((_,i)=>save.best[i]>0);
+  return {new_stars:stars,new_time:all?Math.round(LEVELS.reduce((n,_,i)=>n+save.best[i],0)*10):null};
+}
+const lb=FreasyLeaderboard({key:'prygun',
+  boards:[{id:'stars',title:'Звёзды',column:'best_stars',order:'desc',note:'Звёзды на шести уровнях: за финиш, за все монеты и за скорость.',format:v=>v+' ⭐'},
+    {id:'time',title:'Скорость',column:'best_time',order:'asc',note:'Сумма лучших времён всех шести уровней. Появится, когда пройдёшь все.',format:v=>(v/10).toFixed(1)+' с'}],
+  bests:()=>lbTotals(),onStatus:t=>{$('#lbNote').textContent=t;}});
 
 /* ---------- Мультиплеер ---------- */
 const acc=FreasyAccount({sessionKey:'prygun-session',onChange:()=>{updateAccBtn();if($('#onlineUI').classList.contains('on'))loadOnline();}});
@@ -499,7 +512,7 @@ $('#bOnline').onclick=()=>{ac();openOnline();};
 
 /* ---------- Ввод ---------- */
 addEventListener('keydown',e=>{
-  if(/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName))return;
+  if(/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)||lb.isOpen())return;
   keys[e.code]=true;ac();
   if(state==='edit'){if((e.ctrlKey||e.metaKey)&&e.code==='KeyZ'){e.preventDefault();edUndoDo();}if(e.code.startsWith('Arrow'))e.preventDefault();return;}
   if(['Space','ArrowUp','KeyW'].includes(e.code)){jumpBuf=8;e.preventDefault();}
@@ -540,6 +553,7 @@ $('#bPauseBack').onclick=backFromLevel;
 $('#bResume').onclick=resume;
 $('#bRestart').onclick=restart;
 $('#bAcc').onclick=()=>acc.open();
+$('#bLb').onclick=()=>lb.open();document.querySelectorAll('[data-lb]').forEach(b=>b.onclick=()=>lb.open());
 $('#bMp').onclick=()=>mp.openSettings();
 $('#bReset').onclick=()=>{if(confirm('Удалить весь прогресс? (Твои уровни останутся)')){localStorage.removeItem(KEY);save=load();menu();}};
 buildTools();menu();

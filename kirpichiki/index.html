@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Кирпичики — FreasyGames</title>
+<meta name="description" content="Кирпичики на FreasyGames: отбивай мяч платформой, разбивай кирпичи, лови бонусы и проходи уровни. Таблица лидеров по очкам и уровням.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">🧱 Новая игра</div>
+    <h1><span>Кирпичики</span></h1>
+    <p>Отбивай мяч платформой и разбей все кирпичи. Яркие кирпичи крепче, а из некоторых выпадают бонусы.</p>
+    <p>Чем больше кирпичей подряд без касания платформы, тем больше комбо. Жизней три.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · лучший уровень: <b id="bestLevelStart">—</b></p>
+    <button class="play" id="go" type="button">Начать ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Мышь, палец или ← →. Пробел или касание — запустить мяч</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow">Мячи кончились</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">очков</p>
+    <p>Уровень: <b id="levelOver">1</b> · кирпичей разбито: <b id="bricksOver">0</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · лучший уровень: <b id="bestLevelOver">—</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), g = cv.getContext('2d');
+  // The field is 480x720 and is scaled to fit the window.
+  const FW = 480, FH = 720, COLS = 10, BW = (FW - 40) / COLS, BH = 24, TOP = 110;
+  const HP_COL = ['#7cc4ff', '#bca0ff', '#ff9ec2', '#ffd23f'];
+  let scale = 1, ox = 0, oy = 0, dpr = 1;
+  let state = 'start', level = 1, score = 0, lives = 3, combo = 0, bricksBroken = 0, playTime = 0;
+  let paddle, balls, bricks, drops, parts, popups, shake = 0, flash = 0, wideT = 0, slowT = 0, banner = 0;
+  let best = +store.get('kirpichiki-best', 0) || 0, bestLevel = +store.get('kirpichiki-best-level', 0) || 0;
+  let runs = {}; try { runs = JSON.parse(store.get('kirpichiki-runs', '{}')) || {}; } catch { runs = {}; }
+  let muted = store.get('kirpichiki-muted', '0') === '1', keys = {}, pointerX = null;
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'square', v = 0.06, slide = 1) {
+    if (muted || !ac) return;
+    const t = ac.currentTime, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  const sfx = {
+    paddle: () => tone(330, 0.08, 'triangle', 0.08),
+    brick: (c) => tone(520 + Math.min(c, 8) * 70, 0.07, 'square', 0.05),
+    hard: () => tone(240, 0.06, 'square', 0.05),
+    wall: () => tone(200, 0.04, 'sine', 0.05),
+    power: () => [500, 750, 1000].forEach((f, i) => setTimeout(() => tone(f, 0.1, 'triangle', 0.07), i * 60)),
+    lose: () => tone(300, 0.5, 'sawtooth', 0.06, 0.25),
+    clear: () => [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => tone(f, 0.16, 'triangle', 0.08), i * 90)),
+  };
+
+  // ——— Levels: a shape function per pattern, harder bricks as levels go up ———
+  const SHAPES = [
+    (x, y) => y < 5,
+    (x, y) => y < 7 && Math.abs(x - 4.5) <= y * 0.8 + 0.5,
+    (x, y) => y < 7 && (x + y) % 2 === 0,
+    (x, y) => y < 8 && (y % 2 === 0 || x === 0 || x === 9),
+    (x, y) => { const dx = Math.abs(x - 4.5), h = [[1, 1, 0, 0, 0], [2, 2, 1, 0, 0], [2, 2, 2, 1, 0], [2, 2, 2, 2, 1], [1, 2, 2, 2, 2], [0, 1, 2, 2, 2], [0, 0, 1, 2, 2], [0, 0, 0, 1, 1]]; return y < 8 && (h[y] || [])[Math.floor(4.5 - dx)] > 0; },
+    (x, y) => y < 8 && (x < 3 || x > 6 || y < 2 || y > 5),
+    (x, y) => y < 8 && ((x * 7 + y * 13 + level * 5) % 5) !== 0,
+  ];
+  function buildLevel() {
+    bricks = [];
+    const shape = SHAPES[(level - 1) % SHAPES.length];
+    for (let y = 0; y < 8; y++) for (let x = 0; x < COLS; x++) {
+      if (!shape(x, y)) continue;
+      // Up to 4 hits: tougher bricks appear more often on later levels.
+      let hp = 1; const r = ((x * 31 + y * 17 + level * 7) % 100) / 100;
+      if (level >= 2 && r < 0.15 + level * 0.04) hp = 2;
+      if (level >= 4 && r < 0.05 + level * 0.025) hp = 3;
+      if (level >= 7 && r < 0.03 + level * 0.01) hp = 4;
+      bricks.push({ x: 20 + x * BW, y: TOP + y * BH, w: BW - 4, h: BH - 4, hp, max: hp, hit: 0, bonus: (x * 13 + y * 7 + level) % 9 === 0 });
+    }
+  }
+  const baseSpeed = () => Math.min(640, 360 + level * 24);
+  function newBall(stuck) { return { x: paddle.x, y: paddle.y - 14, vx: 0, vy: 0, r: 8, stuck }; }
+  function reset() {
+    level = 1; score = 0; lives = 3; combo = 0; bricksBroken = 0; playTime = 0; wideT = 0; slowT = 0;
+    paddle = { x: FW / 2, y: FH - 56, w: 96 };
+    balls = [newBall(true)]; drops = []; parts = []; popups = []; buildLevel(); banner = 1.6;
+  }
+  function launch() {
+    for (const b of balls) if (b.stuck) { const a = -Math.PI / 2 + (Math.random() - 0.5) * 0.7, s = baseSpeed(); b.vx = Math.cos(a) * s; b.vy = Math.sin(a) * s; b.stuck = false; }
+  }
+  function burst(x, y, col, n = 12, sp = 160) { for (let i = 0; i < n; i++) { const a = Math.random() * 7, v = Math.random() * sp; parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, col, r: 2 + Math.random() * 3 }); } }
+  function popup(x, y, text, col = '#f8f7ff') { popups.push({ x, y, text, col, life: 1 }); }
+
+  function hitBrick(br, b) {
+    br.hp--; br.hit = 0.15; combo++;
+    const pts = 10 * Math.min(5, combo);
+    score += pts;
+    if (br.hp > 0) { sfx.hard(); return; }
+    sfx.brick(combo); bricksBroken++; burst(br.x + br.w / 2, br.y + br.h / 2, HP_COL[br.max - 1], 14);
+    if (combo >= 3) popup(br.x + br.w / 2, br.y, '×' + Math.min(5, combo), '#ffd23f');
+    if (br.bonus) { const kinds = ['wide', 'multi', 'slow', 'life']; drops.push({ x: br.x + br.w / 2, y: br.y + br.h / 2, kind: kinds[(bricksBroken + level) % kinds.length] }); }
+  }
+
+  function step(dt) {
+    if (state !== 'play') return;
+    playTime += dt; banner = Math.max(0, banner - dt);
+    // Paddle.
+    const pw = wideT > 0 ? 150 : 96; paddle.w += (pw - paddle.w) * Math.min(1, dt * 10);
+    const dir = (keys.ArrowRight || keys.KeyD ? 1 : 0) - (keys.ArrowLeft || keys.KeyA ? 1 : 0);
+    if (dir) { paddle.x += dir * 620 * dt; pointerX = null; } else if (pointerX !== null) paddle.x += (pointerX - paddle.x) * Math.min(1, dt * 18);
+    paddle.x = Math.max(paddle.w / 2 + 6, Math.min(FW - paddle.w / 2 - 6, paddle.x));
+    wideT = Math.max(0, wideT - dt); slowT = Math.max(0, slowT - dt);
+    const sp = baseSpeed() * (slowT > 0 ? 0.65 : 1);
+    // Balls, in small steps so a fast ball never jumps through a brick.
+    for (const b of balls) {
+      if (b.stuck) { b.x = paddle.x; b.y = paddle.y - 14; continue; }
+      const cur = Math.hypot(b.vx, b.vy) || 1; b.vx *= sp / cur; b.vy *= sp / cur;
+      const n = Math.ceil(sp * dt / 5);
+      for (let i = 0; i < n && !b.out; i++) {
+        b.x += b.vx * dt / n; b.y += b.vy * dt / n;
+        if (b.x < b.r + 6) { b.x = b.r + 6; b.vx = Math.abs(b.vx); sfx.wall(); }
+        if (b.x > FW - b.r - 6) { b.x = FW - b.r - 6; b.vx = -Math.abs(b.vx); sfx.wall(); }
+        if (b.y < b.r + 70) { b.y = b.r + 70; b.vy = Math.abs(b.vy); sfx.wall(); }
+        // Paddle: where the ball lands sets the bounce angle.
+        if (b.vy > 0 && b.y + b.r >= paddle.y - 7 && b.y < paddle.y + 8 && Math.abs(b.x - paddle.x) <= paddle.w / 2 + b.r) {
+          const k = Math.max(-1, Math.min(1, (b.x - paddle.x) / (paddle.w / 2))), a = -Math.PI / 2 + k * 1.05;
+          b.vx = Math.cos(a) * sp; b.vy = Math.sin(a) * sp; b.y = paddle.y - 7 - b.r; combo = 0; sfx.paddle();
+        }
+        for (const br of bricks) {
+          if (br.hp <= 0) continue;
+          if (b.x + b.r < br.x || b.x - b.r > br.x + br.w || b.y + b.r < br.y || b.y - b.r > br.y + br.h) continue;
+          const ox1 = b.x + b.r - br.x, ox2 = br.x + br.w - (b.x - b.r), oy1 = b.y + b.r - br.y, oy2 = br.y + br.h - (b.y - b.r);
+          if (Math.min(ox1, ox2) < Math.min(oy1, oy2)) { b.vx = ox1 < ox2 ? -Math.abs(b.vx) : Math.abs(b.vx); } else { b.vy = oy1 < oy2 ? -Math.abs(b.vy) : Math.abs(b.vy); }
+          hitBrick(br, b); break;
+        }
+        if (b.y > FH + 20) b.out = true;
+      }
+    }
+    balls = balls.filter((b) => !b.out);
+    if (!balls.length) {
+      lives--; combo = 0; sfx.lose(); shake = 0.4; flash = 1;
+      if (lives <= 0) return gameOver();
+      balls = [newBall(true)]; wideT = 0; slowT = 0;
+    }
+    bricks = bricks.filter((br) => br.hp > 0 || br.hit > 0);
+    for (const br of bricks) br.hit = Math.max(0, br.hit - dt);
+    // Bonuses.
+    for (const d of drops) {
+      d.y += 170 * dt;
+      if (d.y > paddle.y - 14 && d.y < paddle.y + 14 && Math.abs(d.x - paddle.x) < paddle.w / 2 + 14) {
+        d.got = true; sfx.power();
+        if (d.kind === 'wide') { wideT = 12; popup(d.x, d.y - 20, 'Шире!', '#7cc4ff'); }
+        if (d.kind === 'slow') { slowT = 9; popup(d.x, d.y - 20, 'Медленнее', '#5df2a5'); }
+        if (d.kind === 'life') { lives = Math.min(5, lives + 1); popup(d.x, d.y - 20, '+1 жизнь', '#ff9ec2'); }
+        if (d.kind === 'multi') {
+          const src = balls.find((b) => !b.stuck) || balls[0];
+          for (const a of [-0.5, 0.5]) { const nb = { ...src, stuck: false, out: false }; const ang = Math.atan2(src.vy || -1, src.vx || 0) + a; nb.vx = Math.cos(ang) * sp; nb.vy = Math.sin(ang) * sp; if (nb.vy > 0) nb.vy = -nb.vy; balls.push(nb); }
+          popup(d.x, d.y - 20, '+2 мяча', '#ffd23f');
+        }
+      }
+    }
+    drops = drops.filter((d) => !d.got && d.y < FH + 20);
+    if (!bricks.some((br) => br.hp > 0)) {
+      score += 100 * level; popup(FW / 2, FH / 2, `Уровень ${level} пройден! +${100 * level}`, '#5df2a5');
+      level++; sfx.clear(); buildLevel(); balls = [newBall(true)]; drops = []; banner = 1.6; combo = 0;
+    }
+  }
+
+  // ——— Drawing ———
+  function round(x, y, w, h, r) { g.beginPath(); g.roundRect(x, y, w, h, r); }
+  function draw() {
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.fillStyle = '#111321'; g.fillRect(0, 0, cv.width, cv.height);
+    const sh = shake > 0 ? (Math.random() - 0.5) * 12 * shake : 0;
+    g.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * (ox + sh), dpr * oy);
+    const bg = g.createLinearGradient(0, 0, 0, FH); bg.addColorStop(0, '#1d1a3d'); bg.addColorStop(1, '#14152a');
+    g.fillStyle = bg; round(0, 0, FW, FH, 24); g.fill();
+    g.strokeStyle = '#b79aff55'; g.lineWidth = 2; round(1, 1, FW - 2, FH - 2, 24); g.stroke();
+    // HUD inside the field.
+    g.font = '800 22px Manrope, system-ui'; g.textAlign = 'left'; g.fillStyle = '#f8f7ff'; g.fillText(score, 22, 48);
+    g.font = '700 14px Manrope, system-ui'; g.fillStyle = '#89879e'; g.fillText('очки · уровень ' + level, 22, 66);
+    g.textAlign = 'right'; g.font = '800 20px Manrope, system-ui';
+    for (let i = 0; i < Math.max(lives, 0); i++) { g.fillStyle = '#ff9ec2'; g.fillText('●', FW - 22 - i * 22, 52); }
+    if (combo >= 2) { g.fillStyle = '#ffd23f'; g.font = '800 16px Manrope, system-ui'; g.fillText('комбо ×' + Math.min(5, combo), FW - 22, 72); }
+    g.strokeStyle = '#ffffff14'; g.beginPath(); g.moveTo(6, 78); g.lineTo(FW - 6, 78); g.stroke();
+    // Bricks.
+    for (const br of bricks) {
+      const col = HP_COL[Math.max(0, br.hp - 1)] || '#fff', k = br.hp <= 0 ? br.hit / 0.15 : 1;
+      g.globalAlpha = k; g.fillStyle = br.hit > 0 ? '#ffffff' : col; round(br.x, br.y, br.w, br.h, 6); g.fill();
+      g.fillStyle = '#ffffff40'; round(br.x + 3, br.y + 3, br.w - 6, 5, 3); g.fill();
+      if (br.bonus && br.hp > 0) { g.fillStyle = '#171225'; g.font = '800 13px Manrope, system-ui'; g.textAlign = 'center'; g.fillText('★', br.x + br.w / 2, br.y + br.h / 2 + 5); }
+      g.globalAlpha = 1;
+    }
+    // Bonuses.
+    for (const d of drops) {
+      const col = { wide: '#7cc4ff', multi: '#ffd23f', slow: '#5df2a5', life: '#ff9ec2' }[d.kind];
+      g.fillStyle = col; round(d.x - 18, d.y - 11, 36, 22, 11); g.fill();
+      g.fillStyle = '#171225'; g.font = '800 13px Manrope, system-ui'; g.textAlign = 'center';
+      g.fillText({ wide: '↔', multi: '●●', slow: '⏱', life: '♥' }[d.kind], d.x, d.y + 5);
+    }
+    // Paddle and balls.
+    const pg = g.createLinearGradient(0, paddle.y - 8, 0, paddle.y + 8); pg.addColorStop(0, '#d3beff'); pg.addColorStop(1, '#7b67fc');
+    g.save(); g.shadowColor = '#a178f8'; g.shadowBlur = 18; g.fillStyle = pg; round(paddle.x - paddle.w / 2, paddle.y - 8, paddle.w, 16, 8); g.fill(); g.restore();
+    for (const b of balls) { g.save(); g.shadowColor = '#fff'; g.shadowBlur = 14; g.fillStyle = '#fff'; g.beginPath(); g.arc(b.x, b.y, b.r, 0, 7); g.fill(); g.restore(); }
+    for (const p of parts) { g.globalAlpha = Math.max(0, p.life); g.fillStyle = p.col; g.fillRect(p.x, p.y, p.r, p.r); } g.globalAlpha = 1;
+    for (const p of popups) { g.globalAlpha = Math.max(0, p.life); g.fillStyle = p.col; g.font = '800 18px Manrope, system-ui'; g.textAlign = 'center'; g.fillText(p.text, p.x, p.y); } g.globalAlpha = 1;
+    if (state === 'play' && balls.some((b) => b.stuck)) {
+      g.globalAlpha = 0.6 + 0.4 * Math.sin(performance.now() / 200); g.fillStyle = '#d9c9ff'; g.font = '800 18px Manrope, system-ui'; g.textAlign = 'center';
+      g.fillText('Касание или пробел — запустить', FW / 2, FH - 110); g.globalAlpha = 1;
+    }
+    if (banner > 0 && state === 'play') { g.globalAlpha = Math.min(1, banner); g.fillStyle = '#f8f7ff'; g.font = '800 44px Manrope, system-ui'; g.textAlign = 'center'; g.fillText('Уровень ' + level, FW / 2, FH / 2 + 60); g.globalAlpha = 1; }
+    if (flash > 0) { g.fillStyle = `rgba(255,80,110,${flash * 0.25})`; round(0, 0, FW, FH, 24); g.fill(); }
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.033, (now - last) / 1000); last = now;
+    step(dt);
+    for (const p of parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 300 * dt; p.life -= dt * 1.6; } parts = parts.filter((p) => p.life > 0);
+    for (const p of popups) { p.y -= 40 * dt; p.life -= dt * 0.9; } popups = popups.filter((p) => p.life > 0);
+    shake = Math.max(0, shake - dt); flash = Math.max(0, flash - dt * 2.5);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    cv.width = innerWidth * dpr; cv.height = innerHeight * dpr;
+    scale = Math.min(innerWidth / FW, (innerHeight - 70) / FH); ox = (innerWidth - FW * scale) / 2; oy = Math.max(62, (innerHeight - FH * scale) / 2 + 30);
+    if (oy + FH * scale > innerHeight) { scale = (innerHeight - 70) / FH; ox = (innerWidth - FW * scale) / 2; oy = 62; }
+  }
+  const toField = (cx) => (cx - ox) / scale;
+
+  const pointsWord = (n) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? 'очко' : a >= 2 && a <= 4 && (b < 12 || b > 14) ? 'очка' : 'очков'; };
+  function showBests() {
+    $('bestStart').textContent = best; $('bestOver').textContent = best;
+    $('bestLevelStart').textContent = bestLevel || '—'; $('bestLevelOver').textContent = bestLevel || '—';
+  }
+  function start() { unlockAudio(); reset(); state = 'play'; $('start').hidden = true; $('over').hidden = true; }
+  function gameOver() {
+    state = 'over';
+    const run = { new_score: score, new_level: level, new_time: Math.floor(playTime) }, record = score > best;
+    if (record) { best = score; store.set('kirpichiki-best', best); runs.score = run; }
+    if (level > bestLevel) { bestLevel = level; store.set('kirpichiki-best-level', bestLevel); runs.level = run; }
+    store.set('kirpichiki-runs', JSON.stringify(runs));
+    lb.submit(run);
+    setTimeout(() => {
+      $('final').textContent = score;
+      $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + pointsWord(score);
+      $('levelOver').textContent = level; $('bricksOver').textContent = bricksBroken;
+      showBests(); $('over').hidden = false;
+    }, 700);
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'kirpichiki',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за одну игру.', format: (v) => `${v} ${pointsWord(v)}` },
+      { id: 'level', title: 'Уровень', column: 'best_level', order: 'desc', note: 'Самый дальний уровень за одну игру.', format: (v) => `уровень ${v}` },
+    ],
+    bests: () => [runs.score, runs.level].filter(Boolean),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  cv.addEventListener('pointermove', (e) => { pointerX = toField(e.clientX); });
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); unlockAudio(); pointerX = toField(e.clientX); if (state === 'play') launch(); });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    keys[e.code] = true;
+    if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); if (state === 'play') launch(); else if (!$('start').hidden || !$('over').hidden) start(); }
+    if (e.code.startsWith('Arrow')) e.preventDefault();
+  });
+  addEventListener('keyup', (e) => { keys[e.code] = false; });
+  addEventListener('blur', () => { keys = {}; });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('kirpichiki-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; });
+
+  addEventListener('resize', resize);
+  resize(); reset(); showBests();
+  // #preview: a game in progress, for the site's screenshot.
+  if (location.hash === '#preview') { $('start').hidden = true; level = 3; buildLevel(); state = 'play'; launch(); for (let i = 0; i < 160; i++) { pointerX = balls[0] ? balls[0].x : FW / 2; step(1 / 60); } bricks.slice(0, 18).forEach((b) => { b.hp = 0; }); score = 1840; combo = 3; }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

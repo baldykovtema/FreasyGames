@@ -74,6 +74,8 @@ window.FreasyLeaderboard = (opts) => {
     store.set(key + '-session', JSON.stringify(session));
   }
   const username = () => session && session.user && session.user.user_metadata && session.user.user_metadata.username;
+  // The game may also sign in through its own account window (shared/account.js) with the same storage key.
+  function sync() { try { const x = JSON.parse(store.get(key + '-session', 'null')); session = x && x.access_token ? x : null; } catch { /* keep */ } }
 
   function errorText(data, code) {
     const raw = (data && (data.msg || data.message || data.error_description || data.error)) || `Ошибка ${code}`;
@@ -102,6 +104,7 @@ window.FreasyLeaderboard = (opts) => {
 
   // The server keeps each player's best values, so sending a result that is not a record is harmless.
   async function submit(result) {
+    sync();
     if (!session) { status('Войди в «Таблице лидеров», чтобы твои рекорды попали туда.'); return; }
     status('Отправляем результат…');
     try { await sb(`/rest/v1/rpc/${key}_submit`, { method: 'POST', body: result }); status(`Результат в таблице лидеров как ${username()}`); }
@@ -146,7 +149,7 @@ window.FreasyLeaderboard = (opts) => {
     } catch (e) { msg.textContent = e.message; }
   }
 
-  function open() { root.hidden = false; renderAccount(); loadBoard(); }
+  function open() { sync(); root.hidden = false; renderAccount(); loadBoard(); }
   function close() { root.hidden = true; }
 
   q('.fl-x').addEventListener('click', close);
