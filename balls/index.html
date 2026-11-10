@@ -98,7 +98,7 @@ async function submit(){
 const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
 const W=canvas.width,H=canvas.height, bins=10, floorY=620;
 const pegs=[];
-for(let row=0;row<9;row++){let y=130+row*52;let count= row%2===0?8:7;let gap= W/(count+1);for(let i=0;i<count;i++)pegs.push({x:gap*(i+1)+(row%2?gap/2:0),y,r:6});}
+for(let row=0;row<9;row++){let y=130+row*52;let count= row%2===0?8:7;let gap= W/9;for(let i=0;i<count;i++)pegs.push({x:gap*(i+1)+(row%2?gap/2:0),y,r:6});}
 const baskets=[
  {label:'+10',kind:'add',v:10,c:'#39b879'},{label:'×2',kind:'mul',v:2,c:'#4a9de8'},
  {label:'+25',kind:'add',v:25,c:'#39b879'},{label:'×3',kind:'mul',v:3,c:'#a477ed'},
