@@ -67,6 +67,8 @@
     cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     S = Math.min(W, H);
+    // After a rotation or a window resize, keep the targets on the field, or they could not be tapped.
+    for (const t of targets || []) { t.x = Math.max(t.r + 10, Math.min(t.x, W - t.r - 10)); t.y = Math.max(t.r + 10, Math.min(t.y, H - t.r - 10)); }
   }
 
   function reset() {
@@ -82,8 +84,8 @@
     const r = Math.max(30, S * 0.075);
     let x, y, tries = 0;
     do {
-      x = r + 10 + Math.random() * (W - 2 * r - 20);
-      y = 120 + r + Math.random() * (H - 2 * r - 150);
+      x = r + 10 + Math.random() * Math.max(0, W - 2 * r - 20);
+      y = Math.min(120 + r, H - r - 10) + Math.random() * Math.max(0, H - 2 * r - 150);
       tries++;
     } while (tries < 30 && targets.some((t) => Math.hypot(t.x - x, t.y - y) < t.r + r + 16));
     targets.push({ x, y, r, age: 0, life: lifeNow(), bomb: Math.random() < bombChance(), hue: 250 + Math.random() * 60 });
@@ -97,7 +99,8 @@
       t.age += dt;
       if (t.age >= t.life) {
         t.gone = true;
-        if (!t.bomb) { lose(t.x, t.y, 'Мимо!'); if (state !== 'play') return; }
+        // Misses after the last life do not count, but every expired target leaves the field.
+        if (!t.bomb && state === 'play') lose(t.x, t.y, 'Мимо!');
       }
     }
     targets = targets.filter((t) => !t.gone);
@@ -253,9 +256,12 @@
     onStatus: (text) => { $('onlineNote').textContent = text; },
   });
 
-  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); tap(e.clientX, e.clientY); });
+  // A tap also wakes the sound up again if the browser suspended it while the tab was in the background.
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); if (state === 'play') unlockAudio(); tap(e.clientX, e.clientY); });
   addEventListener('keydown', (e) => {
     if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    // Keys on a focused card button or link do what that button does (e.g. Enter on «Таблица лидеров» opens it).
+    if (e.target.closest && e.target.closest('.box button, a')) return;
     if ((e.code === 'Space' || e.code === 'Enter') && state !== 'play' && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); }
   });
   $('go').addEventListener('click', start);
