@@ -90,8 +90,8 @@ async function loadRecords(){
 async function submit(){
  if(!session){$('recordText').textContent='Войди в аккаунт, чтобы результат попал в рекорды';return}
  $('recordText').textContent='Сохраняем результат...';
- try{const before=myBest||0,best=await sb('/rest/v1/rpc/balls_submit',{method:'POST',body:{new_score:score}});myBest=best;
-  $('recordText').textContent=score>before&&score===best?'Новый личный рекорд!':`Твой рекорд: ${best} очков`;updateUI();loadRecords()}
+ const sent=score;try{const before=myBest||0,best=await sb('/rest/v1/rpc/balls_submit',{method:'POST',body:{new_score:sent}});myBest=best;
+  $('recordText').textContent=sent>before&&sent===best?'Новый личный рекорд!':`Твой рекорд: ${best} очков`;updateUI();loadRecords()}
  catch(e){$('recordText').textContent=e.message}}
 
 /* ===== Игра ===== */
@@ -111,9 +111,9 @@ const $=id=>document.getElementById(id);
 function updateUI(){$('player').textContent=player||'—';$('score').textContent=score;$('best').textContent=session?(myBest===null?'…':myBest):'войди';$('accountBtn').textContent=session?'Аккаунт':'Войти'}
 function renderRecords(){$('records').innerHTML=tableRows.length?'<ol>'+tableRows.map(x=>`<li${session&&x.user_id===session.user.id?' class="me"':''}>${escapeHtml(x.username)} — <b>${x.score}</b> очков</li>`).join('')+'</ol>':'Пока рекордов нет. Стань первым!';updateUI()}
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function showStart(){const inside=!!username();$('loginBox').style.display=inside?'none':'block';$('loggedBox').style.display=inside?'block':'none';$('loggedName').textContent=username()||'';$('startScreen').style.display='grid';$('endScreen').style.display='none';updateUI()}
+function showStart(){const inside=!!username();$('loginBox').style.display=inside?'none':'block';$('loggedBox').style.display=inside?'block':'none';$('loggedName').textContent=username()||'';ball=null;running=false;$('startScreen').style.display='grid';$('endScreen').style.display='none';updateUI()}
 function start(name){player=name||'Гость';score=0;ball=null;running=false;finished=false;trail=[];$('startScreen').style.display='none';$('endScreen').style.display='none';updateUI();loadRecords();draw()}
-function drop(){if(finished||ball||running)return;ball={x:W/2+(Math.random()-.5)*22,y:45,vx:(Math.random()-.5)*1.5,vy:0,r:10};running=true;trail=[]}
+function drop(){if(finished||ball||running||$('startScreen').style.display!=='none')return;ball={x:W/2+(Math.random()-.5)*22,y:45,vx:(Math.random()-.5)*1.5,vy:0,r:10};running=true;trail=[]}
 function end(){running=false;finished=true;updateUI();$('finalText').textContent=`${player}, твой результат: ${score} очков!`;$('recordText').textContent='';$('endScreen').style.display='grid';submit()}
 function collideCircle(p){let dx=ball.x-p.x,dy=ball.y-p.y,d=Math.hypot(dx,dy),min=ball.r+p.r;if(d<min&&d>0){let nx=dx/d,ny=dy/d;ball.x=p.x+nx*min;ball.y=p.y+ny*min;let dot=ball.vx*nx+ball.vy*ny;if(dot<0){ball.vx-=1.82*dot*nx;ball.vy-=1.82*dot*ny;ball.vx+=(Math.random()-.5)*.35;}}}
 function update(){
@@ -145,13 +145,15 @@ function draw(){
  if(ball){trail.forEach((t,i)=>{ctx.beginPath();ctx.arc(t.x,t.y,ball.r*(i/trail.length)*.65,0,Math.PI*2);ctx.fillStyle='rgba(91,211,255,.25)';ctx.fill()});let g=ctx.createRadialGradient(ball.x-3,ball.y-4,2,ball.x,ball.y,ball.r);g.addColorStop(0,'#fff');g.addColorStop(.35,'#69e2ff');g.addColorStop(1,'#1875c9');ctx.beginPath();ctx.arc(ball.x,ball.y,ball.r,0,Math.PI*2);ctx.fillStyle=g;ctx.fill();ctx.strokeStyle='#d6f7ff';ctx.stroke()}
  if(!running&&!finished){ctx.fillStyle='#d6e2f5';ctx.textAlign='center';ctx.font='bold 18px Arial';ctx.fillText(ball?'':'Нажми «Начать бросок» ниже',W/2,78)}
 }
-function loop(){update();draw();requestAnimationFrame(loop)}
+// Физика рассчитана на 60 шагов в секунду — на мониторах 120/144 Гц шарик не должен лететь быстрее.
+const STEP=1000/60;let last=performance.now(),acc=0;
+function loop(now){acc=Math.min(acc+(now-last),STEP*10);last=now;while(acc>=STEP){update();acc-=STEP}draw();requestAnimationFrame(loop)}
 const dropBtn=document.createElement('button');dropBtn.textContent='Начать бросок';dropBtn.style.display='block';dropBtn.style.margin='12px auto';dropBtn.onclick=drop;canvas.after(dropBtn);
 $('loginBtn').onclick=()=>auth('login');$('registerBtn').onclick=()=>auth('signup');
 $('passInput').addEventListener('keydown',e=>{if(e.key==='Enter')auth('login')});
 $('guestBtn').onclick=()=>start('Гость');$('startBtn').onclick=()=>start(username());$('logoutBtn').onclick=logout;
 $('againBtn').onclick=()=>start(player);$('newGame').onclick=showStart;$('accountBtn').onclick=showStart;
-showStart();loadRecords();loop();
+showStart();loadRecords();requestAnimationFrame(loop);
 })();
 </script>
 </body></html>
