@@ -167,7 +167,7 @@ input,select{font:inherit}
 /* stage */
 #stagePanel{background:#252526;border-left:1px solid #2b2b2b;padding:10px 12px;display:flex;flex-direction:column;gap:8px;overflow:auto}
 #stageBox{position:relative;width:480px;height:360px;border-radius:6px;overflow:hidden;box-shadow:0 0 0 1px #444;background:#fff;flex:none}
-#stage{width:100%;height:100%;display:block;outline:none}
+#stage{width:100%;height:100%;display:block;outline:none;touch-action:none}
 #askBox{position:absolute;left:8px;right:8px;bottom:8px;background:#fff;border:2px solid #5cb1d6;border-radius:10px;padding:6px;display:none;gap:6px;align-items:center;flex-wrap:wrap}
 #askBox .q{width:100%;color:#333;font-weight:600;font-size:13px}
 #askBox input{flex:1;border:1px solid #ccc;border-radius:14px;padding:5px 10px;color:#222}
@@ -186,6 +186,17 @@ body.full .props,body.full .shint{display:none}
 .toast{position:fixed;right:20px;bottom:34px;background:#252526;border:1px solid #454545;padding:10px 14px;border-radius:4px;box-shadow:0 6px 20px #0008;z-index:200;transition:.3s;opacity:0;transform:translateY(10px)}
 .toast.on{opacity:1;transform:none}
 @media (max-width:1200px){#main{grid-template-columns:48px 210px minmax(260px,1fr) 504px}}
+/* телефон / узкое окно: сцена сверху, остальное ниже с прокруткой (иначе сцена и ⚑ уезжают за край) */
+@media (max-width:900px){
+  #app{grid-template-columns:minmax(0,1fr)}
+  #titlebar{overflow-x:auto}#titlebar .center{display:none}
+  #main{display:flex;flex-direction:column;overflow:auto}
+  #stagePanel{order:-1;flex:none;overflow:visible;border-left:0}
+  #stageBox{width:100%;max-width:480px;height:auto;aspect-ratio:4/3}
+  #activity{flex:none;flex-direction:row;padding-top:0}
+  #sidebar{flex:none;max-height:50vh;border-right:0}
+  #editorArea{flex:none;height:80vh}
+}
 </style>
 </head>
 <body>
@@ -493,7 +504,7 @@ const DOCS=[
  ['data','f','load','load("рекорд")','загрузить сохранённое значение'],
  ['data','c','erase','erase "рекорд"','удалить сохранение'],
 ];
-const CMD={}, REP={}, FN={};
+const CMD=Object.create(null), REP=Object.create(null), FN=Object.create(null);
 DOCS.forEach(d=>{if(d[1]==='c')CMD[d[2]]=d[0];else if(d[1]==='r')REP[d[2]]=d[0];else if(d[1]==='f')FN[d[2]]=d[0];});
 ['floor','ceil','tan','min','max','int'].forEach(n=>FN[n]='operators');
 ['volume','backdrop','isclone','myname'].forEach(n=>{if(!REP[n])REP[n]=n==='volume'?'sound':n==='backdrop'?'looks':'control'});
@@ -619,10 +630,17 @@ function serialize(){
 function serSnd(s){return s.type==='synth'?{name:s.name,type:'synth',p:{...s.p}}:{name:s.name,type:'rec',data:s.data,rate:s.rate||1,vol:s.vol??100};}
 function deserialize(o){
   if(!o||!o.stage||!Array.isArray(o.sprites)) throw new Error('Это не файл проекта FreasyCode');
-  const snd=s=>({id:uid++,...s,p:s.p?{...s.p}:undefined});
-  const sprites=o.sprites.map(s=>newSprite(s.name||'Спрайт',(s.costumes&&s.costumes.length?s.costumes:[{name:'костюм1',data:blankData(200,200)}]).map(c=>({name:c.name,data:c.data})),s.code||'',{costume:s.costume|0,x:+s.x||0,y:+s.y||0,dir:s.dir??90,size:s.size??100,visible:s.visible!==false,rotationStyle:s.rotationStyle||'all',sounds:(s.sounds||[]).map(snd)}));
-  const st=o.stage;
-  return {name:o.name||'Проект',sprites,stage:{id:'stage',isStage:true,name:'Сцена',code:st.code||'',backdrops:(st.backdrops&&st.backdrops.length?st.backdrops:[{name:'Фон 1',data:blankData(480,360)}]),backdrop:st.backdrop|0,sounds:(st.sounds||[]).map(snd)}};
+  // файл/проект игрока может быть чужим: приводим типы и пускаем только картинки/звуки data:
+  const str=(v,d)=>v==null||v===''?d:String(v), num=(v,d)=>typeof v==='number'&&isFinite(v)?v:d;
+  const arr=v=>Array.isArray(v)?v.filter(x=>x&&typeof x==='object'):[];
+  const pics=(l,w,h,nm)=>{l=arr(l).map(c=>({name:str(c.name,nm),data:typeof c.data==='string'&&/^data:image\//.test(c.data)?c.data:blankData(w,h)}));return l.length?l:[{name:nm,data:blankData(w,h)}];};
+  const idx=(v,l)=>Math.min(l.length-1,Math.max(0,num(v,0)|0));
+  const snd=s=>s.type==='synth'?{id:uid++,name:str(s.name,'звук'),type:'synth',p:{...SYNTH_PRESETS['Бип'],...(s.p&&typeof s.p==='object'?s.p:{})}}
+    :{id:uid++,name:str(s.name,'звук'),type:'rec',data:typeof s.data==='string'&&/^data:/.test(s.data)?s.data:'data:,',rate:num(s.rate,1),vol:num(s.vol,100)};
+  const sprites=o.sprites.filter(s=>s&&typeof s==='object').map(s=>{const cs=pics(s.costumes,200,200,'костюм1');
+    return newSprite(str(s.name,'Спрайт'),cs,str(s.code,''),{costume:idx(s.costume,cs),x:num(s.x,0),y:num(s.y,0),dir:num(s.dir,90),size:num(s.size,100),visible:s.visible!==false,rotationStyle:['all','leftright','none'].includes(s.rotationStyle)?s.rotationStyle:'all',sounds:arr(s.sounds).map(snd)});});
+  const st=o.stage,bds=pics(st.backdrops,480,360,'Фон 1');
+  return {name:str(o.name,'Проект'),sprites,stage:{id:'stage',isStage:true,name:'Сцена',code:str(st.code,''),backdrops:bds,backdrop:idx(st.backdrop,bds),sounds:arr(st.sounds).map(snd)}};
 }
 
 /* ============ КАРТИНКИ И МАСКИ ============ */
@@ -721,6 +739,10 @@ function compile(code){
   for(let i=0;i<lines.length;i++){
     const s=stripComment(lines[i]).replace(/\s+$/,'');
     if(!s.trim())continue;
+    // «this» и «import» дают коду игрока доступ к самой странице (window) — запрещены везде, даже в строках
+    if(new RegExp('(^|[^\\w$\\u0400-\\u04FF])(this|import)(?![\\w$\\u0400-\\u04FF])').test(s)){err(i,'Слова «this» и «import» использовать нельзя');continue;}
+    // JS-циклы в одну строку не ждут кадр и вешают страницу — для циклов есть forever/repeat/while с двоеточием
+    if(/(^|[^\w$.\u0400-\u04FF])(while|for|do)(?![\w$\u0400-\u04FF])/.test(splitStr(s.trim().replace(/^(for|while|repeat\s+until)\s/,'')).filter((_,k)=>!(k%2)).join(' '))){err(i,'Такой цикл повесит игру. Используй forever:, repeat N:, while …: или for i from 1 to 10:');continue;}
     const ind=s.match(/^[ \t]*/)[0].replace(/\t/g,'  ').length;
     let t=s.trim();
     if(ind===0){
@@ -802,14 +824,28 @@ function compile(code){
 function balanced(s){let d=0;for(const ch of s.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g,'')){if(ch==='(')d++;else if(ch===')'){d--;if(d<0)return false;}}return d===0;}
 
 /* ============ РАНТАЙМ ============ */
+// Песочница для кода игрока (проекты игроков чужие). Имена вроде window/document/fetch закрывает scope ниже,
+// а здесь закрываем обходные пути: Function через .constructor и подмену встроенных методов,
+// которыми пользуется сама страница (например String.prototype.replace в esc → XSS через имя спрайта).
+(()=>{
+  const off=function(){throw new Error('Function отключена');};
+  for(const f of [function(){},async function(){},function*(){},async function*(){}])Object.defineProperty(Object.getPrototypeOf(f),'constructor',{value:off});
+  const seen=new Set();
+  const harden=o=>{if(o===null||(typeof o!=='object'&&typeof o!=='function')||seen.has(o))return;seen.add(o);Object.freeze(o);harden(Object.getPrototypeOf(o));
+    for(const k of Reflect.ownKeys(o)){const d=Object.getOwnPropertyDescriptor(o,k);if(!d)continue;if('value' in d)harden(d.value);else{harden(d.get);harden(d.set);}}};
+  [Object,Function,Array,String,Number,Boolean,Symbol,BigInt,RegExp,Date,Math,JSON,Promise,Map,Set,WeakMap,WeakSet,
+   Error,EvalError,RangeError,ReferenceError,SyntaxError,TypeError,URIError,typeof AggregateError!=='undefined'?AggregateError:null,
+   function*(){},async function*(){},async function(){},
+   [][Symbol.iterator](),''[Symbol.iterator](),new Map()[Symbol.iterator](),new Set()[Symbol.iterator](),'a'.matchAll(/a/g)].forEach(harden);
+})();
 const STOP={stop:true};
-const V={}; const warned=new Set();
+const V=Object.create(null); const warned=new Set();
 let runId=0, frameQ=[], world={list:[],monitors:[],answer:'',asking:null,timer0:now()};
 const keys=new Set(); const mouse={x:0,y:0,down:false};
 const penCanvas=mkCanvas(960,720), penCtx=penCanvas.getContext('2d');penCtx.setTransform(2,0,0,2,0,0);
 const nextFrame=()=>new Promise(r=>frameQ.push(r));
 const allInst=()=>[project.stage,...world.list];
-const wrapDir=d=>{d=((+d%360)+360)%360;return d>180?d-360:d;};
+const wrapDir=d=>{d=+d;if(!isFinite(d))return 90;d=((d%360)+360)%360;return d>180?d-360:d;};
 function costOf(inst){return inst.isStage?project.stage.backdrops[project.stage.backdrop]:inst.src.costumes[inst.costume]||inst.src.costumes[0];}
 function scaleOf(inst){return inst.size/100*0.5;}
 function bounds(inst){
@@ -833,7 +869,8 @@ function hitPoint(inst,px,py){
 function touchInst(a,b){
   if(a===b||!a.visible||!b.visible)return false;
   const A=bounds(a),B=bounds(b);if(A.empty||B.empty)return false;
-  const x0=Math.max(A.minX,B.minX),x1=Math.min(A.maxX,B.maxX),y0=Math.max(A.minY,B.minY),y1=Math.min(A.maxY,B.maxY);
+  // только в пределах сцены: при огромных x/y шаг +1 не меняет число и цикл ниже не кончался бы
+  const x0=Math.max(A.minX,B.minX,-240),x1=Math.min(A.maxX,B.maxX,240),y0=Math.max(A.minY,B.minY,-180),y1=Math.min(A.maxY,B.maxY,180);
   if(x0>x1||y0>y1)return false;
   const st=(x1-x0)*(y1-y0)>3000?2:1;
   for(let y=y0;y<=y1;y+=st)for(let x=x0;x<=x1;x+=st)if(hitPoint(a,x,y)&&hitPoint(b,x,y))return true;
@@ -845,7 +882,7 @@ function makeApi(inst){
   const check=()=>{if(gen!==runId||inst.deleted)throw STOP;};
   const tick=async()=>{await nextFrame();check();};
   const mot=fn=>(...a)=>{if(inst.isStage)return;return fn(...a);};
-  const setXY=(x,y)=>{x=+x||0;y=+y||0;
+  const setXY=(x,y)=>{x=+x;y=+y;if(!isFinite(x))x=0;if(!isFinite(y))y=0;
     if(inst.pen&&inst.pen.down){penCtx.strokeStyle=inst.pen.color;penCtx.lineWidth=inst.pen.size;penCtx.lineCap='round';penCtx.beginPath();penCtx.moveTo(240+inst.x,180-inst.y);penCtx.lineTo(240+x,180-y);penCtx.stroke();}
     inst.x=x;inst.y=y;};
   const target=(a,b)=>{
@@ -856,7 +893,7 @@ function makeApi(inst){
   const findCost=v=>{const list=inst.isStage?project.stage.backdrops:inst.src.costumes;
     if(typeof v==='number'||/^\d+$/.test(v)){let n=Math.round(+v)-1;n=((n%list.length)+list.length)%list.length;return n;}
     const n=list.findIndex(c=>c.name===v);if(n<0)log('Костюм/фон «'+v+'» не найден','w');return n;};
-  const setBackdrop=n=>{if(n<0)return;project.stage.backdrop=n;const nm=project.stage.backdrops[n].name;fire('backdrop:'+nm);};
+  const setBackdrop=n=>{if(!(n>=0&&n<project.stage.backdrops.length))return;project.stage.backdrop=n;const nm=project.stage.backdrops[n].name;fire('backdrop:'+nm);};
   const findSnd=v=>{const list=inst.isStage?project.stage.sounds:inst.src.sounds;
     let s=typeof v==='number'?list[v-1]:list.find(x=>x.name===v);
     if(!s&&typeof v==='string')s=project.stage.sounds.find(x=>x.name===v)||project.sprites.flatMap(p=>p.sounds).find(x=>x.name===v);
@@ -894,7 +931,7 @@ function makeApi(inst){
     play:v=>{const s=findSnd(v);if(s)playSnd(s,inst.volume);},
     playwait:async v=>{const s=findSnd(v);if(s){let done=false;playSnd(s,inst.volume).then(()=>done=true);while(!done)await tick();}},
     stopsounds:()=>stopAllSounds(),
-    note:async(p,secs=0.5)=>{playNote(+p||60,+secs||0.5,inst.volume);await wait(secs);},
+    note:async(p,secs=0.5)=>{playNote(Math.max(0,Math.min(130,+p||60)),Math.max(.05,Math.min(10,+secs||0.5)),inst.volume);await wait(secs);},
     volume:v=>{inst.volume=Math.max(0,Math.min(100,+v||0));},
     broadcast:m=>{fire('msg:'+m);},
     broadcastwait:async m=>{let done=false;fire('msg:'+m).then(()=>done=true);while(!done)await tick();},
@@ -920,7 +957,7 @@ function makeApi(inst){
     erase:k=>{const d=gameData();delete d[k];try{localStorage.setItem(dataKey(),JSON.stringify(d));}catch(e){}},
   };
 }
-const fmt=v=>typeof v==='object'&&v!==null?JSON.stringify(v):String(v);
+const fmt=v=>{try{return typeof v==='object'&&v!==null?JSON.stringify(v):String(v);}catch(e){try{return String(v);}catch(e2){return '[?]';}}}; // список сам в себе, 1n и т.п.
 const dataKey=()=>'scode_data_'+project.name;
 function gameData(){try{return JSON.parse(localStorage.getItem(dataKey())||'{}')||{};}catch(e){return {};}}
 const GLOBALS_OK=new Set(['Math','Number','String','Array','Object','JSON','Date','parseInt','parseFloat','isNaN','isFinite','Infinity','NaN','undefined','console','Boolean','Promise','Symbol','Map','Set']);
@@ -946,12 +983,13 @@ function makeScope(inst){
     mod:(a,b)=>((a%b)+b)%b,sin:d=>Math.round(Math.sin(d*Math.PI/180)*1e10)/1e10,cos:d=>Math.round(Math.cos(d*Math.PI/180)*1e10)/1e10,tan:d=>Math.tan(d*Math.PI/180),
     load:(k,def=0)=>{const d=gameData();return k in d?d[k]:def;},
   };
+  const own=(o,k)=>Object.prototype.hasOwnProperty.call(o,k); // не «in»: иначе toString/constructor берутся из Object.prototype
   return new Proxy(Object.create(null),{
-    has(t,k){if(typeof k!=='string'||k.startsWith('__'))return false;if(k in reps||k in fns||k in V)return true;if(GLOBALS_OK.has(k))return false;return true;},
-    get(t,k){if(typeof k!=='string')return undefined;if(k in reps)return reps[k]();if(k in fns)return fns[k];if(k in V)return V[k];
+    has(t,k){if(typeof k!=='string'||k==='__s'||k==='__c'||k==='__f')return false;if(own(reps,k)||own(fns,k)||k in V)return true;if(GLOBALS_OK.has(k))return false;return true;},
+    get(t,k){if(typeof k!=='string')return undefined;if(own(reps,k))return reps[k]();if(own(fns,k))return fns[k];if(k in V)return V[k];
       if(inst.fns&&k in inst.fns)return inst.fns[k];
       if(!warned.has(k)){warned.add(k);log('Переменная «'+k+'» ещё не задана — считаю её 0','w');}return 0;},
-    set(t,k,v){if(k in sets){sets[k](v);return true;}V[k]=v;return true;}
+    set(t,k,v){if(own(sets,k)){sets[k](v);return true;}V[k]=v;return true;}
   });
 }
 function initInst(inst){
@@ -963,7 +1001,7 @@ function prepInst(inst){
 }
 function compiledOf(inst){return inst.src.compiled||(inst.src.compiled=compile(inst.src.code));}
 function buildFns(inst){
-  const comp=compiledOf(inst);inst.fns={};inst.fnsApi=inst.api;inst.fnsComp=comp;
+  const comp=compiledOf(inst);inst.fns=Object.create(null);inst.fnsApi=inst.api;inst.fnsComp=comp;
   for(const d of comp.defines){const f=d.factory(inst.scope,inst.api,inst.fns);inst.fns[d.name]=f;}
 }
 function startThread(inst,h,idx){
@@ -1062,7 +1100,7 @@ stageC.addEventListener('pointerdown',e=>{ac();stageC.focus();const p=stagePos(e
   const hit=[...world.list].reverse().find(i=>hitPoint(i,p.x,p.y));
   if(hit){fire('click',hit);if(!isRunning()&&!hit.isClone){drag={inst:hit,ox:p.x-hit.x,oy:p.y-hit.y};stageC.setPointerCapture(e.pointerId);if(selId!==hit.id){select(hit.id);}}}
   else fire('click',project.stage);});
-addEventListener('pointerup',()=>{mouse.down=false;if(drag){if(drag.moved)markDirty();drag=null;}});
+const stageUp=()=>{mouse.down=false;if(drag){if(drag.moved)markDirty();drag=null;}};addEventListener('pointerup',stageUp);addEventListener('pointercancel',stageUp);
 function keyName(e){const c=e.code||'';let m;if((m=c.match(/^Key([A-Z])$/)))return m[1].toLowerCase();if((m=c.match(/^Digit(\d)$/)))return m[1];
   const map={Space:'space',ArrowLeft:'left',ArrowRight:'right',ArrowUp:'up',ArrowDown:'down',Enter:'enter',ShiftLeft:'shift',ShiftRight:'shift',Escape:'escape'};return map[c]||String(e.key).toLowerCase();}
 const isTyping=e=>/^(TEXTAREA|INPUT|SELECT)$/.test(e.target.tagName);
@@ -1130,7 +1168,7 @@ ta.addEventListener('scroll',()=>{syncScroll();hideAC();});
 let checkT=null;
 function onCodeChange(){
   const o=curObj();o.code=ta.value;markDirty();renderCode();
-  clearTimeout(checkT);checkT=setTimeout(()=>{o.compiled=compile(o.code);errLines=new Set(o.compiled.errors.map(e=>e.line));renderCode();updateProblems();},350);
+  clearTimeout(checkT);checkT=setTimeout(()=>{o.compiled=compile(o.code);if(o===curObj()){errLines=new Set(o.compiled.errors.map(e=>e.line));renderCode();}updateProblems();},350);
 }
 ta.addEventListener('input',e=>{onCodeChange();if(e.inputType&&e.inputType.startsWith('insert'))showAC();else hideAC();});
 function caretInfo(){const v=ta.value,p=ta.selectionStart,b=v.lastIndexOf('\n',p-1)+1;return {line:v.slice(0,p).split('\n').length,col:p-b+1,lineStart:b,lineText:v.slice(b,(v.indexOf('\n',p)+1||v.length+1)-1)};}
@@ -1216,8 +1254,8 @@ function insertBlock(snip){
 function thumbOf(o){return o.isStage?o.backdrops[o.backdrop].data:(o.costumes[o.costume]||o.costumes[0]).data;}
 function renderExplorer(){
   const st=project.stage;
-  $('#stageItem').innerHTML='<div class="item'+(selId==='stage'?' sel':'')+'" data-id="stage"><img src="'+thumbOf(st)+'"><span class="nm">Сцена</span><span class="ext">.sc</span></div>';
-  $('#spriteList').innerHTML=project.sprites.map(s=>'<div class="item'+(selId===s.id?' sel':'')+'" data-id="'+s.id+'"><img src="'+thumbOf(s)+'"><span class="nm">'+esc(s.name)+'</span><span class="ext">.sc</span></div>').join('');
+  $('#stageItem').innerHTML='<div class="item'+(selId==='stage'?' sel':'')+'" data-id="stage"><img src="'+esc(thumbOf(st))+'"><span class="nm">Сцена</span><span class="ext">.sc</span></div>';
+  $('#spriteList').innerHTML=project.sprites.map(s=>'<div class="item'+(selId===s.id?' sel':'')+'" data-id="'+s.id+'"><img src="'+esc(thumbOf(s))+'"><span class="nm">'+esc(s.name)+'</span><span class="ext">.sc</span></div>').join('');
   $$('#p-files .item').forEach(d=>{const id=d.dataset.id==='stage'?'stage':+d.dataset.id;d.onclick=()=>select(id);d.ondblclick=()=>{if(id!=='stage')renameSprite();};});
   $('#titleName').textContent=project.name+' — FreasyCode Studio';
 }
@@ -1247,7 +1285,7 @@ function renameSprite(){const o=curObj();if(o.isStage)return;const n=prompt('Н�
   const nm=n.trim();if(project.sprites.some(s=>s!==o&&s.name===nm)){toast('Такое имя уже есть');return;}o.name=nm;renderExplorer();renderTabs();updateProps(true);markDirty();}
 $('#renSprite').onclick=renameSprite;
 $('#delSprite').onclick=()=>{const o=curObj();if(o.isStage)return;if(!confirm('Удалить спрайт «'+o.name+'»?'))return;
-  project.sprites.splice(project.sprites.indexOf(o),1);world.list=world.list.filter(i=>i.src!==o);select(project.sprites[0]?project.sprites[0].id:'stage');markDirty();};
+  project.sprites.splice(project.sprites.indexOf(o),1);world.list=world.list.filter(i=>{if(i.src!==o)return true;i.deleted=true;return false;}); /* deleted — чтобы его скрипты остановились */select(project.sprites[0]?project.sprites[0].id:'stage');markDirty();};
 $$('#activity button').forEach(b=>b.onclick=()=>{$$('#activity button').forEach(x=>x.classList.toggle('on',x===b));$$('.pane').forEach(p=>p.classList.toggle('on',p.id==='p-'+b.dataset.p));if(b.dataset.p==='saves')renderSaves();if(b.dataset.p==='community')loadCommunity();});
 
 /* свойства спрайта */
@@ -1276,7 +1314,7 @@ function costIdx(){const o=curObj();return o.isStage?o.backdrop:o.costume;}
 function renderCostumes(){
   const o=curObj(),list=costList(),cur=costIdx();
   $('#costList').innerHTML='<button class="smallbtn" id="cAdd">＋ '+(o.isStage?'Новый фон':'Новый костюм')+'</button><button class="smallbtn" id="cDup">⧉ Копия</button><button class="smallbtn" id="cUp">📁 Из файла</button>'+
-    list.map((c,i)=>'<div class="citem'+(i===cur?' sel':'')+'" data-i="'+i+'"><span class="idx">'+(i+1)+'</span><img src="'+c.data+'"><div class="n">'+esc(c.name)+'</div>'+(list.length>1?'<button class="del" data-d="'+i+'">✕</button>':'')+'</div>').join('');
+    list.map((c,i)=>'<div class="citem'+(i===cur?' sel':'')+'" data-i="'+i+'"><span class="idx">'+(i+1)+'</span><img src="'+esc(c.data)+'"><div class="n">'+esc(c.name)+'</div>'+(list.length>1?'<button class="del" data-d="'+i+'">✕</button>':'')+'</div>').join('');
   $$('#costList .citem').forEach(d=>{d.onclick=e=>{if(e.target.dataset.d!==undefined)return;setCostIdx(+d.dataset.i);renderCostumes();renderExplorer();};
     d.ondblclick=()=>{const c=list[+d.dataset.i];const n=prompt('Имя:',c.name);if(n){c.name=n.trim()||c.name;renderCostumes();markDirty();}};});
   $$('#costList .del').forEach(b=>b.onclick=()=>{const i=+b.dataset.d;list.splice(i,1);if(costIdx()>=list.length)setCostIdx(list.length-1);else if(i<costIdx())setCostIdx(costIdx()-1);renderCostumes();renderExplorer();markDirty();});
@@ -1289,7 +1327,7 @@ function setCostIdx(i){const o=curObj();if(o.isStage)o.backdrop=i;else o.costume
 function openPaint(costume,isBd){
   paint.costume=costume;paint.undo=[];paint.redo=[];
   const W=isBd?480:200,H=isBd?360:200;pc.width=W;pc.height=H;$('#pcBox').classList.toggle('bd',isBd);
-  const img=new Image();img.onload=()=>{pg.clearRect(0,0,W,H);pg.drawImage(img,0,0,W,H);};img.src=costume.data;
+  const img=new Image();img.onload=()=>{if(paint.costume!==costume)return;pg.clearRect(0,0,W,H);pg.drawImage(img,0,0,W,H);};img.src=costume.data;
   fitPaint();
 }
 function fitPaint(){const w=$('#pcWrap');const W=pc.width,H=pc.height;const sc=Math.max(.5,Math.min((w.clientWidth-30)/W,(w.clientHeight-30)/H,3));pc.style.width=W*sc+'px';pc.style.height=H*sc+'px';}
@@ -1348,7 +1386,7 @@ pc.addEventListener('pointermove',e=>{
   else{pg.putImageData(paint.snap,0,0);let x1=x,y1=y;if(e.shiftKey&&t!=='line'){const d=Math.max(Math.abs(x-paint.sx),Math.abs(y-paint.sy));x1=paint.sx+Math.sign(x-paint.sx)*d;y1=paint.sy+Math.sign(y-paint.sy)*d;}shape(paint.sx,paint.sy,x1,y1,t);}
   paint.lx=x;paint.ly=y;
 });
-pc.addEventListener('pointerup',()=>{if(paint.drawing){paint.drawing=false;commitPaint();}});
+const paintEnd=()=>{if(paint.drawing){paint.drawing=false;commitPaint();}};pc.addEventListener('pointerup',paintEnd);pc.addEventListener('pointercancel',paintEnd);
 
 /* ============ РЕДАКТОР ЗВУКОВ ============ */
 let sndSel=0,recState=null;
@@ -1453,7 +1491,7 @@ addEventListener('beforeunload',()=>{if(dirty&&$('#autoSave').checked)autoSave()
 
 /* ============ ПРОЕКТЫ ИГРОКОВ ============ */
 const acc=FreasyAccount({sessionKey:'freasycode-session',onChange:()=>{renderCommunityAcc();if($('#p-community').classList.contains('on'))loadCommunity();}});
-let cSort='new';
+let cSort='new',cReq=0;
 function renderCommunityAcc(){const n=acc.username();$('#cAcc').innerHTML=n?'Ты вошёл как <b style="color:#fff">'+esc(n)+'</b>':'Войди в аккаунт FreasyGames, чтобы публиковать проекты. Смотреть можно и без аккаунта.';$('#cLogin').textContent=n?'👤 '+n:'👤 Войти / аккаунт';}
 function stageThumb(){const c=mkCanvas(240,180);c.getContext('2d').drawImage(stageC,0,0,240,180);return c.toDataURL('image/jpeg',0.7);}
 async function publishProject(){
@@ -1470,20 +1508,20 @@ async function publishProject(){
 }
 const okThumb=t=>/^data:image\/(jpeg|png);base64,[A-Za-z0-9+/=]+$/.test(t||'');
 async function loadCommunity(){
-  const list=$('#cList'),msg=$('#cMsg');list.innerHTML='';msg.textContent='Загружаем…';
+  const list=$('#cList'),msg=$('#cMsg'),my=++cReq;list.innerHTML='';msg.textContent='Загружаем…';renderCommunityAcc();
   if(cSort==='mine'&&!acc.userId()){msg.textContent='Войди в аккаунт, чтобы увидеть свои проекты';return;}
   const q=$('#cSearch').value.trim().replace(/[,()*%\\:."]/g,' ').trim();
   let path='/rest/v1/freasycode_projects?select=id,name,author_name,author_id,plays,thumb,updated_at&limit=40&order='+(cSort==='top'?'plays.desc,updated_at.desc':'updated_at.desc');
   if(cSort==='mine')path+='&author_id=eq.'+acc.userId();
   if(q)path+='&or='+encodeURIComponent('(name.ilike.*'+q+'*,author_name.ilike.*'+q+'*)');
-  try{const rows=await acc.fetch(path);
+  try{const rows=await acc.fetch(path);if(my!==cReq)return; // пришёл ответ на старый запрос — не смешиваем списки
     msg.textContent=rows.length?'':(q?'Ничего не нашли':cSort==='mine'?'Ты ещё ничего не опубликовал':'Проектов пока нет. Опубликуй первый!');
     for(const r of rows){const d=document.createElement('div');d.className='proj';d.title='Открыть проект';
       d.innerHTML='<img alt="" src="'+(okThumb(r.thumb)?r.thumb:'')+'"><span class="nm"><b>'+esc(r.name)+'</b><small>'+esc(r.author_name)+' · открыт '+(r.plays|0)+' раз</small></span>';
       if(r.author_id&&r.author_id===acc.userId()){const del=document.createElement('button');del.textContent='🗑';del.title='Удалить с сервера';
         del.onclick=async ev=>{ev.stopPropagation();if(!confirm('Удалить «'+r.name+'» из проектов игроков?'))return;try{await acc.fetch('/rest/v1/freasycode_projects?id=eq.'+r.id,{method:'DELETE'});loadCommunity();}catch(e){toast(e.message);}};d.appendChild(del);}
       d.onclick=()=>openCommunity(r);list.appendChild(d);}
-  }catch(e){msg.textContent=e.message;}
+  }catch(e){if(my===cReq)msg.textContent=e.message;}
 }
 async function openCommunity(r){
   if(dirty&&!confirm('Открыть «'+r.name+'» от '+r.author_name+'? Несохранённые изменения текущего проекта пропадут.'))return;
