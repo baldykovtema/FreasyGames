@@ -63,7 +63,8 @@
 
   function resize() {
     DPR = Math.min(2, window.devicePixelRatio || 1);
-    W = innerWidth; H = innerHeight;
+    // A zero-size window (hidden iframe, rotating phone) would make the scale 0 and the view height NaN.
+    W = Math.max(1, innerWidth); H = Math.max(1, innerHeight);
     cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     colW = Math.min(W, H * 0.62); colX = (W - colW) / 2; S = colW / WORLD; viewH = H / S;
@@ -252,7 +253,7 @@
       ctx.beginPath(); for (let k = 0; k < 12; k++) { const a = k / 12 * Math.PI * 2; ctx.arc(x + Math.cos(a) * r * 0.78, y + Math.sin(a) * r * 0.78, r * 0.36, 0, 7); } ctx.fill();
       ctx.beginPath(); ctx.arc(x, y, r * 0.85, 0, 7); ctx.fill();
       ctx.fillStyle = '#171225'; for (const e of [-1, 1]) { ctx.beginPath(); ctx.arc(x + e * r * 0.3, y - r * 0.12, r * 0.15, 0, 7); ctx.fill(); }
-      ctx.globalAlpha = 0.9; ctx.textAlign = 'center'; ctx.font = `800 ${Math.round(Math.max(11, S * 3.4))}px Manrope`;
+      ctx.globalAlpha = 0.9; ctx.fillStyle = g.color; ctx.textAlign = 'center'; ctx.font = `800 ${Math.round(Math.max(11, S * 3.4))}px Manrope`;
       ctx.fillText(g.name, x, y - r * 1.5);
       ctx.restore();
     }
@@ -303,8 +304,9 @@
   function frame(now) {
     const dt = Math.min(0.1, (now - lastT) / 1000 || 0); lastT = now; time += dt;
     if (state === 'play') {
+      // The settings sheet covers the game and takes the keys, so the climb waits behind it.
       // Small steps keep landings exact even when frames are slow.
-      const n = Math.ceil(dt / (1 / 120));
+      const n = mp.settingsOpen() ? 0 : Math.ceil(dt / (1 / 120));
       for (let k = 0; k < n && state === 'play'; k++) step(dt / n);
     } else if (state === 'start') {
       // On the start screen the hero bounces on the first cloud.
@@ -340,7 +342,8 @@
   const held = new Map();
   const side = (x) => (x < W / 2 ? -1 : 1);
   const fromPointers = () => { input = held.size ? [...held.values()].pop() : keys(); };
-  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); held.set(e.pointerId, side(e.clientX)); fromPointers(); });
+  // Capture, so the release reaches the canvas even over the game over screen; otherwise the pointer stays "held" and the keys stop working.
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); try { cv.setPointerCapture(e.pointerId); } catch {} held.set(e.pointerId, side(e.clientX)); fromPointers(); });
   cv.addEventListener('pointermove', (e) => { if (held.has(e.pointerId)) { held.set(e.pointerId, side(e.clientX)); fromPointers(); } });
   for (const kind of ['pointerup', 'pointercancel', 'pointerleave']) cv.addEventListener(kind, (e) => { held.delete(e.pointerId); fromPointers(); });
   const down = new Set();
