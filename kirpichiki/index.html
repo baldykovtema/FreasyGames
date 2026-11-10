@@ -124,7 +124,8 @@
   }
 
   function step(dt) {
-    if (state !== 'play') return;
+    // The leaderboard covers the field: the game waits while it is open.
+    if (state !== 'play' || lb.isOpen()) return;
     playTime += dt; banner = Math.max(0, banner - dt);
     // Paddle.
     const pw = wideT > 0 ? 150 : 96; paddle.w += (pw - paddle.w) * Math.min(1, dt * 10);
@@ -152,7 +153,9 @@
           if (br.hp <= 0) continue;
           if (b.x + b.r < br.x || b.x - b.r > br.x + br.w || b.y + b.r < br.y || b.y - b.r > br.y + br.h) continue;
           const ox1 = b.x + b.r - br.x, ox2 = br.x + br.w - (b.x - b.r), oy1 = b.y + b.r - br.y, oy2 = br.y + br.h - (b.y - b.r);
-          if (Math.min(ox1, ox2) < Math.min(oy1, oy2)) { b.vx = ox1 < ox2 ? -Math.abs(b.vx) : Math.abs(b.vx); } else { b.vy = oy1 < oy2 ? -Math.abs(b.vy) : Math.abs(b.vy); }
+          // Bounce and push the ball out, so it does not hit the same brick again on the next small step.
+          if (Math.min(ox1, ox2) < Math.min(oy1, oy2)) { if (ox1 < ox2) { b.vx = -Math.abs(b.vx); b.x -= ox1; } else { b.vx = Math.abs(b.vx); b.x += ox2; } }
+          else if (oy1 < oy2) { b.vy = -Math.abs(b.vy); b.y -= oy1; } else { b.vy = Math.abs(b.vy); b.y += oy2; }
           hitBrick(br, b); break;
         }
         if (b.y > FH + 20) b.out = true;
@@ -176,7 +179,10 @@
         if (d.kind === 'life') { lives = Math.min(5, lives + 1); popup(d.x, d.y - 20, '+1 жизнь', '#ff9ec2'); }
         if (d.kind === 'multi') {
           const src = balls.find((b) => !b.stuck) || balls[0];
-          for (const a of [-0.5, 0.5]) { const nb = { ...src, stuck: false, out: false }; const ang = Math.atan2(src.vy || -1, src.vx || 0) + a; nb.vx = Math.cos(ang) * sp; nb.vy = Math.sin(ang) * sp; if (nb.vy > 0) nb.vy = -nb.vy; balls.push(nb); }
+          for (const a of [-0.5, 0.5]) { const nb = { ...src, stuck: false, out: false }; const ang = Math.atan2(src.vy || -1, src.vx || 0) + a; nb.vx = Math.cos(ang) * sp; nb.vy = -Math.abs(Math.sin(ang) * sp);
+            // Not flatter than the paddle's steepest bounce, or the ball would fly along the wall for ages.
+            if (-nb.vy < sp * 0.5) { nb.vy = -sp * 0.5; nb.vx = Math.sign(nb.vx || 1) * sp * Math.sqrt(0.75); }
+            balls.push(nb); }
           popup(d.x, d.y - 20, '+2 мяча', '#ffd23f');
         }
       }
@@ -189,7 +195,8 @@
   }
 
   // ——— Drawing ———
-  function round(x, y, w, h, r) { g.beginPath(); g.roundRect(x, y, w, h, r); }
+  // roundRect is missing in older Safari and Firefox: fall back to plain rectangles there.
+  function round(x, y, w, h, r) { g.beginPath(); if (g.roundRect) g.roundRect(x, y, w, h, r); else g.rect(x, y, w, h); }
   function draw() {
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.fillStyle = '#111321'; g.fillRect(0, 0, cv.width, cv.height);
@@ -289,7 +296,7 @@
   addEventListener('keydown', (e) => {
     if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
     keys[e.code] = true;
-    if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); if (state === 'play') launch(); else if (!$('start').hidden || !$('over').hidden) start(); }
+    if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); if (state === 'play') launch(); else if (!e.repeat && (!$('start').hidden || !$('over').hidden)) start(); }
     if (e.code.startsWith('Arrow')) e.preventDefault();
   });
   addEventListener('keyup', (e) => { keys[e.code] = false; });
