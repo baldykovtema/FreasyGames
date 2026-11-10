@@ -16,3 +16,6 @@
 #meBox{display:flex;align-items:center;gap:10px;font-size:12px;color:#9da58e;margin-top:6px}#meBox[hidden],#authForm[hidden]{display:none}#meBox .subtle{padding:0;margin-left:auto}
 #authForm p{font-size:12px;color:#94a17e;line-height:1.6;margin:12px 0 6px}#authForm input{width:100%;margin:5px 0;padding:12px 14px;border-radius:12px;border:1px solid #ffffff22;background:#0b100e;color:#f2f2db;font:inherit;font-size:15px}
 .auth-buttons{display:flex;gap:8px}.auth-buttons button{flex:1;border:0;border-radius:12px;padding:12px;background:#d2e995;color:#1d2917;font-weight:600}.auth-buttons button+button{background:#ffffff10;color:#d5ddc7;border:1px solid #ffffff25}
+
+/* Телефон: шапка переносится, магазин в колонку, чтобы страница не шире экрана. */
+@media(max-width:600px){header{height:auto;flex-wrap:wrap;gap:10px 14px;padding:16px 0}#shop{flex-direction:column;gap:0}.upgrade{flex:none}}

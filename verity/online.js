@@ -11,7 +11,7 @@ window.verityOnline = (() => {
   const clock = (t) => `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
   const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-  let session = null, board = 'clicks', lastSent = '';
+  let session = null, board = 'clicks', lastSent = '', refreshing = null;
   try { session = JSON.parse(localStorage.getItem('verity-session') || 'null'); } catch { session = null; }
   function setSession(x) {
     session = x && x.access_token ? { access_token: x.access_token, refresh_token: x.refresh_token, expires_at: x.expires_at || Math.floor(Date.now() / 1000) + (x.expires_in || 3600), user: x.user } : null;
@@ -32,16 +32,19 @@ window.verityOnline = (() => {
     if (auth && session) { await refresh(); if (session) headers.Authorization = 'Bearer ' + session.access_token; }
     let res;
     try { res = await fetch(SB_URL + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) }); }
-    catch { throw new Error('Нет связи с сервером. Проверь интернет'); }
+    catch { throw Object.assign(new Error('Нет связи с сервером. Проверь интернет'), { offline: true }); }
     const text = await res.text(); let data = null;
     try { data = text ? JSON.parse(text) : null; } catch { data = { message: text }; }
     if (!res.ok) throw new Error(errorText(data, res.status));
     return data;
   }
-  async function refresh() {
+  // Одно обновление токена на все параллельные запросы; без сети вход не сбрасываем.
+  function refresh() {
     if (!session || session.expires_at * 1000 > Date.now() + 60000) return;
-    try { setSession(await sb('/auth/v1/token?grant_type=refresh_token', { method: 'POST', body: { refresh_token: session.refresh_token }, auth: false })); }
-    catch { setSession(null); }
+    refreshing ??= sb('/auth/v1/token?grant_type=refresh_token', { method: 'POST', body: { refresh_token: session.refresh_token }, auth: false })
+      .then(setSession, (e) => { if (!e.offline) setSession(null); })
+      .finally(() => { refreshing = null; });
+    return refreshing;
   }
 
   // Результат уходит, только если изменился; сервер хранит лучший клик и лучшее время каждого игрока.
