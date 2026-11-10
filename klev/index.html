@@ -83,6 +83,7 @@
   let ripples = [], drops = [], reelClick = 0;
 
   function resize() {
+    const oldW = W, oldHorizon = horizonY, oldShore = shoreY;
     DPR = Math.min(2, window.devicePixelRatio || 1);
     W = innerWidth; H = innerHeight;
     cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
@@ -90,6 +91,11 @@
     horizonY = Math.round(H * 0.3); shoreY = Math.round(H * 0.8);
     tip = { x: W / 2 + Math.min(30, W * 0.05), y: shoreY - Math.min(110, H * 0.13) };
     rodBase = { x: W / 2 + Math.min(200, W * 0.32), y: H + 30 };
+    // Keep a cast float at the same spot of the lake when the screen turns or changes size.
+    if (oldW && oldShore > oldHorizon) for (const p of [from, target]) if (p) {
+      p.x *= W / oldW;
+      p.y = horizonY + (p.y - oldHorizon) * (shoreY - horizonY) / (oldShore - oldHorizon);
+    }
   }
   // Things further away look smaller.
   const depthScale = (y) => 0.4 + 0.6 * Math.max(0, Math.min(1, (y - horizonY) / (shoreY - horizonY)));
@@ -511,7 +517,8 @@
     onStatus: (text) => { $('onlineNote').textContent = text; },
   });
 
-  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); press(); });
+  // Only the main button: a right click opens the context menu and its pointerup never comes, so the cast would stick.
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); if (e.button === 0) press(); });
   addEventListener('pointerup', () => release());
   addEventListener('pointercancel', () => release());
   addEventListener('blur', () => release());
