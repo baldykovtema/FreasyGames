@@ -21,6 +21,7 @@ window.FreasyLeaderboard = (opts) => {
   style.textContent = `
   .fl-modal { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 16px; background: #0b0c18d0; backdrop-filter: blur(4px); user-select: text; -webkit-user-select: text; touch-action: auto; font-family: Manrope, system-ui, sans-serif; color: #f8f7ff; }
   .fl-modal[hidden], .fl-modal [hidden] { display: none !important; }
+  .fl-sheet:focus { outline: none; }
   .fl-sheet { width: min(440px, 100%); max-height: calc(100vh - 32px); overflow: auto; background: #1d1e31; border: 1px solid #b79aff80; border-radius: 28px; padding: 22px; box-shadow: 0 30px 80px #0009; }
   .fl-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
   .fl-head h2 { margin: 0; font-size: 26px; letter-spacing: -.05em; }
@@ -50,7 +51,7 @@ window.FreasyLeaderboard = (opts) => {
 
   const root = document.createElement('div');
   root.className = 'fl-modal'; root.hidden = true;
-  root.innerHTML = `<div class="fl-sheet" role="dialog" aria-label="Таблица лидеров">
+  root.innerHTML = `<div class="fl-sheet" tabindex="-1" role="dialog" aria-label="Таблица лидеров">
     <div class="fl-head"><h2>🏆 Лидеры</h2><button class="fl-x" type="button" aria-label="Закрыть">×</button></div>
     <div class="fl-tabs">${boards.map((b) => `<button type="button" data-board="${b.id}">${esc(b.title)}</button>`).join('')}</div>
     <p class="fl-note"></p><ol class="fl-board"></ol><div class="fl-msg fl-board-msg"></div>
@@ -67,13 +68,14 @@ window.FreasyLeaderboard = (opts) => {
   document.body.appendChild(root);
   const q = (s) => root.querySelector(s), form = q('form');
 
-  let session = null, board = boards[0];
+  let session = null, board = boards[0], boardReq = 0, opener = null;
   try { session = JSON.parse(store.get(key + '-session', 'null')); } catch { session = null; }
   function setSession(x) {
     session = x && x.access_token ? { access_token: x.access_token, refresh_token: x.refresh_token, expires_at: x.expires_at || Math.floor(Date.now() / 1000) + (x.expires_in || 3600), user: x.user } : null;
     store.set(key + '-session', JSON.stringify(session));
   }
   const username = () => session && session.user && session.user.user_metadata && session.user.user_metadata.username;
+  const myId = () => session && session.user && session.user.id;
   // The game may also sign in through its own account window (shared/account.js) with the same storage key.
   function sync() { try { const x = JSON.parse(store.get(key + '-session', 'null')); session = x && x.access_token ? x : null; } catch { /* keep */ } }
 
@@ -107,7 +109,7 @@ window.FreasyLeaderboard = (opts) => {
     sync();
     if (!session) { status('Войди в «Таблице лидеров», чтобы твои рекорды попали туда.'); return; }
     status('Отправляем результат…');
-    try { await sb(`/rest/v1/rpc/${key}_submit`, { method: 'POST', body: result }); status(`Результат в таблице лидеров как ${username()}`); }
+    try { await sb(`/rest/v1/rpc/${key}_submit`, { method: 'POST', body: result }); status(username() ? `Результат в таблице лидеров как ${username()}` : 'Результат в таблице лидеров'); }
     catch (e) { status(e.message); }
   }
 
@@ -116,12 +118,15 @@ window.FreasyLeaderboard = (opts) => {
     q('.fl-note').textContent = board.note;
     root.querySelectorAll('[data-board]').forEach((b) => b.classList.toggle('on', b.dataset.board === board.id));
     list.innerHTML = ''; msg.textContent = 'Загружаем…';
+    // Only the latest request fills the list: a slow answer for the other tab must not win.
+    const req = ++boardReq, shown = board;
     const filter = board.order === 'desc' ? `${board.column}=gt.0` : `${board.column}=not.is.null`;
     try {
-      const rows = await sb(`/rest/v1/${key}_scores?select=user_id,username,${board.column}&${filter}&order=${board.column}.${board.order},updated_at.asc&limit=20`, { auth: false });
+      const rows = await sb(`/rest/v1/${key}_scores?select=user_id,username,${shown.column}&${filter}&order=${shown.column}.${shown.order},updated_at.asc&limit=20`, { auth: false });
+      if (req !== boardReq) return;
       msg.textContent = rows.length ? '' : 'Пока пусто. Стань первым!';
-      list.innerHTML = rows.map((r) => `<li${session && r.user_id === session.user.id ? ' class="me"' : ''}>${esc(r.username)}<b>${esc(board.format(r[board.column]))}</b></li>`).join('');
-    } catch (e) { msg.textContent = e.message; }
+      list.innerHTML = rows.map((r) => `<li${myId() && r.user_id === myId() ? ' class="me"' : ''}>${esc(r.username)}<b>${esc(shown.format(r[shown.column]))}</b></li>`).join('');
+    } catch (e) { if (req === boardReq) msg.textContent = e.message; }
   }
 
   function renderAccount() {
@@ -149,8 +154,9 @@ window.FreasyLeaderboard = (opts) => {
     } catch (e) { msg.textContent = e.message; }
   }
 
-  function open() { sync(); root.hidden = false; renderAccount(); loadBoard(); }
-  function close() { root.hidden = true; }
+  // Focus moves into the window, so Space/Enter no longer press the game button under it; it comes back on close.
+  function open() { sync(); opener = document.activeElement; root.hidden = false; renderAccount(); loadBoard(); q('.fl-sheet').focus({ preventScroll: true }); }
+  function close() { if (root.hidden) return; root.hidden = true; if (opener && opener.focus) opener.focus({ preventScroll: true }); opener = null; }
 
   q('.fl-x').addEventListener('click', close);
   root.addEventListener('click', (e) => { if (e.target === root) close(); });
