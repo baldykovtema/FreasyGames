@@ -339,7 +339,8 @@ function resize() {
   const dpr = window.devicePixelRatio || 1;
   W = cv.width = Math.floor(innerWidth * dpr); H = cv.height = Math.floor(innerHeight * dpr);
   // На узком экране (телефон вертикально) клетка меньше, иначе кот у правого края и препятствий не видно.
-  TS = Math.min(H / VIEW_TILES, W / 16);
+  // Не ноль, даже если окно свёрнуто в 0 px: иначе W / TS бесконечно и цикл сетки земли не кончается.
+  TS = Math.max(1, Math.min(H / VIEW_TILES, W / 16));
   GY = GROUND_TILES * TS + (H - VIEW_TILES * TS) * 0.4;
 }
 addEventListener('resize', resize); resize();
@@ -705,6 +706,8 @@ $('edPublish').onclick = publishLevel;
 /* ================= Supabase: аккаунты и уровни ================= */
 
 let session = load('catjump-session', null);
+// Ту же запись сессии меняет и таблица лидеров (вход, выход, обновление токена), поэтому перечитываем её.
+function syncSession() { const s = load('catjump-session', null); session = s && s.access_token ? s : null; }
 
 function errorText(data, status) {
   const raw = (data && (data.msg || data.message || data.error_description || data.error)) || `Ошибка ${status}`;
@@ -717,6 +720,7 @@ function errorText(data, status) {
 
 async function sbFetch(path, { method = 'GET', body, headers = {}, auth = true } = {}) {
   const h = { apikey: SB_KEY, 'Content-Type': 'application/json', ...headers };
+  syncSession();
   if (auth && session) { await refreshIfNeeded(); if (session) h.Authorization = 'Bearer ' + session.access_token; }
   let res;
   try { res = await fetch(SB_URL + path, { method, headers: h, body: body === undefined ? undefined : JSON.stringify(body) }); }
@@ -740,7 +744,7 @@ async function refreshIfNeeded() {
   } catch { setSession(null); toast('Сессия закончилась, войди снова'); }
 }
 
-function username() { return session && session.user && session.user.user_metadata && session.user.user_metadata.username; }
+function username() { syncSession(); return session && session.user && session.user.user_metadata && session.user.user_metadata.username; }
 function updateAccountButton() { $('accBtn').textContent = username() ? `Аккаунт: ${username()}` : 'Аккаунт'; }
 
 async function authRequest(kind) {
@@ -753,10 +757,11 @@ async function authRequest(kind) {
   try {
     const s = kind === 'signup'
       ? await sbFetch('/auth/v1/signup', { method: 'POST', body: { email, password: pass, data: { username: name } }, auth: false })
-      : await login(email).catch(() => login(name.toLowerCase() + OLD_EMAIL_DOMAIN));
+      : await login(email).catch((e) => login(name.toLowerCase() + OLD_EMAIL_DOMAIN).catch(() => { throw e; }));
     if (!s || !s.access_token) { msg.textContent = 'Аккаунт создан, теперь нажми «Войти»'; return; }
     setSession(s); $('accPass').value = ''; msg.textContent = '';
     toast(`Привет, ${username()}!`); openAccount();
+    lb.submit(progressTotals());
   } catch (e) { msg.textContent = e.message; }
 }
 
@@ -773,11 +778,14 @@ function openAccount() {
   if (inside) { $('accHello').textContent = `Привет, ${username()}!`; loadMyLevels(); }
 }
 
+let myReq = 0;
 async function loadMyLevels() {
-  const list = $('myList'), msg = $('myMsg');
+  const list = $('myList'), msg = $('myMsg'), req = ++myReq;
   list.innerHTML = ''; msg.textContent = 'Загружаем...';
   try {
     const rows = await sbFetch(`/rest/v1/catjump_levels?select=id,name,plays,created_at&author_id=eq.${session.user.id}&order=created_at.desc`);
+    // Пока шёл запрос, список могли запросить снова: старый ответ не добавляем, иначе уровни задвоятся.
+    if (req !== myReq) return;
     msg.textContent = rows.length ? '' : 'Пока ничего. Сделай уровень в редакторе!';
     for (const row of rows) {
       const el = levelItem(row, false);
@@ -788,7 +796,7 @@ async function loadMyLevels() {
       };
       el.appendChild(del); list.appendChild(el);
     }
-  } catch (e) { msg.textContent = e.message; }
+  } catch (e) { if (req === myReq) msg.textContent = e.message; }
 }
 
 async function publishLevel() {
@@ -805,18 +813,19 @@ async function publishLevel() {
   $('edPublish').disabled = false;
 }
 
-let searchSort = 'new';
+let searchSort = 'new', searchReq = 0;
 async function runSearch() {
-  const list = $('searchList'), msg = $('searchMsg');
+  const list = $('searchList'), msg = $('searchMsg'), req = ++searchReq;
   const q = $('searchInput').value.trim().replace(/[,()*%\\:."]/g, ' ').trim();
   list.innerHTML = ''; msg.textContent = 'Ищем...';
   let path = '/rest/v1/catjump_levels?select=id,name,author_name,plays,created_at&limit=40&order=' + (searchSort === 'top' ? 'plays.desc,created_at.desc' : 'created_at.desc');
   if (q) path += '&or=' + encodeURIComponent(`(name.ilike.*${q}*,author_name.ilike.*${q}*)`);
   try {
     const rows = await sbFetch(path);
+    if (req !== searchReq) return;
     msg.textContent = rows.length ? '' : (q ? 'Ничего не нашли' : 'Уровней пока нет. Опубликуй первый!');
     for (const row of rows) list.appendChild(levelItem(row, true));
-  } catch (e) { msg.textContent = e.message; }
+  } catch (e) { if (req === searchReq) msg.textContent = e.message; }
 }
 
 function levelItem(row, withAuthor) {
@@ -938,7 +947,9 @@ cv.addEventListener('pointerdown', (e) => {
   if (mode === 'play') { holding = true; return; }
   if (mode === 'editor') { editor.painting = e.button === 2 ? 2 : 1; const c = cellAt(e); editCell(c.x, c.y, editor.painting === 2 ? 2 : 0); }
 });
-addEventListener('pointerup', () => { holding = false; editor.painting = 0; });
+const pointerEnd = () => { holding = false; editor.painting = 0; };
+addEventListener('pointerup', pointerEnd);
+addEventListener('pointercancel', pointerEnd);
 cv.addEventListener('pointermove', (e) => {
   if (mode !== 'editor') return;
   const c = cellAt(e); editor.hover = c;
@@ -963,6 +974,8 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 updateAccountButton();
+// Вход и выход бывают и в окне таблицы лидеров (и в другой вкладке): кнопка аккаунта не должна отставать.
+setInterval(() => { if (mode === 'menu') updateAccountButton(); }, 1000);
 requestAnimationFrame(frame);
 
 /* Проверка уровней: ищет последовательность прыжков, которая проходит уровень. */
