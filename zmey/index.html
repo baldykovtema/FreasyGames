@@ -65,7 +65,8 @@
     W = innerWidth; H = innerHeight;
     cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    cell = Math.floor(Math.min((W - 24) / COLS, (H - 130) / ROWS));
+    // At least a few pixels: on a very low window the formula goes below zero and ctx.arc throws, stopping the game loop.
+    cell = Math.max(4, Math.floor(Math.min((W - 24) / COLS, (H - 130) / ROWS)));
     bx = Math.round((W - cell * COLS) / 2); by = Math.round(78 + (H - 100 - cell * ROWS) / 2);
   }
 
@@ -315,13 +316,15 @@
   addEventListener('keydown', (e) => {
     if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
     if (KEYS[e.code] && state === 'play') { e.preventDefault(); turn(KEYS[e.code]); return; }
+    // A focused button on the card presses itself (so Enter on «Таблица лидеров» opens it instead of starting a game).
+    if ((e.code === 'Space' || e.code === 'Enter') && e.target.closest && e.target.closest('.screen button')) return;
     if ((e.code === 'Space' || e.code === 'Enter') && state !== 'play' && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); }
   });
   $('go').addEventListener('click', start);
   $('again').addEventListener('click', start);
   document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
   $('sound').textContent = muted ? '🔇' : '🔊';
-  $('sound').addEventListener('click', () => { muted = !muted; store.set('zmey-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; });
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('zmey-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
 
   addEventListener('resize', resize);
   resize(); reset(); showBests();
