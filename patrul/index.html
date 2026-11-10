@@ -9,7 +9,7 @@
 html,body{margin:0;height:100%;background:#05030f;color:#fff;font-family:-apple-system,"Segoe UI",system-ui,sans-serif;overflow:hidden;user-select:none}
 #wrap{position:fixed;inset:0;display:grid;place-items:center}
 canvas{display:block;border-radius:10px;box-shadow:0 0 60px #4b2cff44;touch-action:none;cursor:none}
-.ui{position:absolute;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;gap:12px;background:#05030fd9;text-align:center;padding:20px;overflow:auto}
+.ui{position:absolute;inset:0;display:none;align-items:center;justify-content:center;justify-content:safe center;flex-direction:column;gap:12px;background:#05030fd9;text-align:center;padding:20px;overflow:auto}
 .ui.on{display:flex}
 h1{margin:0;font-size:50px;line-height:1;background:linear-gradient(#7ef9ff,#4b6bff);-webkit-background-clip:text;background-clip:text;color:transparent;letter-spacing:3px;filter:drop-shadow(0 0 14px #4b6bff)}
 h2{margin:0;font-size:32px;color:#7ef9ff}
@@ -19,6 +19,7 @@ h2{margin:0;font-size:32px;color:#7ef9ff}
 .btn.gold{background:linear-gradient(#ffd84d,#ff9f1a);color:#3a2000;box-shadow:0 0 18px #ff9f1a66}
 .muted{color:#9c97c9;font-size:14px;line-height:1.5}
 .shop{display:grid;grid-template-columns:repeat(2,minmax(200px,260px));gap:10px}
+@media(max-width:470px){.shop{grid-template-columns:minmax(0,320px);width:100%;justify-content:center}}
 .up{background:#15122e;border:1px solid #2d2860;border-radius:12px;padding:10px 12px;text-align:left;display:flex;flex-direction:column;gap:6px}
 .up b{font-size:15px}
 .bar{display:flex;gap:3px}.bar i{flex:1;height:6px;border-radius:3px;background:#2d2860}.bar i.on{background:#7ef9ff}
@@ -77,7 +78,7 @@ function store(){try{localStorage.setItem(KEY,JSON.stringify(save));}catch(e){}}
 
 /* ---------- звук ---------- */
 let AC;function ac(){if(!AC)AC=new (window.AudioContext||window.webkitAudioContext)();if(AC.state==='suspended')AC.resume();return AC;}
-function tone(f0,f1,d,type='square',v=.08,noise=false){try{const c=ac(),t=c.currentTime,gn=c.createGain();let src;
+function tone(f0,f1,d,type='square',v=.08,noise=false){if(!AC&&navigator.userActivation&&!navigator.userActivation.hasBeenActive)return;try{const c=ac(),t=c.currentTime,gn=c.createGain();let src;
   if(noise){const b=c.createBuffer(1,c.sampleRate*d,c.sampleRate),dd=b.getChannelData(0);for(let i=0;i<dd.length;i++)dd[i]=Math.random()*2-1;src=c.createBufferSource();src.buffer=b;const f=c.createBiquadFilter();f.type='lowpass';f.frequency.setValueAtTime(f0,t);f.frequency.exponentialRampToValueAtTime(Math.max(40,f1),t+d);src.connect(f);f.connect(gn);}
   else{src=c.createOscillator();src.type=type;src.frequency.setValueAtTime(f0,t);src.frequency.exponentialRampToValueAtTime(Math.max(30,f1),t+d);src.connect(gn);}
   gn.gain.setValueAtTime(v,t);gn.gain.exponentialRampToValueAtTime(.001,t+d);gn.connect(c.destination);src.start(t);src.stop(t+d);}catch(e){}}
@@ -146,8 +147,8 @@ function update(){
   // волна
   waveT++;while(waveQ.length&&waveQ[0].t<=waveT)spawn(waveQ.shift());
   if(!waveQ.length&&!en.length){
-    if(wave%5===0){save.check=Math.max(save.check,wave);store();banner={t:120,txt:'✔ Сохранено',sub:'Точка сохранения: волна '+wave};}
-    nextWave();}
+    const cp=wave%5===0;if(cp){save.check=Math.max(save.check,wave);store();}
+    nextWave();if(cp)banner={t:120,txt:'✔ Сохранено',sub:'Точка сохранения: волна '+(wave-1)};}
   // враги
   for(const e of en){e.t++;
     if(e.boss){if(e.y<e.ty)e.y+=1.5;else{e.x=W/2+Math.sin(e.t/70)*(W/2-90);
@@ -234,9 +235,10 @@ requestAnimationFrame(loop);
 
 /* ---------- ввод ---------- */
 addEventListener('keydown',e=>{if(lb.isOpen())return;keys[e.code]=true;if(e.code.startsWith('Arrow')||e.code==='Space')e.preventDefault();
-  if((e.code==='Escape'||e.code==='KeyP')){if(state==='play'){state='pause';showUI('pauseUI');}else if(state==='pause')resume();}});
+  if((e.code==='Escape'||e.code==='KeyP')){if(state==='play'){state='pause';store();showUI('pauseUI');}else if(state==='pause')resume();}});
 addEventListener('keyup',e=>keys[e.code]=false);
-addEventListener('blur',()=>{keys={};if(state==='play'){state='pause';showUI('pauseUI');}});
+addEventListener('pagehide',store);
+addEventListener('blur',()=>{keys={};if(state==='play'){state='pause';store();showUI('pauseUI');}});
 function cpos(e){const r=cv.getBoundingClientRect();return {x:(e.clientX-r.left)/r.width*W,y:(e.clientY-r.top)/r.height*H};}
 cv.addEventListener('pointermove',e=>{const p=cpos(e);ptr=e.pointerType==='touch'?{x:p.x,y:p.y-70}:p;});
 cv.addEventListener('pointerdown',e=>{ac();const p=cpos(e);ptr=e.pointerType==='touch'?{x:p.x,y:p.y-70}:p;});
