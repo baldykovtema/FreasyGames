@@ -274,6 +274,8 @@
     if (mp.settingsOpen()) return;
     if (e.code !== 'Space' && e.code !== 'Enter' && e.code !== 'ArrowUp' && e.code !== 'ArrowDown') return;
     e.preventDefault();
+    // A held key repeats: it must not flip the orbit back and forth or start a new flight by itself.
+    if (e.repeat) return;
     if (state === 'play') toggle(); else if (!$('start').hidden || !$('over').hidden) start();
   });
   $('go').addEventListener('click', start);
@@ -284,7 +286,7 @@
 
   addEventListener('resize', resize);
   resize(); reset(); showBests();
-  if (best > 0 && lb.signedIn()) lb.submit({ new_score: best, new_time: bestTime });
+  if ((best > 0 || bestTime > 0) && lb.signedIn()) lb.submit({ new_score: best, new_time: bestTime });
   requestAnimationFrame(frame);
 })();
 </script>
