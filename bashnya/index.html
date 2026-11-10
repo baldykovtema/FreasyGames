@@ -13,7 +13,7 @@
   html, body { margin: 0; height: 100%; overflow: hidden; background: #111321; color: #f8f7ff; font-family: Manrope, system-ui, sans-serif; }
   body { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
   canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
-  .hud { position: fixed; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; pointer-events: none; }
+  .hud { position: fixed; z-index: 5; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; pointer-events: none; }
   .hud a, .hud button { pointer-events: auto; }
   .back { color: #d1cde5; font-size: 13px; font-weight: 700; padding: 9px 14px; border: 1px solid #ffffff24; border-radius: 100px; text-decoration: none; background: #11132199; backdrop-filter: blur(6px); }
   .sound { font: inherit; color: #d1cde5; font-size: 16px; width: 40px; height: 40px; border: 1px solid #ffffff24; border-radius: 50%; background: #11132199; cursor: pointer; }
@@ -350,6 +350,8 @@
     if (!$('leaders').hidden) { if (e.key === 'Escape') online.close(); return; }
     if (e.code !== 'Space' && e.code !== 'Enter') return;
     e.preventDefault();
+    // Holding the key must not drop slab after slab.
+    if (e.repeat) return;
     if (state === 'play') drop(); else if (!$('start').hidden || !$('over').hidden) start();
   });
   $('go').addEventListener('click', start);
@@ -366,7 +368,7 @@
       time: { query: 'select=user_id,username,best_time&best_time=gt.0&order=best_time.desc,updated_at.asc', value: (r) => clock(r.best_time), note: 'Дольше всех продержались в одной игре.' },
     };
     const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-    let session = null, board = 'floors';
+    let session = null, board = 'floors', boardReq = 0;
     try { session = JSON.parse(store.get('bashnya-session', 'null')); } catch { session = null; }
     function setSession(x) {
       session = x && x.access_token ? { access_token: x.access_token, refresh_token: x.refresh_token, expires_at: x.expires_at || Math.floor(Date.now() / 1000) + (x.expires_in || 3600), user: x.user } : null;
@@ -416,11 +418,14 @@
       $('boardNote').textContent = BOARDS[board].note;
       document.querySelectorAll('[data-board]').forEach((b) => b.classList.toggle('on', b.dataset.board === board));
       list.innerHTML = ''; msg.textContent = 'Загружаем…';
+      // Only the latest request may fill the list, otherwise a slow answer for the other tab wins.
+      const req = ++boardReq, shown = board;
       try {
-        const rows = await sb(`/rest/v1/bashnya_scores?${BOARDS[board].query}&limit=20`, { auth: false });
+        const rows = await sb(`/rest/v1/bashnya_scores?${BOARDS[shown].query}&limit=20`, { auth: false });
+        if (req !== boardReq) return;
         msg.textContent = rows.length ? '' : 'Пока пусто. Стань первым!';
-        list.innerHTML = rows.map((r) => `<li${session && r.user_id === session.user.id ? ' class="me"' : ''}>${esc(r.username)}<b>${BOARDS[board].value(r)}</b></li>`).join('');
-      } catch (e) { msg.textContent = e.message; }
+        list.innerHTML = rows.map((r) => `<li${session && r.user_id === session.user.id ? ' class="me"' : ''}>${esc(r.username)}<b>${BOARDS[shown].value(r)}</b></li>`).join('');
+      } catch (e) { if (req === boardReq) msg.textContent = e.message; }
     }
 
     function renderAccount() {
