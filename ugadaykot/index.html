@@ -107,8 +107,20 @@ const MODES = {
       ['RCFCG', { freasy: 1, free: 1, mobile: 0.5, pc: 1, online: 0.5, twoD: 1, puzzle: 0.3, russian: 1, recent: 1, kids: 1, browser: 1 }],
       ['Угадайкот', { freasy: 1, free: 1, mobile: 1, pc: 1, russian: 1, recent: 1, animal: 1, kids: 1, browser: 1, puzzle: 0.5 }],
       ['Фризик (ИИ-помощник FreasyGames)', { freasy: 1, free: 1, mobile: 1, pc: 1, russian: 1, recent: 1, kids: 1, browser: 1, puzzle: 0.3 }],
+      ['Verity Clicker', { freasy: 1, free: 1, mobile: 0.5, pc: 1, twoD: 1, horror: 1, russian: 1, recent: 1, kids: 0.3, browser: 1 }],
+      ['Звёздная башня', { freasy: 1, free: 1, mobile: 0.5, pc: 1, online: 0.3, build: 0.5, twoD: 1, puzzle: 0.3, russian: 1, recent: 1, kids: 1, browser: 1 }],
+      ['Орбита', { freasy: 1, free: 1, mobile: 0.5, pc: 1, online: 1, twoD: 1, russian: 1, recent: 1, kids: 1, browser: 1 }],
+      ['Молния', { freasy: 1, free: 1, mobile: 0.5, pc: 1, online: 0.3, twoD: 1, russian: 1, recent: 1, kids: 1, browser: 1 }],
+      ['Звёздный змей', { freasy: 1, free: 1, mobile: 0.5, pc: 1, online: 0.3, twoD: 1, russian: 1, recent: 1, animal: 1, kids: 1, browser: 1 }],
+      ['Облака', { freasy: 1, free: 1, mobile: 0.5, pc: 1, online: 1, twoD: 1, runner: 0.3, russian: 1, recent: 1, animal: 1, kids: 1, browser: 1 }],
+      ['Клёв', { freasy: 1, free: 1, mobile: 0.5, pc: 1, online: 0.3, twoD: 1, sport: 0.5, russian: 1, recent: 1, kids: 1, browser: 1 }],
+      ['FreasyCode Studio', { freasy: 1, free: 1, mobile: 0.5, pc: 1, online: 0.5, build: 1, twoD: 1, russian: 1, recent: 1, kids: 0.7, browser: 1 }],
+      ['Прыгун', { freasy: 1, free: 1, mobile: 0.5, pc: 1, online: 1, build: 1, twoD: 1, russian: 1, recent: 1, animal: 0.6, kids: 1, browser: 1 }],
+      ['Звёздный патруль', { freasy: 1, free: 1, mobile: 0.5, pc: 1, online: 0.3, shooter: 1, twoD: 1, russian: 1, recent: 1, kids: 0.7, browser: 1 }],
+      ['Кирпичики', { freasy: 1, free: 1, mobile: 0.5, pc: 1, online: 0.3, twoD: 1, puzzle: 0.3, russian: 1, recent: 1, kids: 1, browser: 1 }],
+      ['Трасса', { freasy: 1, free: 1, mobile: 0.5, pc: 1, online: 0.3, twoD: 1, racing: 1, russian: 1, recent: 1, kids: 1, browser: 1 }],
       ['Minecraft', { mobile: 1, pc: 1, console: 1, online: 1, sandbox: 1, build: 1, pixel: 0.6, old: 0.3, zombies: 0.8, fantasy: 0.6, kids: 1, story: 0.1 }],
-      ['Roblox', { free: 1, mobile: 1, pc: 1, console: 1, online: 1, shooter: 0.5, sandbox: 1, build: 1, horror: 0.4, royale: 0.3, racing: 0.3, old: 0.3, zombies: 0.3, kids: 1, sport: 0.3, fantasy: 0.3 }],
+      ['Roblox', { free: 1, mobile: 1, pc: 1, console: 1, online: 1, shooter: 0.5, sandbox: 1, build: 1, horror: 0.4, royale: 0.3, racing: 0.3, old: 1, zombies: 0.3, kids: 1, sport: 0.3, fantasy: 0.3 }],
       ['Fortnite', { free: 1, mobile: 0.6, pc: 1, console: 1, online: 1, shooter: 1, sandbox: 0.5, build: 1, royale: 1, kids: 0.5, fantasy: 0.3 }],
       ['GTA V', { pc: 1, console: 1, online: 1, shooter: 1, sandbox: 1, racing: 0.7, story: 1 }],
       ['Brawl Stars', { free: 1, mobile: 1, online: 1, shooter: 0.8, twoD: 0.3, royale: 0.7, recent: 0.4, kids: 0.8, fantasy: 0.3 }],
@@ -221,7 +233,7 @@ const store = {
     try { localStorage.setItem(key, memory[key]); } catch { /* останется в памяти вкладки */ }
   },
 };
-const normName = (s) => s.toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9]+/g, ' ').trim();
+const normName = (s) => s.toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 const questionsText = (n) => n + ' ' + (n % 10 === 1 && n % 100 !== 11 ? 'вопрос' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'вопроса' : 'вопросов');
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
