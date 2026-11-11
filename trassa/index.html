@@ -51,11 +51,11 @@
   const cv = $('c'), g = cv.getContext('2d');
   // Field 480x800, 10 px per metre; the road has 4 lanes.
   const FW = 480, FH = 800, ROAD_L = 60, ROAD_W = 360, LANES = 4, LANE_W = ROAD_W / LANES, PX_PER_M = 10;
-  const CAR_W = 52, CAR_H = 92, MIN_V = 22, MAX_V = 60;
+  const CAR_W = 52, CAR_H = 92, MIN_V = 24, MAX_V = 72;
   const COLORS = ['#ff5f7e', '#7cc4ff', '#ffd23f', '#5df2a5', '#ff9f4a', '#c8ff6b', '#ff9ec2'];
   let scale = 1, ox = 0, oy = 0, dpr = 1;
   let state = 'start', dist = 0, coins = 0, fuel = 100, v = MIN_V, maxV = 0, playTime = 0, scroll = 0;
-  let player, traffic, items, parts, popups, spawnT = 0, itemT = 0, fuelT = 0, shake = 0, why = '', safe = 1, safeT = 0;
+  let player, traffic, items, parts, popups, spawnT = 0, itemT = 0, fuelT = 0, shake = 0, why = '', safe = 1, safeT = 0, nextSafe = null;
   let best = +store.get('trassa-best', 0) || 0, bestCoins = +store.get('trassa-best-coins', 0) || 0;
   let runs = {}; try { runs = JSON.parse(store.get('trassa-runs', '{}')) || {}; } catch { runs = {}; }
   let muted = store.get('trassa-muted', '0') === '1', keys = {}, touchDir = 0;
@@ -88,30 +88,36 @@
     dist = 0; coins = 0; fuel = 100; v = MIN_V; maxV = 0; playTime = 0; spawnT = 1; itemT = 0.6; fuelT = 6; why = '';
     player = { x: laneX(1.5), y: FH - 150, tilt: 0 };
     traffic = []; items = []; parts = []; popups = [];
-    safe = 1 + Math.floor(Math.random() * 2); safeT = 3;
+    safe = 1 + Math.floor(Math.random() * 2); safeT = 3; nextSafe = null;
   }
   // One lane is always kept free of cars from the top of the screen down to the player, so every
   // run can be driven through. It moves to a neighbour lane only once that lane is clear too, and
   // then the old lane stays empty long enough for the player to change over.
-  const laneClear = (lane) => !traffic.some((c) => c.lane === lane && c.y + c.h / 2 > -300 && c.y - c.h / 2 < player.y + CAR_H / 2 + 30);
+  const laneClear = (lane) => !traffic.some((c) => (c.lane === lane || Math.abs(c.x - laneX(lane)) < LANE_W * 0.9) && c.y + c.h / 2 > -300 && c.y - c.h / 2 < player.y + CAR_H / 2 + 30);
+  // Когда приходит время, соседняя полоса «бронируется»: в ней перестают появляться машины,
+  // и как только она очистится, свободной становится она. Так полоса меняется даже в плотном потоке.
   function moveSafeLane(dt) {
     safeT -= dt; if (safeT > 0) return;
-    const next = safe + (safe === 0 ? 1 : safe === LANES - 1 ? -1 : Math.random() < 0.5 ? -1 : 1);
-    if (laneClear(next)) { safe = next; safeT = 2.5 + Math.random() * 3.5; } else safeT = 0.3;
+    // Пока в свободной полосе едет канистра, полоса не уходит — топливо всегда можно подобрать.
+    if (items.some((it) => it.kind === 'fuel' && it.lane === safe && it.y < player.y + 40)) return;
+    if (nextSafe === null) nextSafe = safe + (safe === 0 ? 1 : safe === LANES - 1 ? -1 : Math.random() < 0.5 ? -1 : 1);
+    if (laneClear(nextSafe) && !traffic.some((c) => c.toLane === nextSafe)) { safe = nextSafe; nextSafe = null; safeT = 2.2 + Math.random() * 2.8; }
   }
   function free(lane, y, gap = 220) { return !traffic.some((c) => c.lane === lane && Math.abs(c.y - y) < gap) && !items.some((it) => it.lane === lane && Math.abs(it.y - y) < 80); }
   function spawnCar() {
     // Never in the safe lane, and never all four lanes at once near the top.
-    const lanes = [0, 1, 2, 3].sort(() => Math.random() - 0.5), n = v > 40 && Math.random() < 0.35 ? 2 : 1;
+    const lanes = [0, 1, 2, 3].sort(() => Math.random() - 0.5), r = Math.random(), n = v > 50 && r < 0.22 ? 3 : v > 30 && r < 0.3 + (v - 30) / 90 ? 2 : 1;
     let made = 0;
     for (const lane of lanes) {
       if (made >= n) break;
-      if (lane === safe) continue;
+      if (lane === safe || lane === nextSafe) continue;
       const busy = traffic.filter((c) => c.y < 140 && c.y > -260).map((c) => c.lane);
       if (new Set([...busy, lane]).size >= LANES) continue;
       if (!free(lane, -120)) continue;
-      const kind = Math.random() < 0.18 ? 'truck' : 'car';
-      traffic.push({ lane, x: laneX(lane), y: -140, h: kind === 'truck' ? 150 : CAR_H, w: kind === 'truck' ? 58 : CAR_W, speed: (0.35 + Math.random() * 0.3) * (kind === 'truck' ? 0.7 : 1), col: COLORS[Math.floor(Math.random() * COLORS.length)], kind, passed: false });
+      const kind = Math.random() < 0.26 ? 'truck' : 'car';
+      // С дистанции ~400 м некоторые легковушки перестраиваются: сначала мигают поворотником.
+      const switcher = kind === 'car' && dist > 400 && Math.random() < Math.min(0.35, (dist - 400) / 3000 + 0.12);
+      traffic.push({ lane, x: laneX(lane), y: -140, h: kind === 'truck' ? 150 : CAR_H, w: kind === 'truck' ? 58 : CAR_W, speed: (0.35 + Math.random() * 0.3) * (kind === 'truck' ? 0.7 : 1), col: COLORS[Math.floor(Math.random() * COLORS.length)], kind, passed: false, switchY: switcher ? 60 + Math.random() * 300 : null, blink: 0, toLane: null });
       made++;
     }
   }
@@ -131,9 +137,9 @@
     if (state !== 'play' || lb.isOpen()) return;
     playTime += dt;
     // Speed grows with the distance; fuel burns faster at high speed.
-    v = Math.min(MAX_V, MIN_V + dist / 90); maxV = Math.max(maxV, v);
+    v = Math.min(MAX_V, MIN_V + dist / 70); maxV = Math.max(maxV, v);
     const dy = v * PX_PER_M * dt; dist += v * dt; scroll = (scroll + dy) % 80;
-    fuel -= dt * (2.2 + v / 40);
+    fuel -= dt * (2.4 + v / 40);
     if (fuel <= 0) { fuel = 0; return finish('Кончилось топливо'); }
     // Steering.
     const dir = (keys.ArrowRight || keys.KeyD ? 1 : 0) - (keys.ArrowLeft || keys.KeyA ? 1 : 0) || (joy.active ? joy.x : touchDir);
@@ -141,10 +147,10 @@
     player.x = Math.max(ROAD_L + CAR_W / 2 + 4, Math.min(ROAD_L + ROAD_W - CAR_W / 2 - 4, player.x));
     // Traffic drives the same way, slower than us.
     moveSafeLane(dt);
-    spawnT -= dt; if (spawnT <= 0) { spawnCar(); spawnT = Math.max(0.42, 1.25 - v / 80) * (0.8 + Math.random() * 0.4); }
+    spawnT -= dt; if (spawnT <= 0) { spawnCar(); spawnT = Math.max(0.32, 1.1 - v / 72) * (0.8 + Math.random() * 0.4); }
     itemT -= dt; if (itemT <= 0) { spawnItems(); itemT = 1.6 + Math.random() * 1.6; }
     // spawnFuel() may shorten the timer to retry soon when the lane is busy, so set the timer first.
-    fuelT -= dt; if (fuelT <= 0) { fuelT = 7 + Math.random() * 4; spawnFuel(); }
+    fuelT -= dt; if (fuelT <= 0) { fuelT = 6.5 + Math.random() * 3; spawnFuel(); }
     for (const c of traffic) {
       // A faster car never drives through a slower one ahead in its lane: it keeps behind it.
       const ahead = traffic.find((o) => o !== c && o.lane === c.lane && o.y > c.y && o.y - c.y < (o.h + c.h) / 2 + 40);
@@ -152,6 +158,20 @@
     }
     for (const c of traffic) {
       c.y += dy * (1 - c.speed);
+      if (c.switchY !== null && c.toLane === null && c.y > c.switchY) {
+        // Выбираем соседнюю полосу: не свободную, без машин рядом.
+        const opts = [c.lane - 1, c.lane + 1].filter((l) => l >= 0 && l < LANES && l !== safe && l !== nextSafe && !traffic.some((o) => o !== c && (o.lane === l || o.toLane === l) && Math.abs(o.y - c.y) < (o.h + c.h) / 2 + 60));
+        c.switchY = null;
+        if (opts.length) { c.toLane = opts[Math.floor(Math.random() * opts.length)]; c.blink = 0.9; }
+      }
+      if (c.toLane !== null) {
+        if (c.blink > 0) { c.blink -= dt; if (c.toLane === safe || c.toLane === nextSafe) { c.toLane = null; c.blink = 0; } }
+        else {
+          const tx = laneX(c.toLane), d = tx - c.x, sp = 150 * dt;
+          if (Math.abs(d) <= sp) { c.x = tx; c.lane = c.toLane; c.toLane = null; }
+          else { c.x += Math.sign(d) * sp; if (Math.abs(d) < LANE_W / 2) c.lane = c.toLane; }
+        }
+      }
       const hx = Math.abs(c.x - player.x) < (c.w + CAR_W) / 2 - 8, hy = Math.abs(c.y - player.y) < (c.h + CAR_H) / 2 - 10;
       if (hx && hy) { burst(player.x, player.y - 20, '#ffd23f', 40); burst(player.x, player.y, '#ff5f7e', 30); return finish('Авария!'); }
       if (!c.passed && c.y - c.h / 2 > player.y + CAR_H / 2) { c.passed = true; if (Math.abs(c.x - player.x) < LANE_W * 1.05) { coins += 1; sfx.close(); popup(player.x, player.y - 70, 'Впритирку! +1', '#7cc4ff'); } }
@@ -231,7 +251,15 @@
       if (it.kind === 'coin') { const s = Math.abs(Math.cos(performance.now() / 180 + it.y / 50)); g.fillStyle = '#ffd23f'; g.strokeStyle = '#b38a00'; g.lineWidth = 3; g.beginPath(); g.ellipse(it.x, it.y, 13 * s + 2, 14, 0, 0, 7); g.fill(); g.stroke(); }
       else { g.fillStyle = '#ff5f57'; round(it.x - 16, it.y - 20, 32, 40, 6); g.fill(); g.fillStyle = '#fff'; g.font = '800 20px Manrope, system-ui'; g.textAlign = 'center'; g.fillText('⛽', it.x, it.y + 8); }
     }
-    for (const c of traffic) drawCar(c.x, c.y, c.w, c.h, c.col, 0, false, c.kind === 'truck');
+    for (const c of traffic) {
+      drawCar(c.x, c.y, c.w, c.h, c.col, c.toLane === null || c.blink > 0 ? 0 : Math.sign(laneX(c.toLane) - c.x) * 0.12, false, c.kind === 'truck');
+      if (c.toLane !== null && (c.blink <= 0 || Math.floor(c.blink * 6) % 2 === 0)) {
+        const side = Math.sign(laneX(c.toLane) - c.x), bx = c.x + side * (c.w / 2 - 2);
+        g.fillStyle = '#ffb020'; g.shadowColor = '#ffb020'; g.shadowBlur = 12;
+        g.fillRect(bx - 4, c.y - c.h / 2 + 2, 8, 8); g.fillRect(bx - 4, c.y + c.h / 2 - 10, 8, 8);
+        g.shadowBlur = 0;
+      }
+    }
     if (state === 'play' || state === 'start' || state === 'shot') {
       // Headlight beams.
       const beam = g.createLinearGradient(0, player.y - 60, 0, player.y - 260); beam.addColorStop(0, '#fff6c455'); beam.addColorStop(1, '#fff6c400');
