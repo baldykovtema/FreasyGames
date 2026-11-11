@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Слияние звёзд — FreasyGames</title>
+<meta name="description" content="Слияние звёзд на FreasyGames: бросай звёзды в банку, одинаковые сливаются в большие, доберись до галактики и попади в таблицу лидеров.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>
+  .ladder { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin: 6px 0 10px; font-size: 20px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ Новая игра</div>
+    <h1>Слияние <span>звёзд</span></h1>
+    <p>Бросай звёзды в банку. Две одинаковые, столкнувшись, сливаются в одну побольше и дают очки.</p>
+    <div class="ladder" id="ladder"></div>
+    <p>Не дай банке переполниться выше красной линии.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · лучшая звезда: <b id="bestLevelStart">—</b></p>
+    <button class="play" id="go" type="button">Начать ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров и вход</button>
+    <div class="hint">Веди пальцем или мышью и отпусти. Клавиши: ← → и пробел</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow">Банка переполнена</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">очков</p>
+    <p>Рекорд: <b id="bestOver">0</b> · лучшая звезда: <b id="bestLevelOver">—</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров и вход</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script>
+(() => {
+  'use strict';
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  let best = Number(store.get('sliyanie-best', 0)) || 0, bestLevel = Number(store.get('sliyanie-best-level', 0)) || 0;
+  let muted = store.get('sliyanie-muted', '0') === '1';
+
+  // Eleven sizes, from a spark to a galaxy. Points for making each one.
+  const KINDS = [
+    { name: 'Искра', r: 15, c1: '#fff6c9', c2: '#ffcf4a', pts: 1 },
+    { name: 'Звёздочка', r: 20, c1: '#ffe0a8', c2: '#ff9f4a', pts: 3 },
+    { name: 'Луна', r: 26, c1: '#f1f0ff', c2: '#a9a6c9', pts: 6 },
+    { name: 'Комета', r: 32, c1: '#c9f4ff', c2: '#4ac3ff', pts: 10 },
+    { name: 'Марс', r: 39, c1: '#ffc2a8', c2: '#e2553a', pts: 15 },
+    { name: 'Земля', r: 47, c1: '#b8ffd8', c2: '#2f8fd8', pts: 21 },
+    { name: 'Нептун', r: 56, c1: '#c9d4ff', c2: '#4a5cff', pts: 28 },
+    { name: 'Сатурн', r: 66, c1: '#fff0c2', c2: '#d8a040', pts: 36 },
+    { name: 'Солнце', r: 77, c1: '#fff8b0', c2: '#ff8a1a', pts: 45 },
+    { name: 'Туманность', r: 89, c1: '#ffd0f4', c2: '#b04ad8', pts: 55 },
+    { name: 'Галактика', r: 102, c1: '#e6dcff', c2: '#6a4bd8', pts: 66 },
+  ];
+  const ICONS = ['✨', '⭐', '🌙', '☄️', '🔴', '🌍', '🔵', '🪐', '☀️', '🌸', '🌌'];
+  // The jar is 400 x 600 units; the red line is DANGER units from its top.
+  const JW = 400, JH = 600, TOP = 110, DANGER = 95, G = 1500;
+  let W = 0, H = 0, DPR = 1, k = 1, ox = 0, oy = 0;
+  let state = 'start', time = 0, lastT = 0, clock = 0, balls, parts, pops, score, maxLevel, aimX, cur, next, cool, danger, dropped, keysDown = {};
+
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    // leave room for the HUD on top and a little margin below
+    const availH = H - 70 - 16;
+    k = Math.min((W - 24) / JW, availH / (JH + TOP));
+    ox = (W - JW * k) / 2; oy = 70 + (availH - (JH + TOP) * k) / 2 + TOP * k;
+  }
+
+  const randKind = () => Math.floor(Math.pow(Math.random(), 1.6) * 5);
+  function reset() {
+    balls = []; parts = []; pops = []; score = 0; clock = 0; maxLevel = 0; aimX = JW / 2; cool = 0; danger = 0; dropped = 0;
+    cur = randKind(); next = randKind();
+  }
+
+  function drop() {
+    if (state !== 'play' || cool > 0) return;
+    const r = KINDS[cur].r, x = Math.max(r, Math.min(JW - r, aimX));
+    balls.push({ x, y: -r - 10, vx: 0, vy: 160, lv: cur, r, born: clock, over: 0, id: dropped++ });
+    cur = next; next = randKind(); cool = 0.45;
+    sound('drop');
+  }
+
+  function step(dt) {
+    cool -= dt; clock += dt;
+    for (const b of balls) { b.vy += G * dt; b.x += b.vx * dt; b.y += b.vy * dt; b.vx *= 0.995; }
+    // Resolve overlaps a few times: walls, floor, and other balls. Same sizes merge.
+    for (let it = 0; it < 4; it++) {
+      for (let i = 0; i < balls.length; i++) {
+        const a = balls[i]; if (a.dead) continue;
+        for (let j = i + 1; j < balls.length; j++) {
+          const b = balls[j]; if (b.dead) continue;
+          const dx = b.x - a.x, dy = b.y - a.y, rr = a.r + b.r, d2 = dx * dx + dy * dy;
+          if (d2 >= rr * rr) continue;
+          const d = Math.sqrt(d2) || 0.01, nx = dx / d, ny = dy / d;
+          if (a.lv === b.lv && a.lv < KINDS.length - 1) { merge(a, b); break; }
+          const overlap = rr - d, ma = a.r * a.r, mb = b.r * b.r, sa = mb / (ma + mb), sb = ma / (ma + mb);
+          a.x -= nx * overlap * sa; a.y -= ny * overlap * sa; b.x += nx * overlap * sb; b.y += ny * overlap * sb;
+          const rv = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+          if (rv < 0) { const imp = rv * 1.15; a.vx += nx * imp * sa; a.vy += ny * imp * sa; b.vx -= nx * imp * sb; b.vy -= ny * imp * sb; }
+        }
+      }
+      for (const b of balls) {
+        if (b.x < b.r) { b.x = b.r; if (b.vx < 0) b.vx *= -0.2; }
+        if (b.x > JW - b.r) { b.x = JW - b.r; if (b.vx > 0) b.vx *= -0.2; }
+        if (b.y > JH - b.r) { b.y = JH - b.r; if (b.vy > 0) b.vy *= -0.15; b.vx *= 0.98; }
+      }
+      balls = balls.filter((b) => !b.dead);
+    }
+    // A ball that stays above the red line for two seconds ends the game (a falling one passes it quickly).
+    let worst = 0;
+    for (const b of balls) {
+      if (clock - b.born > 1.2 && b.y - b.r < DANGER) b.over += dt; else b.over = Math.max(0, b.over - dt * 2);
+      worst = Math.max(worst, b.over);
+    }
+    danger = worst;
+    if (worst > 2) gameOver();
+  }
+
+  function merge(a, b) {
+    a.dead = b.dead = true;
+    const lv = a.lv + 1, kind = KINDS[lv];
+    const n = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, vx: (a.vx + b.vx) / 2, vy: Math.min(a.vy, b.vy) / 2 - 80, lv, r: kind.r, born: clock - 1, over: 0, id: dropped++, grow: 0.3 };
+    balls.push(n);
+    score += kind.pts; if (lv > maxLevel) maxLevel = lv;
+    pops.push({ x: n.x, y: n.y, text: '+' + kind.pts, life: 1, col: kind.c2 });
+    for (let i = 0; i < 14; i++) { const ang = Math.random() * 7, v = 80 + Math.random() * 200; parts.push({ x: n.x, y: n.y, vx: Math.cos(ang) * v, vy: Math.sin(ang) * v, life: 1, col: kind.c1 }); }
+    sound('merge', lv);
+  }
+
+  function start() {
+    unlockAudio(); reset(); state = 'play';
+    $('start').hidden = true; $('over').hidden = true;
+  }
+  function gameOver() {
+    if (state !== 'play') return;
+    state = 'over'; sound('over');
+    const record = score > best;
+    if (record) { best = score; store.set('sliyanie-best', best); }
+    if (maxLevel > bestLevel) { bestLevel = maxLevel; store.set('sliyanie-best-level', bestLevel); }
+    lb.submit({ new_score: score, new_level: maxLevel + 1 });
+    setTimeout(() => {
+      if (state !== 'over') return;
+      $('final').textContent = score;
+      $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + 'очков · лучшая: ' + ICONS[maxLevel] + ' ' + KINDS[maxLevel].name;
+      showBests(); $('over').hidden = false;
+    }, 900);
+  }
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('bestLevelStart').textContent = $('bestLevelOver').textContent = best > 0 ? ICONS[bestLevel] + ' ' + KINDS[bestLevel].name : '—';
+  }
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (ac && ac.state === 'suspended') ac.resume(); }
+  function tone(f, dur, type, vol, slide = 1, delay = 0) {
+    if (!ac || muted) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t);
+    if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function sound(kind, lv = 0) {
+    if (kind === 'drop') tone(260, 0.1, 'sine', 0.1, 0.7);
+    else if (kind === 'merge') { const f = 330 * Math.pow(2, lv / 6); tone(f, 0.18, 'triangle', 0.14); tone(f * 1.5, 0.16, 'sine', 0.06, 1, 0.05); }
+    else if (kind === 'over') { tone(300, 0.6, 'sawtooth', 0.1, 0.3); tone(80, 0.6, 'sine', 0.25, 0.5); }
+  }
+
+  // ——— Drawing ———
+  const X = (x) => ox + x * k, Y = (y) => oy + y * k;
+  const sky = Array.from({ length: 120 }, (_, i) => ({ x: Math.random(), y: Math.random(), s: Math.random() * 1.4 + 0.3, p: i }));
+  function drawBall(x, y, lv, scale = 1) {
+    const kind = KINDS[lv], r = kind.r * k * scale;
+    const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.4, r * 0.1, x, y, r);
+    g.addColorStop(0, kind.c1); g.addColorStop(1, kind.c2);
+    ctx.save(); ctx.shadowColor = kind.c2; ctx.shadowBlur = r * 0.5;
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.restore();
+    if (lv === 7) { ctx.strokeStyle = '#fff0c2aa'; ctx.lineWidth = r * 0.12; ctx.beginPath(); ctx.ellipse(x, y, r * 1.35, r * 0.35, -0.3, 0, 7); ctx.stroke(); }
+    // a sleepy little face, so they feel alive
+    ctx.fillStyle = '#1b163799';
+    ctx.beginPath(); ctx.arc(x - r * 0.3, y - r * 0.05, r * 0.09, 0, 7); ctx.arc(x + r * 0.3, y - r * 0.05, r * 0.09, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#1b163799'; ctx.lineWidth = Math.max(1, r * 0.06); ctx.beginPath(); ctx.arc(x, y + r * 0.15, r * 0.18, 0.2, Math.PI - 0.2); ctx.stroke();
+  }
+  function draw() {
+    ctx.fillStyle = '#111321'; ctx.fillRect(0, 0, W, H);
+    const bg = ctx.createRadialGradient(W / 2, H * 0.3, 0, W / 2, H * 0.3, Math.max(W, H));
+    bg.addColorStop(0, '#2a2350'); bg.addColorStop(0.6, '#141629'); bg.addColorStop(1, '#0d0f1c');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    for (const s of sky) { ctx.globalAlpha = 0.25 + 0.25 * Math.sin(time * 1.3 + s.p); ctx.fillStyle = '#e7dcff'; ctx.beginPath(); ctx.arc(s.x * W, s.y * H, s.s, 0, 7); ctx.fill(); }
+    ctx.globalAlpha = 1;
+
+    // the jar
+    ctx.fillStyle = '#ffffff08'; ctx.strokeStyle = '#b79aff80'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(X(0), Y(-10)); ctx.lineTo(X(0), Y(JH)); ctx.lineTo(X(JW), Y(JH)); ctx.lineTo(X(JW), Y(-10)); ctx.fill(); ctx.stroke();
+    const pulse = danger > 0 ? 0.5 + 0.5 * Math.sin(time * 14) : 0;
+    ctx.strokeStyle = danger > 0 ? `rgba(255,95,126,${0.5 + pulse * 0.5})` : '#ff5f7e55'; ctx.setLineDash([8, 8]); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(X(0), Y(DANGER)); ctx.lineTo(X(JW), Y(DANGER)); ctx.stroke(); ctx.setLineDash([]);
+
+    if (state === 'play') {
+      const r = KINDS[cur].r, x = Math.max(r, Math.min(JW - r, aimX));
+      ctx.strokeStyle = '#ffffff22'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(X(x), Y(-r - 10)); ctx.lineTo(X(x), Y(JH)); ctx.stroke();
+      ctx.globalAlpha = cool > 0 ? 0.4 : 1; drawBall(X(x), Y(-r - 30), cur); ctx.globalAlpha = 1;
+      // next one, top right
+      ctx.fillStyle = '#b9b6c9'; ctx.font = `800 ${Math.round(Math.max(11, 13 * k))}px Manrope`; ctx.textAlign = 'right';
+      ctx.fillText('дальше', X(JW) - 4, Y(-TOP + 22));
+      drawBall(X(JW) - 22 * k - 4, Y(-TOP + 50), next, Math.min(1, 22 / KINDS[next].r));
+      ctx.textAlign = 'left'; ctx.fillStyle = '#f8f7ff'; ctx.font = `800 ${Math.round(Math.max(22, 34 * k))}px Manrope`;
+      ctx.fillText(score, X(0), Y(-TOP + 44));
+    }
+    for (const b of balls) drawBall(X(b.x), Y(b.y), b.lv, b.grow ? 1 - b.grow : 1);
+    for (const q of parts) { ctx.globalAlpha = Math.max(0, q.life); ctx.fillStyle = q.col; ctx.beginPath(); ctx.arc(X(q.x), Y(q.y), (2 + q.life * 3) * k, 0, 7); ctx.fill(); }
+    ctx.textAlign = 'center';
+    for (const q of pops) { ctx.globalAlpha = Math.max(0, q.life); ctx.fillStyle = '#fff'; ctx.font = `800 ${Math.round(Math.max(13, 20 * k))}px Manrope`; ctx.fillText(q.text, X(q.x), Y(q.y - (1 - q.life) * 50)); }
+    ctx.globalAlpha = 1;
+  }
+
+  function frame(now) {
+    const dt = Math.min(0.05, (now - lastT) / 1000 || 0); lastT = now; time += dt;
+    if (state === 'play' && !lb.isOpen()) {
+      const dir = (keysDown.ArrowRight || keysDown.KeyD ? 1 : 0) - (keysDown.ArrowLeft || keysDown.KeyA ? 1 : 0);
+      if (dir) aimX = Math.max(0, Math.min(JW, aimX + dir * 420 * dt));
+      const n = Math.max(1, Math.ceil(dt / (1 / 120)));
+      for (let i = 0; i < n && state === 'play'; i++) step(dt / n);
+    }
+    for (const b of balls) if (b.grow) b.grow = Math.max(0, b.grow - dt * 2);
+    for (const q of parts) { q.x += q.vx * dt; q.y += q.vy * dt; q.vx *= 0.95; q.vy *= 0.95; q.life -= dt * 1.5; }
+    for (const q of pops) q.life -= dt * 1.2;
+    parts = parts.filter((q) => q.life > 0); pops = pops.filter((q) => q.life > 0);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'sliyanie',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за одну банку.', format: (v) => v + ' очк.' },
+      { id: 'level', title: 'Лучшая звезда', column: 'best_level', order: 'desc', note: 'Кто дошёл до самой большой звезды.', format: (v) => ICONS[v - 1] + ' ' + KINDS[v - 1].name },
+    ],
+    bests: () => (best > 0 ? { new_score: best, new_level: bestLevel + 1 } : null),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  // Aim while the finger or mouse is down, drop on release; a mouse also aims just by moving.
+  const toX = (e) => (e.clientX - ox) / k;
+  let aiming = false;
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); unlockAudio(); if (state !== 'play') return; aiming = true; aimX = toX(e); try { cv.setPointerCapture(e.pointerId); } catch {} });
+  cv.addEventListener('pointermove', (e) => { if (state === 'play' && (aiming || e.pointerType === 'mouse')) aimX = toX(e); });
+  cv.addEventListener('pointerup', (e) => { if (!aiming) return; aiming = false; aimX = toX(e); drop(); });
+  cv.addEventListener('pointercancel', () => { aiming = false; });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) return;
+    keysDown[e.code] = true;
+    if (e.code.startsWith('Arrow')) e.preventDefault();
+    if (e.code !== 'Space' && e.code !== 'Enter') return;
+    e.preventDefault(); if (e.repeat) return;
+    if (state === 'play') drop(); else if (!$('start').hidden || !$('over').hidden) start();
+  });
+  addEventListener('keyup', (e) => { keysDown[e.code] = false; });
+  addEventListener('blur', () => { keysDown = {}; aiming = false; });
+  $('ladder').textContent = ICONS.join(' ');
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('sliyanie-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; });
+  addEventListener('resize', resize);
+  resize(); reset(); showBests();
+  if (best > 0 && lb.signedIn()) lb.submit({ new_score: best, new_level: bestLevel + 1 });
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

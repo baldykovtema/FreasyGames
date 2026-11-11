@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Цветная память — FreasyGames</title>
+<meta name="description" content="Цветная память на FreasyGames: запоминай, в каком порядке загораются цвета, и повторяй. Кнопки перемешиваются, а последовательность растёт. Таблица лидеров.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>
+  body { background: radial-gradient(ellipse at 50% 30%, #2a2350 0, #141629 55%, #0d0f1c 100%); }
+  .hud { z-index: 5; }
+  #game { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 70px 16px 20px; gap: 14px; }
+  .top { text-align: center; }
+  .top b { display: block; font-size: 44px; font-weight: 800; letter-spacing: -.05em; line-height: 1; }
+  .top span { color: #bca0ff; font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+  #status { min-height: 24px; font-size: 16px; font-weight: 800; color: #d1cde5; text-align: center; }
+  #status.go { color: #5df2a5; } #status.bad { color: #ff7a6b; } #status.mix { color: #ffd23f; }
+  #pads { --size: min(84vw, calc(100dvh - 260px), 460px); width: var(--size); height: var(--size); display: grid; gap: 12px; position: relative; }
+  .pad { border: 0; border-radius: 22px; cursor: pointer; position: relative; opacity: .42; transform: scale(.97);
+    transition: opacity .12s, transform .12s, box-shadow .12s, top .45s ease, left .45s ease; box-shadow: inset 0 -6px 0 #0004; touch-action: manipulation; }
+  .pad.lit { opacity: 1; transform: scale(1.03); box-shadow: 0 0 40px var(--c), inset 0 -6px 0 #0003; }
+  .pad.wrong { opacity: 1; outline: 4px solid #fff; animation: shake .3s 2; }
+  .pad:disabled { cursor: default; }
+  @keyframes shake { 50% { transform: translateX(6px); } }
+  @media (max-height: 520px) and (orientation: landscape) {
+    #game { flex-direction: row; gap: 24px; padding: 60px 16px 10px; }
+    #pads { --size: min(calc(100dvh - 80px), 60vw); }
+    .side { width: 180px; }
+  }
+</style>
+</head>
+<body>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div id="game">
+  <div class="side"><div class="top"><b id="round">0</b><span>раунд</span></div><div id="status"></div><div class="top" style="margin-top:8px"><span id="scoreLine">очки: 0</span></div></div>
+  <div id="pads"></div>
+</div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ Новая игра</div>
+    <h1>Цветная <span>память</span></h1>
+    <p>Смотри, в каком порядке загораются цвета, и повтори их. Каждый раунд добавляется ещё один.</p>
+    <p>С 8-го раунда цветов шесть, с 16-го — девять. А каждые 5 раундов кнопки меняются местами: запоминай цвета, а не места!</p>
+    <p>Рекорд: <b id="bestStart">0</b> раунд · очки: <b id="bestScoreStart">0</b></p>
+    <button class="play" id="go" type="button">Начать ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров и вход</button>
+    <div class="hint">Нажимай на цвета. Клавиши 1–9 — кнопки по порядку</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow">Ошибка</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">раундов пройдено</p>
+    <p>Рекорд: <b id="bestOver">0</b> раунд · очки: <b id="bestScoreOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров и вход</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  let best = Number(store.get('pamyat-best', 0)) || 0, bestScore = Number(store.get('pamyat-best-score', 0)) || 0;
+  let muted = store.get('pamyat-muted', '0') === '1';
+
+  // Nine colours, each with its own note, so the order can be heard too.
+  const COLORS = [
+    { c: '#ff5f7e', f: 262 }, { c: '#4ac3ff', f: 330 }, { c: '#ffd23f', f: 392 }, { c: '#5df2a5', f: 523 },
+    { c: '#bca0ff', f: 440 }, { c: '#ff9f4a', f: 587 }, { c: '#ffffff', f: 659 }, { c: '#2f6bff', f: 294 }, { c: '#ff6bd8', f: 698 },
+  ];
+  const padsEl = $('pads');
+  let state = 'start', seq = [], pos = 0, round = 0, score = 0, count = 4, order = [], token = 0, buttons = [], locked = true;
+
+  // count colours on screen; order[i] = which colour sits in place i.
+  function layout(animate) {
+    const cols = count === 4 ? 2 : 3, rows = Math.ceil(count / cols);
+    padsEl.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    padsEl.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+    if (buttons.length !== count) {
+      padsEl.innerHTML = '';
+      buttons = COLORS.slice(0, count).map((col, i) => {
+        const b = document.createElement('button');
+        b.className = 'pad'; b.type = 'button'; b.style.background = col.c; b.style.setProperty('--c', col.c);
+        b.setAttribute('aria-label', 'Цвет ' + (i + 1)); b.disabled = locked;
+        b.addEventListener('pointerdown', (e) => { e.preventDefault(); press(i); });
+        padsEl.appendChild(b); return b;
+      });
+    }
+    // the place in the grid follows the shuffled order
+    order.forEach((colour, place) => { const b = buttons[colour]; b.style.gridColumn = (place % cols) + 1; b.style.gridRow = Math.floor(place / cols) + 1; b.dataset.place = place + 1; });
+    if (animate) { padsEl.animate([{ transform: 'rotate(0) scale(1)' }, { transform: 'rotate(4deg) scale(.9)' }, { transform: 'rotate(0) scale(1)' }], { duration: 450 }); }
+  }
+  function shuffle() { for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; } }
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  function setStatus(text, cls = '') { const s = $('status'); s.textContent = text; s.className = cls; }
+  // Taps count only while it is the player's turn; new buttons are made locked too.
+  function lock(on) { locked = on; buttons.forEach((b) => { b.disabled = on; }); }
+
+  async function flash(colour, ms) {
+    const b = buttons[colour]; if (!b) return;
+    b.classList.add('lit'); tone(COLORS[colour].f, ms / 1000 * 0.9, 'triangle', 0.16);
+    await wait(ms); b.classList.remove('lit');
+  }
+
+  async function nextRound() {
+    const my = ++token;
+    lock(true); round++; $('round').textContent = round - 1;
+    // grow the board and shuffle it at the milestones
+    const want = round >= 16 ? 9 : round >= 8 ? 6 : 4;
+    if (want !== count) { const add = [...Array(want).keys()].slice(count); count = want; order = order.concat(add); shuffle(); layout(true); setStatus('Новые цвета!', 'mix'); await wait(900); }
+    else if (round > 1 && round % 5 === 1) { shuffle(); layout(true); setStatus('Цвета перемешались!', 'mix'); sound('mix'); await wait(900); }
+    if (my !== token) return;
+    seq.push(Math.floor(Math.random() * count));
+    lock(true); setStatus('Смотри…');
+    await wait(450);
+    const speed = Math.max(260, 620 - round * 18);
+    for (const c of seq) { if (my !== token) return; await flash(c, speed); await wait(Math.max(90, speed * 0.35)); }
+    if (my !== token) return;
+    pos = 0; lock(false); setStatus('Повтори!', 'go');
+  }
+
+  async function press(colour) {
+    if (state !== 'play' || locked) return;
+    unlockAudio();
+    if (colour !== seq[pos]) return fail(colour);
+    flash(colour, 180);
+    pos++; score += Math.ceil(round / 2);
+    $('scoreLine').textContent = 'очки: ' + score;
+    if (pos === seq.length) {
+      lock(true); score += round * 5; $('scoreLine').textContent = 'очки: ' + score; $('round').textContent = round;
+      setStatus('Верно!', 'go'); await wait(650);
+      if (state === 'play') nextRound();
+    }
+  }
+
+  async function fail(colour) {
+    state = 'over'; token++; lock(true);
+    buttons[colour].classList.add('wrong'); sound('fail');
+    setStatus('Не тот цвет', 'bad');
+    const right = seq[pos]; await wait(350); buttons[right].classList.add('lit'); await wait(700); buttons[right].classList.remove('lit');
+    const done = round - 1, record = done > best;
+    if (record) { best = done; store.set('pamyat-best', best); }
+    if (score > bestScore) { bestScore = score; store.set('pamyat-best-score', bestScore); }
+    lb.submit({ new_round: done, new_score: score });
+    $('final').textContent = done;
+    $('overText').innerHTML = (record && done > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + plural(done) + ' пройдено · очки: ' + score;
+    showBests(); $('over').hidden = false;
+  }
+  const plural = (n) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? 'раунд' : a >= 2 && a <= 4 && (b < 12 || b > 14) ? 'раунда' : 'раундов'; };
+
+  function start() {
+    unlockAudio(); token++;
+    state = 'play'; seq = []; round = 0; score = 0; count = 4; order = [0, 1, 2, 3]; buttons = [];
+    layout(false); $('round').textContent = 0; $('scoreLine').textContent = 'очки: 0';
+    $('start').hidden = true; $('over').hidden = true;
+    nextRound();
+  }
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('bestScoreStart').textContent = $('bestScoreOver').textContent = bestScore;
+  }
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (ac && ac.state === 'suspended') ac.resume(); }
+  function tone(f, dur, type, vol, slide = 1, delay = 0) {
+    if (!ac || muted) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t);
+    if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function sound(kind) {
+    if (kind === 'fail') { tone(200, 0.5, 'sawtooth', 0.12, 0.4); tone(90, 0.5, 'sine', 0.2, 0.6); }
+    else if (kind === 'mix') { [523, 659, 784].forEach((f, i) => tone(f, 0.12, 'sine', 0.08, 1, i * 0.07)); }
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'pamyat',
+    boards: [
+      { id: 'round', title: 'Раунды', column: 'best_round', order: 'desc', note: 'Самая длинная запомненная последовательность.', format: (v) => v + ' ' + plural(v) },
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за одну игру.', format: (v) => v + ' очк.' },
+    ],
+    bests: () => (best > 0 ? { new_round: best, new_score: bestScore } : null),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) return;
+    if ((e.code === 'Space' || e.code === 'Enter') && state !== 'play') { e.preventDefault(); if (!e.repeat) start(); return; }
+    const m = e.code.match(/^(?:Digit|Numpad)([1-9])$/);
+    if (m && state === 'play' && !e.repeat) { const place = +m[1] - 1; if (place < count) press(order[place]); }
+  });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('pamyat-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; });
+  // the board shows behind the start card
+  order = [0, 1, 2, 3]; layout(false); lock(true); showBests();
+  if (best > 0 && lb.signedIn()) lb.submit({ new_round: best, new_score: bestScore });
+})();
+</script>
+</body>
+</html>
