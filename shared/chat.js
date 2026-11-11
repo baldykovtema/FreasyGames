@@ -83,6 +83,16 @@ window.FreasyChat = (opts = {}) => {
         else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT') { status = 'error'; render(); }
       });
   }
+  // Один человек с несколькими вкладками — один игрок; гости считаются по вкладкам.
+  function onlineNames() {
+    const me = username(), names = new Set([me || 'Ты']), list = [me ? me + ' (ты)' : 'Ты'];
+    for (const [, p] of people) {
+      const key = p.signed ? p.name : 'гость:' + Math.random();
+      if (p.signed && names.has(p.name)) continue;
+      names.add(key); list.push(p.signed ? p.name : p.name + ' (гость)');
+    }
+    return list;
+  }
   function syncPeople() {
     const state = channel.presenceState(), seen = new Set();
     for (const [id, metas] of Object.entries(state)) {
@@ -133,11 +143,13 @@ window.FreasyChat = (opts = {}) => {
   }
 
   /* ---------- голос ---------- */
-  const voice = { on: false, stream: null, muted: false, pcs: new Map(), audios: new Map(), levels: new Map(), ctx: null };
+  const voice = { on: false, stream: null, muted: false, pcs: new Map(), audios: new Map(), outs: new Map(), levels: new Map(), ctx: null };
   async function joinVoice() {
     if (!username()) { openLogin(); return; }
     const inVoice = [...people.values()].filter((p) => p.voice).length;
     if (inVoice >= MAX_VOICE) { toast(`В голосовой комнате уже ${MAX_VOICE} человек`); return; }
+    // Звуковой движок создаём и запускаем прямо в нажатии — иначе браузер (особенно на телефоне) не даст играть чужой голос.
+    try { voice.ctx ||= new (window.AudioContext || window.webkitAudioContext)(); await voice.ctx.resume(); } catch { /* без движка — останется аудио-элемент */ }
     try {
       voice.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
     } catch { toast('Нет доступа к микрофону — разреши его в браузере'); return; }
@@ -177,14 +189,32 @@ window.FreasyChat = (opts = {}) => {
     voice.stream.getTracks().forEach((t) => pc.addTrack(t, voice.stream));
     pc.onicecandidate = (e) => { if (e.candidate) signal(id, 'ice', e.candidate.toJSON()); };
     pc.ontrack = (e) => {
+      const stream = e.streams[0] || new MediaStream([e.track]);
       let a = voice.audios.get(id);
-      if (!a) { a = new Audio(); a.autoplay = true; a.playsInline = true; voice.audios.set(id, a); }
-      a.srcObject = e.streams[0];
-      a.muted = hidden.has(people.get(id)?.name);
-      a.play().catch(() => {});
-      watchLevel(id, e.streams[0]);
+      if (!a) {
+        // Элемент нужен, чтобы браузер «тянул» звук из соединения; слышно его через звуковой движок ниже.
+        a = document.createElement('audio'); a.autoplay = true; a.playsInline = true; a.setAttribute('playsinline', '');
+        a.style.display = 'none'; document.body.appendChild(a); voice.audios.set(id, a);
+      }
+      a.srcObject = stream;
+      const out = voice.ctx && voice.ctx.state === 'running';
+      a.muted = !!out || hidden.has(people.get(id)?.name);
+      a.play().catch(() => { if (!out) toast('Нажми на страницу, чтобы услышать голос'); });
+      if (out) {
+        const old = voice.outs.get(id); if (old) try { old.src.disconnect(); } catch { /* уже отключён */ }
+        const src = voice.ctx.createMediaStreamSource(stream), gain = voice.ctx.createGain();
+        gain.gain.value = hidden.has(people.get(id)?.name) ? 0 : 1;
+        src.connect(gain).connect(voice.ctx.destination);
+        voice.outs.set(id, { src, gain });
+      }
+      watchLevel(id, stream);
+      render();
     };
-    pc.onconnectionstatechange = () => { if (['failed', 'closed'].includes(pc.connectionState)) hangUp(id); render(); };
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'failed') toast(`С игроком ${people.get(id)?.name || ''} не соединиться: его сеть не пропускает голос`);
+      if (['failed', 'closed'].includes(pc.connectionState)) hangUp(id);
+      render();
+    };
     return pc;
   }
   async function call(id) {
@@ -219,7 +249,8 @@ window.FreasyChat = (opts = {}) => {
   async function flushIce(pc) { for (const c of pc.__queue.splice(0)) { try { await pc.addIceCandidate(c); } catch { /* устаревший кандидат */ } } }
   function hangUp(id) {
     const pc = voice.pcs.get(id); if (pc) { try { pc.close(); } catch { /* уже закрыто */ } voice.pcs.delete(id); }
-    const a = voice.audios.get(id); if (a) { a.srcObject = null; voice.audios.delete(id); }
+    const a = voice.audios.get(id); if (a) { a.srcObject = null; a.remove(); voice.audios.delete(id); }
+    const o = voice.outs.get(id); if (o) { try { o.src.disconnect(); o.gain.disconnect(); } catch { /* уже отключён */ } voice.outs.delete(id); }
     voice.levels.delete(id);
   }
   // Кто сейчас говорит: подсвечиваем его в списке.
@@ -245,7 +276,7 @@ window.FreasyChat = (opts = {}) => {
   function toggleHide(name) {
     if (hidden.has(name)) hidden.delete(name); else hidden.add(name);
     store.set('freasy-chat-hidden', [...hidden]);
-    for (const [id, p] of people) { const a = voice.audios.get(id); if (a) a.muted = hidden.has(p.name); if (hidden.has(p.name)) hangUp(id); }
+    for (const [id, p] of people) { if (hidden.has(p.name)) hangUp(id); }
     if (voice.on) syncVoice();
     render();
   }
@@ -264,7 +295,8 @@ window.FreasyChat = (opts = {}) => {
   .fc-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px 10px; border-bottom: 1px solid #ffffff12; }
   .fc-head h3 { margin: 0; font-size: 18px; font-weight: 800; letter-spacing: -.03em; }
   .fc-head h3 span { background: linear-gradient(120deg, #bca0ff, #6fe3ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .fc-online { font-size: 12px; color: #89879e; font-weight: 700; }
+  .fc-online { font: 700 12px Manrope, system-ui, sans-serif; color: #89879e; background: none; border: 0; padding: 4px 6px; border-radius: 8px; cursor: pointer; }
+  .fc-online:hover { background: #ffffff10; color: #d1cde5; }
   .fc-x { margin-left: auto; width: 32px; height: 32px; border-radius: 50%; border: 1px solid #ffffff24; background: none; color: #d1cde5; font-size: 18px; cursor: pointer; padding: 0; }
   .fc-voice { padding: 10px 14px; border-bottom: 1px solid #ffffff12; background: #1d1e33; }
   .fc-vrow { display: flex; align-items: center; gap: 8px; }
@@ -300,7 +332,7 @@ window.FreasyChat = (opts = {}) => {
   const panel = document.createElement('div');
   panel.className = 'fc-panel'; panel.hidden = true; panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'FreasyChat');
   panel.innerHTML = `
-    <div class="fc-head"><h3><span>FreasyChat</span></h3><span class="fc-online"></span><button class="fc-x" type="button" aria-label="Закрыть">×</button></div>
+    <div class="fc-head"><h3><span>FreasyChat</span></h3><button class="fc-online" type="button" title="Кто онлайн"></button><button class="fc-x" type="button" aria-label="Закрыть">×</button></div>
     <div class="fc-voice"><div class="fc-vrow"><span>🎙</span><div><strong>Голосовая комната</strong><br><small class="fc-vinfo"></small></div><div class="fc-vb"></div></div><div class="fc-people"></div></div>
     <div class="fc-list" aria-live="polite"></div>
     <div class="fc-note">Не сообщай в чате и голосом адрес, телефон, школу и пароли. Нажми на ник, чтобы скрыть игрока.</div>
@@ -329,19 +361,30 @@ window.FreasyChat = (opts = {}) => {
       ? `<button class="fc-b alt" type="button" data-v="mute">${voice.muted ? '🎙 Вкл' : '🔇 Выкл'}</button><button class="fc-b red" type="button" data-v="leave">Выйти</button>`
       : `<button class="fc-b" type="button" data-v="join">${username() ? 'Войти' : 'Войти в аккаунт'}</button>`;
     const chips = (voice.on ? [`<span class="${loud('me')}">${esc(username() || 'Ты')} (ты)</span>`] : [])
-      .concat(inVoice.map(([id, p]) => `<span class="${loud(id)}" style="color:${p.color}">${esc(p.name)}${hidden.has(p.name) ? ' 🔕' : ''}</span>`));
+      .concat(inVoice.map(([id, p]) => {
+        const pc = voice.pcs.get(id), st = !voice.on ? '' : hidden.has(p.name) ? ' 🔕' : !pc ? ' ⏳' : pc.connectionState === 'connected' ? (voice.outs.has(id) || voice.audios.has(id) ? ' 🔊' : ' ⏳') : pc.connectionState === 'failed' ? ' ⚠️' : ' ⏳';
+        return `<span class="${loud(id)}" style="color:${p.color}" title="${st.includes('⚠') ? 'Не удалось соединиться' : st.includes('⏳') ? 'Соединяемся…' : ''}">${esc(p.name)}${st}</span>`;
+      }));
     q('.fc-people').innerHTML = chips.join('');
     btn.classList.toggle('talk', voice.on);
   }
   function render() {
     if (!q('.fc-list')) return;
-    const n = people.size + 1;
+    const n = onlineNames().length;
     q('.fc-online').textContent = status === 'online' ? `${n} онлайн` : status === 'error' ? 'нет связи' : status === 'connecting' ? 'подключаемся…' : '';
     q('.fc-input').placeholder = username() ? 'Сообщение…' : 'Войди в аккаунт, чтобы писать';
     renderList(); renderVoice();
     const b = btn.querySelector('b'); b.hidden = !unread; b.textContent = unread > 9 ? '9+' : unread;
   }
 
+  function showList(names, x, y) {
+    document.querySelector('.fc-menu')?.remove();
+    const m = document.createElement('div'); m.className = 'fc-menu';
+    m.style.left = Math.min(x, innerWidth - 220) + 'px'; m.style.top = y + 'px';
+    m.innerHTML = `<div style="padding:6px 10px;color:#89879e">Сейчас в чате</div>` + names.map((n) => `<div style="padding:4px 10px">${esc(n)}</div>`).join('');
+    document.body.appendChild(m);
+    setTimeout(() => addEventListener('pointerdown', (e) => { if (!m.contains(e.target)) m.remove(); }, { once: true }), 0);
+  }
   function nameMenu(name, x, y) {
     document.querySelector('.fc-menu')?.remove();
     if (name === username()) return;
@@ -358,8 +401,13 @@ window.FreasyChat = (opts = {}) => {
     if (!panel.hidden) { unread = 0; connect(); render(); const l = q('.fc-list'); l.scrollTop = l.scrollHeight; }
     else render();
   });
+  panel.addEventListener('pointerdown', () => { if (voice.ctx && voice.ctx.state !== 'running') voice.ctx.resume().catch(() => {}); });
   panel.addEventListener('click', (e) => {
     if (e.target.closest('.fc-x')) { panel.hidden = true; render(); return; }
+    if (e.target.closest('.fc-online')) {
+      const r = e.target.closest('.fc-online').getBoundingClientRect();
+      showList(onlineNames(), r.left, r.bottom + 6); return;
+    }
     const v = e.target.closest('[data-v]');
     if (v) { if (v.dataset.v === 'join') joinVoice(); else if (v.dataset.v === 'leave') leaveVoice(); else toggleMute(); return; }
     const nm = e.target.closest('[data-name]');
@@ -369,7 +417,10 @@ window.FreasyChat = (opts = {}) => {
   q('.fc-input').addEventListener('focus', () => { if (!username()) openLogin(); });
   // клавиши в чате не должны управлять страницей или игрой под ним
   for (const ev of ['keydown', 'keyup', 'pointerdown', 'touchstart']) panel.addEventListener(ev, (e) => e.stopPropagation(), { passive: true });
-  addEventListener('pagehide', () => { if (voice.on) leaveVoice(); });
+  addEventListener('pagehide', () => {
+    if (voice.on) leaveVoice();
+    if (channel) { try { channel.untrack(); client.removeChannel(channel); } catch { /* страница уже закрывается */ } channel = null; }
+  });
   // Подключаемся сразу, чтобы видеть, сколько человек онлайн, и не пропустить сообщения.
   connect();
   render();

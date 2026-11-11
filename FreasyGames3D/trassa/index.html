@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../shared/game.css">
-<style>#g3, #c { position: fixed; inset: 0; width: 100%; height: 100%; } #g3 { z-index: 0; } #c { z-index: 1; background: transparent; }</style>
+<style>/* оба холста — фоном; экраны и кнопки идут в разметке после них и остаются сверху и кликабельными */ #g3, #c { position: fixed; inset: 0; width: 100%; height: 100%; } #c { background: transparent; }</style>
 </head>
 <body>
 <canvas id="g3"></canvas>
