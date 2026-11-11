@@ -14,7 +14,8 @@ canvas{display:block;width:min(100%,560px);height:auto;margin:10px auto;backgrou
 .stats{display:flex;gap:10px;flex-wrap:wrap}.stats span{background:#111c2d;padding:9px 12px;border-radius:9px}
 #records{max-height:260px;overflow:auto;font-size:14px}ol{padding-left:28px;margin:8px 0}li{padding:3px}li.me{color:#62d6ad}
 .note{color:#aebbd0;font-size:13px;line-height:1.5}.msg{min-height:20px;color:#ffd27a;font-size:14px;margin:4px 0}
-.overlay{position:fixed;inset:0;background:#07101ddd;display:grid;place-items:center;padding:20px;z-index:5}
+.overlay{position:fixed;inset:0;background:#07101ddd;display:grid;place-items:safe center;padding:20px;z-index:5;overflow-y:auto}
+@media(max-height:520px) and (orientation:landscape){.overlay{padding:10px}.dialog{padding:14px 20px}.dialog input{margin:3px 0}.dialog button{margin-top:5px}}
 .dialog{width:min(420px,100%);background:#1b2639;border:1px solid #506582;border-radius:18px;padding:24px;text-align:center;box-shadow:0 20px 70px #0009}
 .dialog input{width:100%;margin:6px 0}.dialog button{width:100%;margin-top:8px}
 </style>

@@ -180,6 +180,13 @@ input,select{font:inherit}
 .props .wide{grid-column:span 2}
 body.full #stagePanel{position:fixed;inset:0;z-index:100;background:#111;align-items:center;justify-content:center}
 body.full .props,body.full .shint{display:none}
+/* экранные кнопки для телефона: игры игроков управляются клавишами */
+#touchPad{display:none;gap:6px;margin:8px auto 0;width:100%;max-width:480px;user-select:none;-webkit-user-select:none;touch-action:none}
+#touchPad button{flex:1;min-height:48px;border-radius:10px;background:#2d2d30;border:1px solid #454545;font-size:20px;color:#eee}
+#touchPad button.wide{flex:1.6;font-size:15px}
+#touchPad button.on{background:#0e639c;border-color:#1177bb}
+@media (pointer:coarse){#touchPad{display:flex}}
+body.full #touchPad{position:fixed;left:50%;bottom:10px;transform:translateX(-50%);width:min(480px,calc(100% - 20px));z-index:101;margin:0}
 #statusbar{background:var(--blue);color:#fff;display:flex;align-items:center;gap:14px;padding:0 10px;font-size:12px;user-select:none}
 #statusbar .sp{flex:1}
 #statusbar span{white-space:nowrap}
@@ -188,8 +195,16 @@ body.full .props,body.full .shint{display:none}
 @media (max-width:1200px){#main{grid-template-columns:48px 210px minmax(260px,1fr) 504px}}
 /* телефон / узкое окно: сцена сверху, остальное ниже с прокруткой (иначе сцена и ⚑ уезжают за край) */
 @media (max-width:900px){
-  #app{grid-template-columns:minmax(0,1fr)}
-  #titlebar{overflow-x:auto}#titlebar .center{display:none}
+  #app{grid-template-columns:minmax(0,1fr);grid-template-rows:auto 1fr 22px;height:100dvh}
+  /* верхняя панель переносится на вторую строку, а ⚑ и ■ всегда видны слева */
+  #titlebar{flex-wrap:wrap;gap:4px;padding:4px 6px}#titlebar .center{display:none}
+  #titlebar .run{order:-1;margin-right:4px}
+  #titlebar .logo{margin-right:4px}
+  #titlebar .menu{padding:8px 10px;min-height:36px;display:inline-flex;align-items:center}
+  .runbtn{width:44px;height:36px;font-size:18px}
+  .sideHead .acts button{min-width:34px;min-height:34px}
+  .cTabs button{min-height:36px}
+  #activity button{flex:1}
   #main{display:flex;flex-direction:column;overflow:auto}
   #stagePanel{order:-1;flex:none;overflow:visible;border-left:0}
   #stageBox{width:100%;max-width:480px;height:auto;aspect-ratio:4/3}
@@ -366,6 +381,7 @@ save "рекорд", очки</pre>
         <canvas id="stage" width="960" height="720" tabindex="0"></canvas>
         <div id="askBox"><div class="q" id="askQ"></div><input id="askIn"><button id="askOk">✓</button></div>
       </div>
+      <div id="touchPad" aria-label="Кнопки управления для телефона"><button data-k="left">←</button><button data-k="up">↑</button><button data-k="down">↓</button><button data-k="right">→</button><button data-k="space" class="wide">пробел</button></div>
       <div class="props" id="props">
         <label class="wide">Спрайт<input class="inp" id="prName"></label>
         <label>Показан<select class="inp" id="prVis"><option value="1">да</option><option value="0">нет</option></select></label>
@@ -1114,6 +1130,12 @@ addEventListener('keydown',e=>{
   keys.add(k);fire('key:'+k);});
 addEventListener('keyup',e=>keys.delete(keyName(e)));
 addEventListener('blur',()=>keys.clear());
+// Экранные кнопки: нажатие держит клавишу, пока палец на кнопке.
+document.querySelectorAll('#touchPad button').forEach(b=>{const k=b.dataset.k;
+  const up=()=>{b.classList.remove('on');keys.delete(k);};
+  b.addEventListener('pointerdown',e=>{e.preventDefault();b.setPointerCapture&&b.setPointerCapture(e.pointerId);b.classList.add('on');keys.add(k);fire('key:'+k);});
+  b.addEventListener('pointerup',up);b.addEventListener('pointercancel',up);b.addEventListener('lostpointercapture',up);
+  b.addEventListener('contextmenu',e=>e.preventDefault());});
 
 /* ============ ТЕРМИНАЛ / ПРОБЛЕМЫ ============ */
 function log(msg,cls){const t=$('#term');const d=document.createElement('div');if(cls)d.className=cls;d.textContent=(cls==='e'?'✖ ':cls==='w'?'⚠ ':'')+msg;t.appendChild(d);while(t.childNodes.length>400)t.firstChild.remove();t.scrollTop=t.scrollHeight;
@@ -1480,7 +1502,7 @@ function loadProject(p){
 }
 
 /* ============ ПОЛНЫЙ ЭКРАН / ЗАПУСК ============ */
-function fitFull(){const sc=Math.min((innerWidth-40)/480,(innerHeight-80)/360);$('#stageBox').style.width=480*sc+'px';$('#stageBox').style.height=360*sc+'px';}
+function fitFull(){const pad=matchMedia('(pointer:coarse)').matches?150:80,sc=Math.min((innerWidth-40)/480,(innerHeight-pad)/360);$('#stageBox').style.width=480*sc+'px';$('#stageBox').style.height=360*sc+'px';}
 function toggleFull(){const on=document.body.classList.toggle('full');if(on)fitFull();else{$('#stageBox').style.width='';$('#stageBox').style.height='';}$('#fullBtn').textContent=on?'✕ Выйти (Esc)':'⛶ Полный экран';}
 $('#fullBtn').onclick=toggleFull;
 $('#flagBtn').onclick=greenFlag;

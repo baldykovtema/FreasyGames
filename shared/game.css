@@ -23,3 +23,16 @@ p { margin: 0 0 8px; color: #b9b6c9; font-size: 15px; line-height: 1.6; }
 .hint { margin-top: 14px; color: #89879e; font-size: 12px; }
 .small { font-size: 13px; color: #89879e; margin-top: 10px; }
 .new { color: #5df2a5; font-weight: 800; }
+
+/* Phones turned sideways: the start and game over cards must fit the short screen, buttons included. */
+@media (max-height: 520px) and (orientation: landscape) {
+  .screen { padding: 10px; }
+  .box { width: min(600px, 100%); max-height: calc(100dvh - 20px); overflow: auto; padding: 14px 22px; border-radius: 22px; }
+  .box .eyebrow, .box .hint { display: none; }
+  .box h1 { margin: 0 0 6px; font-size: 30px; }
+  .box p { font-size: 13px; line-height: 1.4; margin-bottom: 4px; }
+  .box .big { font-size: 44px; margin: 0; }
+  .box .play { margin-top: 10px; padding: 11px; }
+  .box .ghost { margin-top: 8px; padding: 9px; }
+  .box .small { margin-top: 6px; }
+}

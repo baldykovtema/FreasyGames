@@ -8,7 +8,8 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #1b1033; font-family: "Segoe UI", Arial, sans-serif; color: #fff; user-select: none; }
   canvas { display: block; width: 100%; height: 100%; touch-action: none; -webkit-touch-callout: none; }
-  .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 14px; padding: 24px; }
+  .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: safe center; flex-direction: column; gap: 14px; padding: 24px; overflow-y: auto; }
+  @media (max-height: 520px) and (orientation: landscape) { .screen { gap: 8px; padding: 12px; } }
   .screen.on { display: flex; }
   .dim { background: rgba(15, 6, 35, .72); }
   h1 { margin: 0; font-size: clamp(36px, 7vw, 72px); font-weight: 900; letter-spacing: 2px; text-shadow: 0 6px 0 #ff5d8f, 0 10px 24px rgba(0,0,0,.5); text-align: center; }

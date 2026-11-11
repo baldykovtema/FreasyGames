@@ -35,6 +35,19 @@
   .ghost { margin-top: 10px; width: 100%; font: inherit; font-size: 14px; font-weight: 700; color: #d1cde5; background: none; border: 1px solid #ffffff2e; border-radius: 14px; padding: 12px; cursor: pointer; }
   .ghost:hover { background: #ffffff14; }
   .small { font-size: 13px; color: #89879e; margin-top: 10px; }
+  .box { max-height: calc(100dvh - 40px); overflow: auto; }
+  @media (max-height: 520px) and (orientation: landscape) {
+    .screen { padding: 10px; }
+    .box { width: min(600px, 100%); max-height: calc(100dvh - 20px); padding: 14px 22px; border-radius: 22px; }
+    .box .eyebrow, .box .hint { display: none; }
+    .box h1 { margin: 0 0 6px; font-size: 30px; }
+    .box p { font-size: 13px; line-height: 1.4; margin-bottom: 4px; }
+    .box .big { font-size: 44px; margin: 0; }
+    .box .play { margin-top: 10px; padding: 11px; }
+    .box .ghost { margin-top: 8px; padding: 9px; }
+    .box .small { margin-top: 6px; }
+    .score { top: 56px; } .score b { font-size: 52px; }
+  }
   .modal { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 16px; background: #0b0c18d0; backdrop-filter: blur(4px); user-select: text; -webkit-user-select: text; touch-action: auto; }
   .modal[hidden] { display: none; }
   .sheet { width: min(440px, 100%); max-height: calc(100vh - 32px); overflow: auto; background: #1d1e31; border: 1px solid #b79aff80; border-radius: 28px; padding: 22px; box-shadow: 0 30px 80px #0009; }
