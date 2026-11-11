@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Кликер Человечков</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+html,body{height:100%;background:#fff;color:#222;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden;touch-action:manipulation}
+#app{position:fixed;inset:0;display:flex;flex-direction:column}
+#field{position:relative;flex:1;min-height:0;background:#fff}
+#cv{position:absolute;inset:0;width:100%;height:100%}
+#top{position:absolute;left:0;right:0;top:0;padding:12px 14px 0;text-align:center;pointer-events:none;z-index:2}
+#score{font-size:clamp(30px,9vw,52px);font-weight:800;letter-spacing:-1px}
+#rate{font-size:14px;color:#777;margin-top:2px}
+#topBtns{position:absolute;top:10px;right:10px;display:flex;gap:6px;z-index:3}
+#topBtns button,#topBtnsL button{width:40px;height:40px;border-radius:12px;border:1px solid #e4e4e4;background:#fff;font-size:20px;cursor:pointer}
+#topBtnsL{position:absolute;top:10px;left:10px;z-index:3}
+#big{position:absolute;left:50%;top:46%;width:min(46vw,46vh,220px);height:min(46vw,46vh,220px);transform:translate(-50%,-50%);border-radius:50%;border:none;cursor:pointer;z-index:2;
+ background:radial-gradient(circle at 35% 30%,#ff7a7a,#e62929 60%,#b01515);box-shadow:0 10px 0 #8a1010,0 18px 30px rgba(0,0,0,.18);color:#fff;font-size:clamp(22px,6vw,34px);font-weight:900;text-shadow:0 2px 0 rgba(0,0,0,.25);transition:transform .05s}
+#big.press{transform:translate(-50%,calc(-50% + 7px));box-shadow:0 3px 0 #8a1010,0 8px 16px rgba(0,0,0,.18)}
+#hint{position:absolute;left:0;right:0;bottom:10px;text-align:center;color:#aaa;font-size:13px;pointer-events:none;z-index:2}
+#panel{background:#fafafa;border-top:1px solid #eee;padding:8px 8px calc(8px + env(safe-area-inset-bottom));display:grid;grid-template-columns:repeat(2,1fr);gap:8px;max-height:44vh;overflow-y:auto}
+@media (min-width:760px){#panel{grid-template-columns:repeat(4,1fr)}}
+.up{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:14px;border:1px solid #e6e6e6;background:#fff;text-align:left;cursor:pointer;font:inherit;color:inherit;min-height:60px}
+.up .ic{font-size:26px;width:32px;text-align:center;flex:none}
+.up .tx{flex:1;min-width:0}
+.up b{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.up small{display:block;font-size:11.5px;color:#888;line-height:1.25}
+.up .cost{font-weight:700;font-size:13px;color:#1a9a3a}
+.up.no{opacity:.55}.up.no .cost{color:#c33}
+.up:active{transform:scale(.97)}
+.lv{font-size:11px;color:#999;font-weight:600}
+#buyMode{grid-column:1/-1;display:flex;gap:6px;justify-content:center}
+#buyMode button{padding:5px 14px;border-radius:10px;border:1px solid #ddd;background:#fff;font:inherit;font-size:13px;cursor:pointer}
+#buyMode button.on{background:#222;color:#fff;border-color:#222}
+.scr{position:fixed;inset:0;background:rgba(255,255,255,.97);z-index:10;display:none;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;overflow-y:auto}
+.scr.show{display:flex}
+.scr h1{font-size:clamp(30px,9vw,48px);font-weight:900;margin-bottom:6px}
+.scr h2{font-size:26px;margin-bottom:12px}
+.scr p{color:#555;max-width:420px;line-height:1.45;margin:6px 0}
+.btn{margin-top:12px;min-width:220px;padding:14px 22px;border-radius:16px;border:none;background:#e62929;color:#fff;font:inherit;font-size:18px;font-weight:800;cursor:pointer;box-shadow:0 5px 0 #8a1010}
+.btn.gray{background:#eee;color:#333;box-shadow:0 5px 0 #ccc}
+.btn:active{transform:translateY(3px);box-shadow:0 2px 0 #8a1010}
+#lbList{width:100%;max-width:420px;margin:8px 0;list-style:none}
+#lbList li{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:12px;margin:4px 0;background:#f5f5f5;text-align:left}
+#lbList li.me{background:#ffe3e3;font-weight:800;outline:2px solid #e62929}
+#lbList .pl{width:28px;font-weight:800;color:#999}
+#lbList .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#lbList .sc{font-weight:700}
+#nameIn{margin-top:8px;padding:10px 14px;border-radius:12px;border:1px solid #ddd;font:inherit;font-size:16px;text-align:center;width:220px;user-select:text;-webkit-user-select:text}
+.rules{text-align:left;max-width:420px}
+.rules li{margin:6px 0 6px 18px;color:#444;line-height:1.4}
+.accNote{font-size:13px;color:#888!important;margin-top:8px!important}
+.backLink{margin-top:18px;color:#888;font-size:14px;text-decoration:none}
+.backLink:hover{color:#e62929}
+#toast{position:fixed;left:50%;top:84px;transform:translateX(-50%);background:#222;color:#fff;padding:10px 16px;border-radius:12px;font-size:14px;z-index:20;opacity:0;transition:opacity .3s;pointer-events:none;max-width:90vw;text-align:center}
+#toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="field">
+    <canvas id="cv"></canvas>
+    <div id="top"><div id="score">0</div><div id="rate">0 за клик · 0 в секунду</div></div>
+    <div id="topBtnsL"><button id="bMenu" title="Меню">☰</button></div>
+    <div id="topBtns"><button id="bLb" title="Таблица лидеров">🏆</button><button id="bSnd" title="Звук">🔊</button></div>
+    <button id="big">ЖМИ!</button>
+    <div id="hint">Нажимай на красную кнопку · покупай улучшения внизу</div>
+  </div>
+  <div id="panel"></div>
+</div>
+
+<div class="scr show" id="sMenu">
+  <div style="font-size:64px">🔴🧍</div>
+  <h1>Кликер Человечков</h1>
+  <p>Белый экран, большая красная кнопка и толпа человечков, которые жмут её вместе с тобой.</p>
+  <input id="nameIn" maxlength="16" placeholder="Твоё имя">
+  <p id="accNote" class="accNote">Зарегистрируйся, чтобы попасть в мировую таблицу лидеров.</p>
+  <button class="btn" id="bPlay">Играть</button>
+  <button class="btn gray" id="bAcc">👤 Вход и регистрация</button>
+  <button class="btn gray" id="bRules">Как играть</button>
+  <button class="btn gray" id="bLb2">Таблица лидеров</button>
+  <button class="btn gray" id="bReset">Начать заново</button>
+  <a class="backLink" href="../">← Все игры FreasyGames</a>
+</div>
+
+<div class="scr" id="sRules">
+  <h2>Как играть</h2>
+  <ul class="rules">
+    <li>Нажимай на красную кнопку — каждое нажатие даёт очки.</li>
+    <li>Внизу покупай улучшения. Их можно улучшать <b>до бесконечности</b>, но каждый уровень дороже.</li>
+    <li><b>Человечки</b> 🧍 выходят на белый экран и сами жмут кнопку — очки идут, даже пока ты отдыхаешь.</li>
+    <li>Кнопки «×1 / ×10 / Макс» покупают сразу много уровней.</li>
+    <li>В 🏆 таблице лидеров соревнуйся с другими кликерами. Займи 1 место — и ты победил! Потом соперники станут сильнее.</li>
+    <li>Зарегистрируйся (👤 в меню) — и твои очки и человечки попадут в 🌍 мировую таблицу вместе с другими игроками FreasyGames.</li>
+    <li>Прогресс сохраняется сам. «Начать заново» в меню сбрасывает игру.</li>
+  </ul>
+  <button class="btn" data-close>Понятно</button>
+</div>
+
+<div class="scr" id="sLb">
+  <h2>🏆 Таблица лидеров</h2>
+  <p id="lbSub">Лига 1</p>
+  <ol id="lbList"></ol>
+  <button class="btn" id="bWorld">🌍 Мировая таблица</button>
+  <button class="btn gray" data-close>Назад</button>
+</div>
+
+<div class="scr" id="sWin">
+  <div style="font-size:70px">🏆</div>
+  <h1>Ты на 1 месте!</h1>
+  <p id="winTxt">Ты обогнал всех в лиге.</p>
+  <button class="btn" id="bNextLeague">В следующую лигу</button>
+</div>
+
+<div class="scr" id="sReset">
+  <h2>Начать заново?</h2>
+  <p>Все очки, улучшения и человечки пропадут.</p>
+  <button class="btn" id="bResetYes">Да, сбросить</button>
+  <button class="btn gray" data-close>Отмена</button>
+</div>
+
+<div id="toast"></div>
+
+<script src="../shared/leaderboard.js"></script>
+<script>
+'use strict';
+/* ---------- числа ---------- */
+const SUF=['','K','M','B','T','Qa','Qi','Sx','Sp','Oc','No','Dc'];
+function fmt(n){
+  if(!isFinite(n))return '∞';
+  if(n<1000)return (n<10&&n%1?n.toFixed(1):Math.floor(n)).toString();
+  let e=Math.floor(Math.log10(n)/3);
+  let name;
+  if(e<SUF.length)name=SUF[e];
+  else{const k=e-SUF.length;name=String.fromCharCode(97+Math.floor(k/26)%26)+String.fromCharCode(97+k%26);}
+  const v=n/Math.pow(10,e*3);
+  return (v<10?v.toFixed(2):v<100?v.toFixed(1):Math.floor(v))+name;
+}
+
+/* ---------- улучшения ---------- */
+const UPS=[
+  {id:'power',ic:'👆',name:'Сила клика',desc:l=>'+'+fmt(clickAdd(l+1)-clickAdd(l))+' за клик',base:15,mul:1.15},
+  {id:'man',ic:'🧍',name:'Человечек',desc:()=>'жмёт кнопку сам',base:50,mul:1.17},
+  {id:'speed',ic:'⚡',name:'Быстрые ноги',desc:()=>'человечки +10% быстрее',base:300,mul:1.6},
+  {id:'muscle',ic:'💪',name:'Мускулы',desc:()=>'удар человечка ×1.5',base:1000,mul:1.9},
+  {id:'crit',ic:'🎯',name:'Крит. клик',desc:l=>'шанс ×10: '+Math.round(critChance(l+1)*100)+'%',base:500,mul:1.8},
+  {id:'gold',ic:'🌟',name:'Золотой человечек',desc:()=>'все очки ×2',base:25000,mul:8},
+  {id:'boss',ic:'🧑‍💼',name:'Бригадир',desc:()=>'каждый человечек +25%',base:5000,mul:2.4},
+  {id:'mega',ic:'🔴',name:'Мега-кнопка',desc:()=>'клик ×3',base:100000,mul:12},
+];
+function clickAdd(l){return l+Math.floor(l/10)*l*0.5;}
+function critChance(l){return Math.min(0.5,l*0.02);}
+function cost(u,lv){return Math.ceil(u.base*Math.pow(u.mul,lv));}
+
+/* ---------- состояние ---------- */
+const KEY='clicker_chelovechkov_v1';
+let S;
+function fresh(){return {pts:0,total:0,lv:{},name:S&&S.name||'',league:1,bots:null,snd:true,clicks:0};}
+function load(){try{const d=JSON.parse(localStorage.getItem(KEY));if(d&&typeof d.pts==='number')return Object.assign(fresh(),d);}catch(e){}return fresh();}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}}
+S=load();
+const L=id=>S.lv[id]||0;
+const globalMul=()=>Math.pow(2,L('gold'));
+const clickVal=()=>(1+clickAdd(L('power')))*Math.pow(3,L('mega'))*globalMul();
+const manHit=()=>Math.pow(1.5,L('muscle'))*(1+0.25*L('boss'))*globalMul()*(1+clickAdd(L('power'))*0.1);
+const manPeriod=()=>2.2/(1+0.1*L('speed')); // секунд между ударами
+const perSec=()=>L('man')*manHit()/manPeriod();
+
+/* ---------- звук ---------- */
+let AC=null;
+function beep(f,d,type,vol){
+  if(!S.snd)return;
+  try{
+    AC=AC||new (window.AudioContext||window.webkitAudioContext)();
+    if(AC.state==='suspended')AC.resume();
+    const o=AC.createOscillator(),g=AC.createGain();
+    o.type=type||'sine';o.frequency.value=f;
+    g.gain.setValueAtTime(vol||0.15,AC.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+d);
+    o.connect(g);g.connect(AC.destination);o.start();o.stop(AC.currentTime+d);
+  }catch(e){}
+}
+const sClick=()=>beep(520+Math.random()*80,0.08,'square',0.06);
+const sBuy=()=>{beep(660,0.1,'triangle',0.15);setTimeout(()=>beep(880,0.12,'triangle',0.15),70);};
+const sCrit=()=>beep(1200,0.15,'sawtooth',0.08);
+const sWin=()=>[523,659,784,1046].forEach((f,i)=>setTimeout(()=>beep(f,0.25,'triangle',0.18),i*140));
+
+/* ---------- очки ---------- */
+function gain(v){S.pts+=v;S.total+=v;}
+
+/* ---------- холст: человечки и всплывашки ---------- */
+const cv=document.getElementById('cv'),ctx=cv.getContext('2d');
+const big=document.getElementById('big');
+let W=0,H=0,DPR=1;
+function resize(){DPR=Math.min(2,window.devicePixelRatio||1);W=cv.clientWidth;H=cv.clientHeight;cv.width=W*DPR;cv.height=H*DPR;ctx.setTransform(DPR,0,0,DPR,0,0);}
+window.addEventListener('resize',resize);
+const floats=[];
+const men=[];
+const COLORS=['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ec4899','#14b8a6','#f97316','#6366f1','#84cc16','#06b6d4'];
+const MAX_VIS=40;
+function btnRect(){const r=big.getBoundingClientRect(),f=cv.getBoundingClientRect();return {x:r.left-f.left+r.width/2,y:r.top-f.top+r.height/2,r:r.width/2};}
+function syncMen(){
+  const want=Math.min(MAX_VIS,L('man'));
+  while(men.length<want){
+    const i=men.length;
+    men.push({a:Math.random()*Math.PI*2,dist:1,state:'walk',t:Math.random()*manPeriod(),col:COLORS[i%COLORS.length],gold:L('gold')>0&&i%5===0,step:Math.random()*6,x:Math.random()<.5?-20:W+20,y:H*0.3+Math.random()*H*0.6});
+  }
+  men.length=want;
+}
+let pressT=0;
+function pressAnim(){big.classList.add('press');clearTimeout(pressT);pressT=setTimeout(()=>big.classList.remove('press'),70);}
+function addFloat(x,y,txt,col,size){floats.push({x,y,txt,col:col||'#222',life:1,size:size||22});if(floats.length>60)floats.shift();}
+
+function drawMan(m,tx,ty){
+  const s=Math.max(0.75,Math.min(1.2,W/500));
+  ctx.save();ctx.translate(m.x,m.y);ctx.scale(s,s);
+  const face=tx<m.x?-1:1;
+  const walking=m.state==='walk';
+  const sw=walking?Math.sin(m.step)*0.6:0;
+  ctx.strokeStyle=m.col;ctx.fillStyle=m.col;ctx.lineWidth=4;ctx.lineCap='round';
+  // ноги
+  ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(Math.sin(sw)*12,16);ctx.moveTo(0,0);ctx.lineTo(-Math.sin(sw)*12,16);ctx.stroke();
+  // тело
+  ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(0,-20);ctx.stroke();
+  // руки
+  const punch=m.state==='hit'?1:0;
+  ctx.beginPath();ctx.moveTo(0,-15);ctx.lineTo(face*(punch?20:8),punch?-18:-4+Math.sin(sw)*4);ctx.moveTo(0,-15);ctx.lineTo(-face*8,-4-Math.sin(sw)*4);ctx.stroke();
+  // голова
+  ctx.beginPath();ctx.arc(0,-29,8,0,Math.PI*2);ctx.fill();
+  if(m.gold){ctx.fillStyle='#facc15';ctx.beginPath();ctx.moveTo(-7,-37);ctx.lineTo(-7,-44);ctx.lineTo(-3,-40);ctx.lineTo(0,-45);ctx.lineTo(3,-40);ctx.lineTo(7,-44);ctx.lineTo(7,-37);ctx.fill();}
+  ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(face*3,-30,1.8,0,Math.PI*2);ctx.fill();
+  ctx.restore();
+}
+
+let last=performance.now(),acc=0,saveT=0,lbT=0;
+function frame(now){
+  const dt=Math.min(0.1,(now-last)/1000);last=now;
+  // доход человечков сверх видимых (видимые бьют сами)
+  const n=L('man'),vis=Math.min(MAX_VIS,n);
+  if(n>vis)gain((n-vis)*manHit()/manPeriod()*dt);
+  ctx.clearRect(0,0,W,H);
+  const b=btnRect();
+  for(let i=0;i<men.length;i++){
+    const m=men[i];
+    const ang=(i/Math.max(1,men.length))*Math.PI*2+0.4;
+    const ring=b.r+22+(i%3)*14;
+    const tx=b.x+Math.cos(ang)*ring,ty=b.y+Math.sin(ang)*ring*0.9+10;
+    const dx=tx-m.x,dy=ty-m.y,d=Math.hypot(dx,dy);
+    const sp=(90+L('speed')*8);
+    if(m.state==='walk'){
+      if(d<4){m.state='wait';m.t=manPeriod()*Math.random();}
+      else{const k=Math.min(1,sp*dt/d);m.x+=dx*k;m.y+=dy*k;m.step+=dt*12;}
+    }else if(m.state==='wait'){
+      m.t-=dt;if(m.t<=0){m.state='hit';m.t=0.15;const v=manHit();gain(v);addFloat(m.x,m.y-50,'+'+fmt(v),m.col,15);if(Math.random()<.3)pressAnim();}
+      if(d>6)m.state='walk';
+    }else{m.t-=dt;if(m.t<=0){m.state='wait';m.t=manPeriod();}}
+    drawMan(m,b.x,b.y);
+  }
+  for(let i=floats.length-1;i>=0;i--){
+    const f=floats[i];f.life-=dt*1.1;f.y-=40*dt;
+    if(f.life<=0){floats.splice(i,1);continue;}
+    ctx.globalAlpha=Math.max(0,f.life);ctx.fillStyle=f.col;ctx.font='800 '+f.size+'px system-ui,sans-serif';ctx.textAlign='center';ctx.fillText(f.txt,f.x,f.y);
+  }
+  ctx.globalAlpha=1;
+  acc+=dt;if(acc>0.15){acc=0;updateUI();}
+  saveT+=dt;if(saveT>3){saveT=0;save();}
+  lbT+=dt;if(lbT>1){lbT=0;tickBots(1);checkWin();}
+  requestAnimationFrame(frame);
+}
+
+/* ---------- клик ---------- */
+function doClick(x,y){
+  let v=clickVal(),crit=Math.random()<critChance(L('crit'));
+  if(crit)v*=10;
+  gain(v);S.clicks++;
+  pressAnim();
+  crit?sCrit():sClick();
+  const f=cv.getBoundingClientRect();
+  addFloat(x-f.left+(Math.random()*30-15),y-f.top-10,(crit?'КРИТ! +':'+')+fmt(v),crit?'#e62929':'#222',crit?28:22);
+  updateUI();
+}
+big.addEventListener('pointerdown',e=>{e.preventDefault();doClick(e.clientX,e.clientY);});
+document.addEventListener('keydown',e=>{
+  if((e.code==='Space'||e.code==='Enter')&&!document.querySelector('.scr.show')&&!(lb&&lb.isOpen())&&!e.repeat){e.preventDefault();const r=big.getBoundingClientRect();doClick(r.left+r.width/2,r.top+r.height/2);}
+});
+
+/* ---------- панель улучшений ---------- */
+const panel=document.getElementById('panel');
+let buyN=1;
+panel.innerHTML='<div id="buyMode"><button data-n="1" class="on">×1</button><button data-n="10">×10</button><button data-n="0">Макс</button></div>'+
+  UPS.map(u=>`<button class="up" data-id="${u.id}"><span class="ic">${u.ic}</span><span class="tx"><b>${u.name} <span class="lv"></span></b><small class="ds"></small><span class="cost"></span></span></button>`).join('');
+panel.querySelectorAll('#buyMode button').forEach(b=>b.addEventListener('click',()=>{buyN=+b.dataset.n;panel.querySelectorAll('#buyMode button').forEach(x=>x.classList.toggle('on',x===b));updateUI();}));
+function plan(u){
+  const lv=L(u.id);
+  if(buyN===0){
+    let c=0,k=0;
+    while(k<1000){const n=cost(u,lv+k);if(c+n>S.pts)break;c+=n;k++;}
+    return k?{k,c}:{k:0,c:cost(u,lv)};
+  }
+  let c=0;for(let j=0;j<buyN;j++)c+=cost(u,lv+j);
+  return {k:c<=S.pts?buyN:0,c};
+}
+panel.addEventListener('click',e=>{
+  const el=e.target.closest('.up');if(!el)return;
+  const u=UPS.find(x=>x.id===el.dataset.id),p=plan(u);
+  if(p.k<=0||p.c>S.pts){beep(180,0.12,'square',0.08);return;}
+  S.pts-=p.c;S.lv[u.id]=L(u.id)+p.k;sBuy();
+  if(u.id==='man'){syncMen();if(L('man')===1)toast('Первый человечек вышел жать кнопку! 🧍');}
+  if(u.id==='gold'){men.forEach((m,i)=>m.gold=i%5===0);}
+  save();updateUI();
+});
+const elScore=document.getElementById('score'),elRate=document.getElementById('rate');
+function updateUI(){
+  elScore.textContent=fmt(S.pts);
+  elRate.textContent=fmt(clickVal())+' за клик · '+fmt(perSec())+' в секунду · 🧍 '+L('man');
+  panel.querySelectorAll('.up').forEach(el=>{
+    const u=UPS.find(x=>x.id===el.dataset.id),p=plan(u),lv=L(u.id);
+    el.querySelector('.lv').textContent='ур. '+lv;
+    el.querySelector('.ds').textContent=u.desc(lv);
+    const cnt=buyN===0?p.k:buyN;
+    el.querySelector('.cost').textContent=(cnt>1?'×'+cnt+' · ':'')+fmt(p.c);
+    el.classList.toggle('no',p.k<=0);
+  });
+}
+
+/* ---------- таблица лидеров ---------- */
+const BOT_NAMES=['Кликомэн','Палец-Молния','Тыкалка','Жмякер','Баба Нюра','Кнопкин','ТапТап','Мистер Клик','Нажмуха','Скорострел','Пупсик','Капитан Тык','Шустрик','Клик-Клак','Профессор','Дед Жмых','Ниндзя','Котофей'];
+function makeBots(league){
+  const top=Math.pow(10,2+league*1.6);
+  const names=BOT_NAMES.slice().sort(()=>Math.random()-.5).slice(0,9);
+  return names.map((nm,i)=>({nm,sc:Math.floor(top*Math.pow(0.55,i)*(0.8+Math.random()*0.4)),g:0.004+Math.random()*0.01}));
+}
+if(!S.bots)S.bots=makeBots(S.league);
+function tickBots(sec){
+  const mine=S.total;
+  S.bots.forEach(b=>{
+    // соперники растут медленнее игрока, но не стоят на месте
+    const inc=b.sc*b.g*sec*0.1+Math.max(1,perSec()*0.15*b.g*20)*sec;
+    b.sc+=inc;
+    if(b.sc<mine*0.02)b.sc=mine*0.02*(0.5+Math.random());
+  });
+}
+function myName(){return (S.name||'Ты').trim()||'Ты';}
+function ranking(){
+  const arr=S.bots.map(b=>({nm:b.nm,sc:b.sc}));
+  arr.push({nm:myName(),sc:S.total,me:true});
+  arr.sort((a,b)=>b.sc-a.sc);return arr;
+}
+function renderLb(){
+  document.getElementById('lbSub').textContent='Лига '+S.league+' · очки за всё время';
+  document.getElementById('lbList').innerHTML=ranking().map((r,i)=>`<li class="${r.me?'me':''}"><span class="pl">${i<3?['🥇','🥈','🥉'][i]:i+1}</span><span class="nm"></span><span class="sc">${fmt(r.sc)}</span></li>`).join('');
+  document.querySelectorAll('#lbList .nm').forEach((el,i)=>el.textContent=ranking()[i].nm+(ranking()[i].me?' (ты)':''));
+}
+let lastRank=99;
+function checkWin(){
+  const rk=ranking().findIndex(r=>r.me)+1;
+  if(rk<lastRank&&lastRank!==99&&rk>1)toast('Ты поднялся на '+rk+' место в таблице лидеров! 🏆');
+  lastRank=rk;
+  if(rk===1&&!document.querySelector('.scr.show')){
+    document.getElementById('winTxt').textContent='Ты обогнал всех в лиге '+S.league+'. Дальше соперники будут ещё сильнее!';
+    show('sWin');sWin();
+  }
+  if(document.getElementById('sLb').classList.contains('show'))renderLb();
+}
+document.getElementById('bNextLeague').addEventListener('click',()=>{S.league++;S.bots=makeBots(S.league);const top=S.bots[0].sc;if(top<S.total*3)S.bots.forEach(b=>b.sc*=S.total*3/top);lastRank=99;save();hideAll();toast('Лига '+S.league+'! Новые соперники 💪');});
+
+/* ---------- экраны ---------- */
+function show(id){document.querySelectorAll('.scr').forEach(s=>s.classList.toggle('show',s.id===id));}
+function hideAll(){document.querySelectorAll('.scr').forEach(s=>s.classList.remove('show'));}
+let backTo=null;
+document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',()=>{backTo?show(backTo):hideAll();backTo=null;}));
+const nameIn=document.getElementById('nameIn');nameIn.value=S.name;
+nameIn.addEventListener('input',()=>{S.name=nameIn.value.slice(0,16);save();});
+document.getElementById('bPlay').addEventListener('click',()=>{S.name=nameIn.value.trim().slice(0,16);save();hideAll();beep(440,0.1,'triangle',0.1);resize();syncMen();});
+document.getElementById('bRules').addEventListener('click',()=>{backTo='sMenu';show('sRules');});
+document.getElementById('bLb2').addEventListener('click',()=>{backTo='sMenu';renderLb();show('sLb');});
+document.getElementById('bReset').addEventListener('click',()=>{backTo='sMenu';show('sReset');});
+document.getElementById('bResetYes').addEventListener('click',()=>{const nm=S.name,snd=S.snd;S=fresh();S.name=nm;S.snd=snd;S.bots=makeBots(1);men.length=0;lastRank=99;save();updateUI();backTo=null;show('sMenu');toast('Игра начата заново');});
+document.getElementById('bMenu').addEventListener('click',()=>{save();show('sMenu');});
+document.getElementById('bLb').addEventListener('click',()=>{backTo=null;renderLb();show('sLb');});
+const bSnd=document.getElementById('bSnd');
+function sndIcon(){bSnd.textContent=S.snd?'🔊':'🔇';}
+bSnd.addEventListener('click',()=>{S.snd=!S.snd;sndIcon();save();beep(600,0.08);});
+sndIcon();
+let toastT=0;
+function toast(t){const el=document.getElementById('toast');el.textContent=t;el.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>el.classList.remove('show'),2200);}
+document.addEventListener('visibilitychange',()=>{if(document.hidden)save();});
+window.addEventListener('pagehide',save);
+
+/* ---------- аккаунт и мировая таблица лидеров (общие аккаунты FreasyGames) ---------- */
+let lb=null,sentTotal=0,sentMen=0;
+const SESSION_KEY='chelovechki-session';
+function accName(){try{const s=JSON.parse(localStorage.getItem(SESSION_KEY)||'null');return s&&s.access_token&&s.user&&s.user.user_metadata&&s.user.user_metadata.username||null;}catch(e){return null;}}
+function myBests(){return {new_total:Math.floor(S.total),new_men:L('man')};}
+function renderAcc(){
+  const n=accName(),note=document.getElementById('accNote'),b=document.getElementById('bAcc');
+  if(!lb){note.textContent='Мировая таблица работает только с интернетом.';b.hidden=true;return;}
+  note.textContent=n?'Ты вошёл как '+n+' — очки уходят в мировую таблицу.':'Зарегистрируйся, чтобы попасть в мировую таблицу лидеров.';
+  b.textContent=n?'👤 Аккаунт: '+n:'👤 Вход и регистрация';
+  if(n){S.name=n;nameIn.value=n;nameIn.disabled=true;}else nameIn.disabled=false;
+}
+function sendScore(force){
+  if(!lb||!lb.signedIn())return;
+  const t=Math.floor(S.total),m=L('man');
+  if(!force&&t<=sentTotal*1.01+10&&m<=sentMen)return;
+  sentTotal=t;sentMen=m;lb.submit({new_total:t,new_men:m});
+}
+if(window.FreasyLeaderboard){
+  lb=FreasyLeaderboard({
+    key:'chelovechki',
+    boards:[
+      {id:'total',title:'Очки',column:'best_total',order:'desc',note:'Больше всего очков за всё время.',format:v=>fmt(+v)},
+      {id:'men',title:'Человечки',column:'best_men',order:'desc',note:'У кого больше всего человечков.',format:v=>v+' 🧍'},
+    ],
+    bests:()=>(S.total>0?myBests():null),
+    onStatus:()=>renderAcc(),
+  });
+  // окно входа закрыли — обновить имя и меню
+  new MutationObserver(()=>{renderAcc();if(lb.signedIn())sendScore(true);}).observe(document.querySelector('.fl-modal'),{attributes:true,attributeFilter:['hidden']});
+  setInterval(()=>sendScore(false),20000);
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)sendScore(false);});
+}
+document.getElementById('bAcc').addEventListener('click',()=>lb&&lb.open());
+document.getElementById('bWorld').addEventListener('click',()=>{if(lb)lb.open();else toast('Нужен интернет');});
+renderAcc();
+if(lb&&lb.signedIn())setTimeout(()=>sendScore(true),1500);
+
+resize();syncMen();updateUI();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
