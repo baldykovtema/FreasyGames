@@ -56,7 +56,14 @@
   const starsWord = (n) => plural(n, 'звезда', 'звезды', 'звёзд');
 
   // The board is the same size on every screen, so results are fair in the leaderboard.
-  const COLS = 15, ROWS = 21, BONUS_LIFE = 6;
+  const BONUS_LIFE = 6;
+  // The board follows the screen's shape with about the same number of cells (15 x 21 = 315),
+  // so it fills the screen and the game stays as hard on any device. It changes only between games.
+  let COLS = 15, ROWS = 21;
+  function shapeGrid() {
+    const aw = Math.max(100, innerWidth - 24), ah = Math.max(100, innerHeight - 130), c = Math.sqrt(aw * ah / 315);
+    COLS = Math.max(12, Math.min(32, Math.round(aw / c))); ROWS = Math.max(10, Math.min(32, Math.round(ah / c)));
+  }
   const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
   let state = 'start', snake, prev, dir, queue, grow, food, bonus, eaten, score, playTime, acc, time = 0, lastT = 0, parts = [], shake = 0, flash = 0, pops = [];
 
@@ -65,6 +72,7 @@
     W = innerWidth; H = innerHeight;
     cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    if (state !== 'play') shapeGrid();
     // At least a few pixels: on a very low window the formula goes below zero and ctx.arc throws, stopping the game loop.
     cell = Math.max(4, Math.floor(Math.min((W - 24) / COLS, (H - 130) / ROWS)));
     bx = Math.round((W - cell * COLS) / 2); by = Math.round(78 + (H - 100 - cell * ROWS) / 2);

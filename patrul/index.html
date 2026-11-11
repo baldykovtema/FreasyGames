@@ -8,7 +8,7 @@
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:#05030f;color:#fff;font-family:-apple-system,"Segoe UI",system-ui,sans-serif;overflow:hidden;user-select:none}
 #wrap{position:fixed;inset:0;display:grid;place-items:center;touch-action:none}
-canvas{display:block;border-radius:10px;box-shadow:0 0 60px #4b2cff44;touch-action:none;cursor:none}
+canvas{display:block;touch-action:none;cursor:none}
 .ui{position:absolute;inset:0;display:none;align-items:center;justify-content:center;justify-content:safe center;flex-direction:column;gap:12px;background:#05030fd9;text-align:center;padding:20px;overflow:auto}
 .ui.on{display:flex}
 h1{margin:0;font-size:50px;line-height:1;background:linear-gradient(#7ef9ff,#4b6bff);-webkit-background-clip:text;background-clip:text;color:transparent;letter-spacing:3px;filter:drop-shadow(0 0 14px #4b6bff)}
@@ -58,8 +58,13 @@ h2{margin:0;font-size:32px;color:#7ef9ff}
 <script>
 "use strict";
 const $=s=>document.querySelector(s);
-const cv=$('#c'),g=cv.getContext('2d'),W=600,H=840;
-function fit(){const s=Math.min(innerWidth/W,innerHeight/H)*0.98;cv.style.width=W*s+'px';cv.style.height=H*s+'px';}
+const cv=$('#c'),g=cv.getContext('2d');let W=600,H=840;
+// The field takes the whole screen: at least 420 wide and 840 tall in game units, the rest follows the screen's shape.
+function fit(){const s=Math.min(innerHeight/840,innerWidth/420);W=Math.min(1800,Math.round(innerWidth/s));H=Math.round(innerHeight/s);
+  const dpr=Math.min(2,window.devicePixelRatio||1);cv.width=Math.round(W*s*dpr);cv.height=Math.round(H*s*dpr);g.setTransform(cv.width/W,0,0,cv.height/H,0,0);
+  cv.style.width=W*s+'px';cv.style.height=H*s+'px';
+  // the game state is declared further down, so the first call (before it exists) skips this
+  try{if(P){P.x=Math.max(24,Math.min(W-24,P.x));P.y=Math.max(60,Math.min(H-40,P.y));}for(const st of stars){if(st.x>W)st.x=Math.random()*W;if(st.y>H)st.y=Math.random()*H;}}catch(e){}}
 addEventListener('resize',fit);fit();
 
 /* ---------- сохранение ---------- */
@@ -222,7 +227,7 @@ function draw(){
   for(const p of parts){g.globalAlpha=Math.max(0,p.life);g.fillStyle=p.col;g.fillRect(p.x,p.y,p.r,p.r);}g.globalAlpha=1;
   g.restore();
   // HUD
-  g.font='bold 20px system-ui,sans-serif';g.fillStyle='#fff';g.textAlign='left';g.fillText('Очки '+score,16,32);g.fillStyle='#ffd84d';g.fillText('🪙 '+runCoins,16,58);
+  g.font='bold 20px system-ui,sans-serif';g.fillStyle='#fff';g.textAlign='left';g.fillText('Очки '+score,16,76);g.fillStyle='#ffd84d';g.fillText('🪙 '+runCoins,16,102);
   g.textAlign='right';g.fillStyle='#fff';g.fillText('Волна '+wave,W-16,32);
   for(let i=0;i<P.maxHp;i++){g.fillStyle=i<P.hp?'#ff4f6d':'#ffffff22';g.fillText('♥',W-16-i*22,58);}
   if(P.dbl>0){g.fillStyle='#7ef9ff';g.fillText('P×2 '+Math.ceil(P.dbl/60),W-16,84);}

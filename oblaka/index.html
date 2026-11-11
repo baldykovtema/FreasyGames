@@ -48,7 +48,7 @@
 (() => {
   const cv = document.getElementById('c'), ctx = cv.getContext('2d');
   const $ = (id) => document.getElementById(id);
-  let W = 0, H = 0, DPR = 1, S = 1, colX = 0, colW = 0, viewH = 100;
+  let W = 0, H = 0, DPR = 1, S = 1, colX = 0, colW = 0, viewH = 100, camX = 50, px = 50, lastPx = 50;
 
   const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
   let best = Number(store.get('oblaka-best', 0)) || 0, bestStars = Number(store.get('oblaka-best-stars', 0)) || 0, bestTime = Number(store.get('oblaka-best-time', 0)) || 0;
@@ -70,10 +70,15 @@
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     colW = Math.min(W, H * 0.62); colX = (W - colW) / 2; S = colW / WORLD; viewH = H / S;
   }
-  const sx = (x) => colX + x * S, sy = (y) => H - (y - camY) * S;
+  // The sky wraps left to right, so on a wide screen it simply goes on to the edges: the camera follows the
+  // hero sideways (px is the hero's x without wrapping) and clouds repeat every WORLD units.
+  const wide = () => colW < W - 1;
+  const sx = (x) => W / 2 + (x - camX) * S, sy = (y) => H - (y - camY) * S;
+  const near = (x) => x + WORLD * Math.round((camX - x) / WORLD);
+  const copies = (x, pad) => { const out = []; for (let k = -6; k <= 6; k++) { const v = near(x) + k * WORLD, q = sx(v); if (q > -pad && q < W + pad) out.push(v); } return out; };
 
   function reset() {
-    p = { x: 50, y: 6, vx: 0, vy: JUMP, squash: 0 };
+    p = { x: 50, y: 6, vx: 0, vy: JUMP, squash: 0 }; camX = px = lastPx = 50;
     clouds = [{ x: 50, y: 0, w: 60, kind: 'base' }]; stars = [];
     topY = 0; camY = -viewH * 0.15; maxY = 0; starCount = 0; playTime = 0; parts = []; pops = [];
     fill();
@@ -122,8 +127,8 @@
     for (const s of stars) {
       if (!s.got && Math.hypot(p.x - s.x, p.y - s.y) < R + 5) {
         s.got = true; starCount++; sound('star');
-        burst(sx(s.x), sy(s.y), '#ffd23f', 12);
-        pops.push({ x: sx(s.x), y: sy(s.y), text: '+1 ✦', life: 1 });
+        burst(sx(near(s.x)), sy(s.y), '#ffd23f', 12);
+        pops.push({ x: sx(near(s.x)), y: sy(s.y), text: '+1 ✦', life: 1 });
       }
     }
     maxY = Math.max(maxY, p.y);
@@ -141,7 +146,7 @@
     }
   }
   function puff(c, color) {
-    for (let k = 0; k < 10; k++) parts.push({ x: sx(c.x + (Math.random() - 0.5) * c.w), y: sy(c.y), vx: (Math.random() - 0.5) * 80, vy: Math.random() * 60, life: 0.8, color });
+    for (let k = 0; k < 10; k++) parts.push({ x: sx(near(c.x) + (Math.random() - 0.5) * c.w), y: sy(c.y), vx: (Math.random() - 0.5) * 80, vy: Math.random() * 60, life: 0.8, color });
   }
 
   function start() {
@@ -194,8 +199,8 @@
   // Sky colour moves from dusk to deep space with height.
   const sky = Array.from({ length: 120 }, (_, i) => ({ x: Math.random(), y: Math.random(), s: Math.random() * 1.5 + 0.3, p: i }));
   function mix(a, b, t) { return a.map((v, i) => Math.round(v + (b[i] - v) * t)); }
-  function drawCloud(c) {
-    const x = sx(c.x), y = sy(c.y), w = c.w * S, h = 7 * S;
+  function drawCloud(c, wx = c.x) {
+    const x = sx(wx), y = sy(c.y), w = c.w * S, h = 7 * S;
     ctx.save(); ctx.globalAlpha = c.fade ? Math.max(0, 1 - c.fade) : 1;
     const color = c.kind === 'fragile' ? '#a8a6bd' : c.kind === 'moving' ? '#bfe3ff' : '#f8f7ff';
     ctx.shadowColor = c.kind === 'moving' ? '#7cc4ff' : '#bca0ff'; ctx.shadowBlur = 14;
@@ -225,21 +230,20 @@
     }
     ctx.globalAlpha = 1;
     // On wide screens the playing column is lit, the sides are dimmer.
-    if (colX > 0) { ctx.fillStyle = '#0b0c1855'; ctx.fillRect(0, 0, colX, H); ctx.fillRect(colX + colW, 0, colX, H); ctx.fillStyle = '#b79aff30'; ctx.fillRect(colX - 1, 0, 2, H); ctx.fillRect(colX + colW - 1, 0, 2, H); }
 
     // Height marks every 50 m.
     ctx.textAlign = 'left'; ctx.font = `800 ${Math.round(Math.max(11, S * 3.2))}px Manrope`;
     for (let m = Math.ceil(camY / 500) * 500; m < camY + viewH; m += 500) {
       if (m <= 0) continue;
-      const y = sy(m); ctx.fillStyle = '#ffffff18'; ctx.fillRect(colX, y, colW, 1);
-      ctx.fillStyle = '#ffffff55'; ctx.fillText(`${m / 10} м`, colX + 8, y - 6);
+      const y = sy(m); ctx.fillStyle = '#ffffff18'; ctx.fillRect(0, y, W, 1);
+      ctx.fillStyle = '#ffffff55'; ctx.fillText(`${m / 10} м`, 8, y - 6);
     }
 
-    ctx.save(); ctx.beginPath(); ctx.rect(colX, 0, colW, H); ctx.clip();
-    for (const c of clouds) drawCloud(c);
-    for (const s of stars) {
+    ctx.save();
+    for (const c of clouds) for (const x of copies(c.x, c.w * S)) drawCloud(c, x);
+    for (const s of stars) for (const sxw of copies(s.x, 20 * S)) {
       if (s.got) continue;
-      ctx.save(); ctx.translate(sx(s.x), sy(s.y) + Math.sin(time * 3 + s.x) * S); ctx.rotate(time * 2);
+      ctx.save(); ctx.translate(sx(sxw), sy(s.y) + Math.sin(time * 3 + s.x) * S); ctx.rotate(time * 2);
       ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 16; ctx.fillStyle = '#ffd23f';
       ctx.font = `800 ${Math.round(S * 8)}px Manrope`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('✦', 0, 0);
       ctx.restore();
@@ -248,7 +252,7 @@
     // Other players in the room: see-through fluffies at their own height, or an arrow at the edge when out of view.
     const ghosts = mp.peers().filter((g) => g.s.st === 'play');
     for (const g of ghosts) {
-      const x = sx(g.s.x), y = sy(g.s.y), r = R * S;
+      const x = sx(near(g.s.x)), y = sy(g.s.y), r = R * S;
       if (y < -r || y > H + r) continue;
       ctx.save(); ctx.globalAlpha = 0.5; ctx.fillStyle = g.color;
       ctx.beginPath(); for (let k = 0; k < 12; k++) { const a = k / 12 * Math.PI * 2; ctx.arc(x + Math.cos(a) * r * 0.78, y + Math.sin(a) * r * 0.78, r * 0.36, 0, 7); } ctx.fill();
@@ -260,9 +264,9 @@
     }
 
     // The fluffy hero, drawn twice near an edge so wrapping looks seamless.
-    if (state !== 'over' || p.y > camY - R * 3) for (const off of [0, -WORLD, WORLD]) {
-      const x = sx(p.x + off), y = sy(p.y), r = R * S;
-      if (x < colX - r * 2 || x > colX + colW + r * 2) continue;
+    if (state !== 'over' || p.y > camY - R * 3) for (const hx of wide() ? [px] : [p.x, p.x - WORLD, p.x + WORLD]) {
+      const x = sx(hx), y = sy(p.y), r = R * S;
+      if (x < -r * 2 || x > W + r * 2) continue;
       const sq = p.squash * 0.25;
       ctx.save(); ctx.translate(x, y); ctx.scale(1 + sq, 1 - sq);
       const pg = ctx.createRadialGradient(-r * 0.3, -r * 0.35, r * 0.1, 0, 0, r * 1.1);
@@ -286,7 +290,7 @@
     for (const g of ghosts) {
       const y = sy(g.s.y);
       if (y >= -R * S && y <= H + R * S) continue;
-      const up = y < 0, x = Math.max(colX + 40, Math.min(colX + colW - 40, sx(g.s.x))), ay = up ? 150 : H - 26;
+      const up = y < 0, x = Math.max(40, Math.min(W - 40, sx(near(g.s.x)))), ay = up ? 150 : H - 26;
       ctx.globalAlpha = 0.9; ctx.fillStyle = g.color; ctx.textAlign = 'center'; ctx.font = `800 ${Math.round(Math.max(11, S * 3.2))}px Manrope`;
       ctx.fillText(`${up ? '▲' : '▼'} ${g.name} · ${Math.floor(g.s.h)} м`, x, ay);
       ctx.globalAlpha = 1;
@@ -315,6 +319,8 @@
       if (p.y < R) { p.y = R; p.vy = JUMP * 0.75; p.squash = 1; }
     } else { p.vy -= G * dt; p.y += p.vy * dt; }
     p.squash = Math.max(0, p.squash - dt * 5);
+    let d = p.x - lastPx; if (d > WORLD / 2) d -= WORLD; else if (d < -WORLD / 2) d += WORLD; px += d; lastPx = p.x;
+    camX = wide() ? camX + (px - camX) * Math.min(1, dt * 4) : WORLD / 2;
     for (const q of parts) { q.x += q.vx * dt; q.y -= q.vy * dt; q.vx *= 0.96; q.vy *= 0.96; q.life -= dt * 1.4; }
     for (const q of pops) q.life -= dt * 1.4;
     parts = parts.filter((q) => q.life > 0); pops = pops.filter((q) => q.life > 0);

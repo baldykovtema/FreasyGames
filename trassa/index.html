@@ -209,19 +209,23 @@
     g.setTransform(dpr, 0, 0, dpr, 0, 0); g.fillStyle = '#111321'; g.fillRect(0, 0, cv.width, cv.height);
     const sh = shake > 0 ? (Math.random() - 0.5) * 18 * shake : 0;
     g.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * (ox + sh), dpr * oy);
-    g.save(); round(0, 0, FW, FH, 24); g.clip();
-    // Grass with trees and lamps on both sides.
-    g.fillStyle = '#16301f'; g.fillRect(0, 0, FW, FH);
-    for (let i = -1; i < 12; i++) {
+    // The part of the world on screen: wider and taller than the 480 x 800 field.
+    const vx0 = -(ox + 2) / scale, vx1 = (innerWidth - ox + 2) / scale, vy0 = -oy / scale, vy1 = (innerHeight - oy) / scale;
+    const i0 = Math.floor((vy0 - scroll) / 80) - 1, i1 = Math.ceil((vy1 - scroll) / 80) + 1;
+    g.save();
+    // Grass with rows of trees and lamps along the road, out to the screen edges.
+    g.fillStyle = '#16301f'; g.fillRect(vx0, vy0, vx1 - vx0, vy1 - vy0);
+    const cols = []; for (let x = 24; x > vx0 - 40; x -= 62) cols.push(x); for (let x = FW - 24; x < vx1 + 40; x += 62) cols.push(x);
+    for (let i = i0; i < i1; i++) {
       const y = i * 80 + scroll;
-      for (const sx of [24, FW - 24]) { g.fillStyle = '#1f4a2c'; g.beginPath(); g.arc(sx + ((i * 37) % 9) - 4, y, 18 + (i % 3) * 3, 0, 7); g.fill(); }
+      cols.forEach((sx, k) => { const far = Math.abs(sx - FW / 2) > FW / 2; g.fillStyle = far ? '#1a3f26' : '#1f4a2c'; g.beginPath(); g.arc(sx + (((i + k) * 37) % 9) - 4, y + (far ? ((k * 29) % 40) : 0), 18 + ((i + k) % 3 + 3) % 3 * 3, 0, 7); g.fill(); });
       if (i % 2 === 0) { g.fillStyle = '#ffe9a8'; g.globalAlpha = 0.25; g.beginPath(); g.arc(ROAD_L - 4, y + 40, 26, 0, 7); g.arc(ROAD_L + ROAD_W + 4, y + 40, 26, 0, 7); g.fill(); g.globalAlpha = 1; }
     }
     // Road.
-    g.fillStyle = '#2b2d3a'; g.fillRect(ROAD_L, 0, ROAD_W, FH);
-    g.fillStyle = '#e8e6f0'; g.fillRect(ROAD_L, 0, 4, FH); g.fillRect(ROAD_L + ROAD_W - 4, 0, 4, FH);
+    g.fillStyle = '#2b2d3a'; g.fillRect(ROAD_L, vy0, ROAD_W, vy1 - vy0);
+    g.fillStyle = '#e8e6f0'; g.fillRect(ROAD_L, vy0, 4, vy1 - vy0); g.fillRect(ROAD_L + ROAD_W - 4, vy0, 4, vy1 - vy0);
     g.fillStyle = '#ffffffaa';
-    for (let l = 1; l < LANES; l++) for (let i = -1; i < 11; i++) g.fillRect(ROAD_L + l * LANE_W - 2, i * 80 + scroll, 4, 40);
+    for (let l = 1; l < LANES; l++) for (let i = i0; i < i1; i++) g.fillRect(ROAD_L + l * LANE_W - 2, i * 80 + scroll, 4, 40);
     // Items.
     for (const it of items) {
       if (it.kind === 'coin') { const s = Math.abs(Math.cos(performance.now() / 180 + it.y / 50)); g.fillStyle = '#ffd23f'; g.strokeStyle = '#b38a00'; g.lineWidth = 3; g.beginPath(); g.ellipse(it.x, it.y, 13 * s + 2, 14, 0, 0, 7); g.fill(); g.stroke(); }
@@ -237,15 +241,17 @@
     for (const p of parts) { g.globalAlpha = Math.max(0, p.life); g.fillStyle = p.col; g.fillRect(p.x, p.y, p.r, p.r); } g.globalAlpha = 1;
     for (const p of popups) { g.globalAlpha = Math.max(0, p.life); g.fillStyle = p.col; g.font = '800 20px Manrope, system-ui'; g.textAlign = 'center'; g.fillText(p.text, p.x, p.y); } g.globalAlpha = 1;
     g.restore();
-    g.strokeStyle = '#b79aff55'; g.lineWidth = 2; round(1, 1, FW - 2, FH - 2, 24); g.stroke();
-    // HUD.
-    g.fillStyle = '#111321cc'; round(14, 14, 200, 74, 16); g.fill(); round(FW - 194, 14, 180, 74, 16); g.fill();
+    // HUD in the screen corners, under the top buttons; smaller on narrow phones.
+    const hs = Math.min(1, innerWidth / 430);
+    g.setTransform(dpr * hs, 0, 0, dpr * hs, 0, dpr * 56);
+    const HW = innerWidth / hs;
+    g.fillStyle = '#111321cc'; round(14, 14, 200, 74, 16); g.fill(); round(HW - 194, 14, 180, 74, 16); g.fill();
     g.textAlign = 'left'; g.fillStyle = '#f8f7ff'; g.font = '800 26px Manrope, system-ui'; g.fillText(fmtM(Math.floor(dist)), 28, 48);
     g.font = '700 15px Manrope, system-ui'; g.fillStyle = '#ffd23f'; g.fillText('🪙 ' + coins, 28, 74);
     g.fillStyle = '#89879e'; g.fillText(Math.round(v * 3.6) + ' км/ч', 100, 74);
-    g.textAlign = 'right'; g.fillStyle = '#f8f7ff'; g.font = '700 15px Manrope, system-ui'; g.fillText('⛽ топливо', FW - 30, 42);
-    g.fillStyle = '#ffffff1a'; round(FW - 180, 54, 152, 14, 7); g.fill();
-    g.fillStyle = fuel < 25 ? (Math.floor(performance.now() / 250) % 2 ? '#ff5f57' : '#ff9f4a') : '#5df2a5'; round(FW - 180, 54, 152 * fuel / 100, 14, 7); g.fill();
+    g.textAlign = 'right'; g.fillStyle = '#f8f7ff'; g.font = '700 15px Manrope, system-ui'; g.fillText('⛽ топливо', HW - 30, 42);
+    g.fillStyle = '#ffffff1a'; round(HW - 180, 54, 152, 14, 7); g.fill();
+    g.fillStyle = fuel < 25 ? (Math.floor(performance.now() / 250) % 2 ? '#ff5f57' : '#ff9f4a') : '#5df2a5'; round(HW - 180, 54, 152 * fuel / 100, 14, 7); g.fill();
   }
 
   let last = performance.now();
@@ -261,7 +267,8 @@
   }
   function resize() {
     dpr = Math.min(2, window.devicePixelRatio || 1); cv.width = innerWidth * dpr; cv.height = innerHeight * dpr;
-    scale = Math.min(innerWidth / FW, (innerHeight - 70) / FH); ox = (innerWidth - FW * scale) / 2; oy = 62 + Math.max(0, (innerHeight - 62 - FH * scale) / 2);
+    // The road fills the screen top to bottom (and fits across on narrow phones); grass and trees go on to the edges.
+    scale = Math.min(innerHeight / FH, innerWidth / (ROAD_W + 40)); ox = (innerWidth - FW * scale) / 2; oy = (innerHeight - FH * scale) / 2;
   }
   function showBests() {
     $('bestStart').textContent = fmtM(best); $('bestOver').textContent = fmtM(best);
