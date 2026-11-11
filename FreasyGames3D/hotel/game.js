@@ -217,7 +217,7 @@ function bed(parent) {
   mesh(box(.55, .14, .35), mat(0xf6f0e4), -.35, .63, -.72, g);
   mesh(box(.55, .14, .35), mat(0xf6f0e4), .35, .63, -.72, g);
   mesh(box(1.6, 1.1, .1), mat(DARK_WOOD), 0, .55, -1.0, g);
-  return {g, w: 1.6, d: 2.05};
+  return {g, w: 1.6, d: 2.05, spot: () => new THREE.Vector3(R(-.4, .4), .67, R(-.2, .55))};
 }
 function dresser(parent, room) {
   const g = group(parent);
@@ -239,7 +239,7 @@ function dresser(parent, room) {
   const shade = mesh(new THREE.CylinderGeometry(.12, .2, .2, 10, 1, true), mat(0xf2e2b8, {emissive: room.dark ? 0x000000 : 0x6a4a1a, side: THREE.DoubleSide}), -.35, 1.3, 0, g);
   shade.userData.lamp = room;
   room.dressers.push(drawers);
-  return {g, w: 1.26, d: .55};
+  return {g, w: 1.26, d: .55, spot: () => new THREE.Vector3(R(.05, .45), .95, R(-.1, .1))};
 }
 function wardrobe(parent, room) {
   const g = group(parent);
@@ -268,7 +268,7 @@ function chair(parent) {
   mesh(box(.55, .12, .55), mat(c), 0, .48, .05, g);
   mesh(box(.55, .6, .1), mat(c), 0, .8, -.2, g);
   for (const [x, z] of [[-.23, -.2], [.23, -.2], [-.23, .28], [.23, .28]]) mesh(box(.05, .45, .05), mat(DARK_WOOD), x, .22, z, g);
-  return {g, w: .6, d: .6};
+  return {g, w: .6, d: .6, spot: () => new THREE.Vector3(R(-.1, .1), .55, R(0, .15))};
 }
 function sideTable(parent, room) {
   const g = group(parent);
@@ -276,7 +276,7 @@ function sideTable(parent, room) {
   mesh(new THREE.CylinderGeometry(.04, .06, .66, 8), mat(DARK_WOOD), 0, .33, 0, g);
   if (chance(.5)) { mesh(new THREE.CylinderGeometry(.05, .07, .18, 8), mat(0xe9e0cf), 0, .79, 0, g); mesh(new THREE.CylinderGeometry(.015, .015, .06, 4), mat(0x222222), 0, .91, 0, g); }
   else { const v = mesh(new THREE.CylinderGeometry(.08, .06, .25, 10), mat(0x2a4a6a), 0, .82, 0, g); v.userData = {}; }
-  return {g, w: .65, d: .65};
+  return {g, w: .65, d: .65, spot: () => new THREE.Vector3(.14, .71, .12)};
 }
 function plant(parent) {
   const g = group(parent);
@@ -302,6 +302,7 @@ function placeAlongWall(room, side, items) {
     const xc = wx - side * (WALL_T / 2 + it.d / 2 + .02);
     holder.position.set(xc, 0, zc); holder.rotation.y = ry;
     addCollider(xc - it.d / 2, xc + it.d / 2, zc - it.w / 2, zc + it.w / 2);
+    if (it.spot) { holder.updateMatrixWorld(true); room.spots.push(holder.localToWorld(it.spot())); }
     cursor -= it.w + R(.2, .9);
   }
   // картина над мебелью
@@ -315,7 +316,6 @@ function furnish(room) {
   const lists = [[], []];
   const pool = [bed, dresser, wardrobe, chair, sideTable, plant, dresser, chair];
   const need = [];
-  if (room.locked) need.push(dresser);
   if (room.hasWardrobe) need.push(wardrobe);
   if (!need.includes(dresser) && chance(.75)) need.push(dresser);
   need.forEach((f, i) => lists[i % 2].push(f));
@@ -339,9 +339,15 @@ function furnish(room) {
 
 function fillDrawers(room) {
   const all = room.dressers.flat();
-  if (!all.length) { if (room.locked) room.locked = false; return; }
+  // Ключ прячется в случайном месте: в ящике, на мебели или на полу.
   if (room.locked) {
-    const d = pick(all); d.content = {type: 'key'};
+    const where = [];
+    if (all.length) where.push('drawer', 'drawer');
+    if (room.spots.length) where.push('surface', 'surface');
+    where.push('floor');
+    const kind = pick(where);
+    if (kind === 'drawer') pick(all).content = {type: 'key'};
+    else placeKey(room, kind === 'surface' ? pick(room.spots) : new THREE.Vector3(room.cx + R(-.7, .7), .02, R(room.z1 + 1.6, room.z0 - 1.6)));
   }
   for (const d of all) {
     if (d.content) continue;
@@ -352,9 +358,7 @@ function fillDrawers(room) {
     if (!d.content) continue;
     const cm = new THREE.Group(); d.group.add(cm); cm.position.set(0, -.06, .05);
     if (d.content.type === 'key') {
-      mesh(new THREE.TorusGeometry(.05, .015, 6, 12), mat(BRASS, {emissive: 0x443000}), -.1, .01, 0, cm).rotation.x = Math.PI / 2;
-      mesh(box(.18, .02, .025), mat(BRASS, {emissive: 0x443000}), .03, .01, 0, cm);
-      mesh(box(.02, .02, .05), mat(BRASS), .1, .01, .02, cm);
+      keyModel(cm);
     } else if (d.content.type === 'med') {
       mesh(box(.22, .08, .16), mat(0xf2f2f2), 0, .04, 0, cm);
       mesh(box(.1, .01, .03), mat(0xd62828), 0, .085, 0, cm);
@@ -364,6 +368,26 @@ function fillDrawers(room) {
     }
     d.contentMesh = cm;
   }
+}
+
+function keyModel(parent) {
+  const k = new THREE.Group(); parent.add(k);
+  mesh(new THREE.TorusGeometry(.05, .015, 6, 12), mat(BRASS, {emissive: 0x443000}), -.1, .01, 0, k).rotation.x = Math.PI / 2;
+  mesh(box(.18, .02, .025), mat(BRASS, {emissive: 0x443000}), .03, .01, 0, k);
+  mesh(box(.02, .02, .05), mat(BRASS), .1, .01, .02, k);
+  return k;
+}
+function placeKey(room, at) {
+  const g = group(world, at.x, at.y, at.z, R(0, Math.PI * 2));
+  keyModel(g);
+  // искорка, чтобы ключ было видно и в полутьме
+  const glint = new THREE.Sprite(new THREE.SpriteMaterial({map: glowTex, color: 0xffd27a, transparent: true, opacity: .55, depthWrite: false, blending: THREE.AdditiveBlending}));
+  glint.scale.set(.22, .22, 1); glint.position.y = .05; g.add(glint);
+  // невидимая коробка побольше, чтобы ключ легко было «поймать» взглядом
+  const hit = mesh(box(.34, .14, .3), new THREE.MeshBasicMaterial({visible: false}), 0, .05, 0, g);
+  const act = {type: 'key', group: g, room};
+  hit.userData.act = act; interactables.push(hit);
+  room.looseKey = act;
 }
 
 function buildLobby(room) {
@@ -398,8 +422,9 @@ function build(seed) {
     const cx = i === 0 ? 0 : inX + R(-W / 2 + 1.3, W / 2 - 1.3);
     const z1 = z0 - D;
     const outX = i === ROOMS ? cx : cx + R(-W / 2 + 1.3, W / 2 - 1.3);
-    rooms.push({i, cx, z0, z1, W, D, inX, outX, dark: false, wardrobes: [], dressers: [], wallpaper: i === 0 ? 3 : RI(0, 2), visited: false,
-      locked: i >= 3 && i < ROOMS && chance(.28), hasWardrobe: i >= 3 && i < ROOMS && chance(.62)});
+    const prevLocked = rooms.length > 0 && rooms[rooms.length - 1].locked;
+    rooms.push({i, cx, z0, z1, W, D, inX, outX, dark: false, wardrobes: [], dressers: [], spots: [], wallpaper: i === 0 ? 3 : RI(0, 2), visited: false,
+      locked: i >= 3 && i < ROOMS && !prevLocked && chance(.3), hasWardrobe: i >= 3 && i < ROOMS && chance(.62)});
     z0 = z1; inX = outX;
   }
   // тёмные комнаты появляются дальше по этажу
@@ -433,8 +458,6 @@ function build(seed) {
       // холл с выходом: колонны и зелёный свет
       for (const s of [-1, 1]) { mesh(new THREE.CylinderGeometry(.25, .25, H, 12), mat(0xd9cfb8), r.cx + s * 2.6, H / 2, (r.z0 + r.z1) / 2, world); addCollider(r.cx + s * 2.6 - .25, r.cx + s * 2.6 + .25, (r.z0 + r.z1) / 2 - .25, (r.z0 + r.z1) / 2 + .25); }
     }
-    // запертая дверь без комода с ключом — открыта
-    if (r.locked && !r.dressers.length) r.locked = false;
   }
   // номер на двери должен совпадать с замком после проверки
   for (const d of doors) if (d.locked && !d.room.locked) d.locked = false;
@@ -651,6 +674,7 @@ function promptFor(a) {
   const k = TOUCH ? '✋' : 'E';
   if (a.type === 'drawer') return a.open ? `${k} — закрыть ящик` : `${k} — открыть ящик`;
   if (a.type === 'wardrobe') return `${k} — спрятаться в шкаф`;
+  if (a.type === 'key') return `${k} — взять ключ`;
   if (a.type === 'door') {
     if (a.door.open) return '';
     if (a.door.locked) return S.hasKey ? `${k} — открыть ключом` : 'Заперто. Ключ где-то в ящиках этой комнаты';
@@ -664,6 +688,7 @@ function interact() {
   if (!a) return;
   if (a.type === 'drawer') toggleDrawer(a);
   else if (a.type === 'wardrobe') enterWardrobe(a.wardrobe);
+  else if (a.type === 'key') takeKey(a);
   else if (a.type === 'door') tryDoor(a.door, true);
 }
 function toggleDrawer(d) {
@@ -679,6 +704,13 @@ function toggleDrawer(d) {
       updateHud();
     }, 260);
   }
+}
+function takeKey(a) {
+  if (a.taken) return;
+  a.taken = true;
+  world.remove(a.group);
+  interactables = interactables.filter((m) => m.userData.act !== a);
+  S.hasKey = true; sfx.key(); toast('🔑 Ключ найден!'); updateHud();
 }
 function tryDoor(door, manual) {
   if (door.open) return;
@@ -717,6 +749,7 @@ function updateHud() {
   const door = Math.min(ROOMS, S.room + 1);
   $('roomChip').textContent = S.room >= ROOMS ? '🚪 Выход' : `🚪 Дверь ${String(door).padStart(3, '0')}`;
   $('coinChip').textContent = `🪙 ${S.coins}`;
+  $('timeChip').textContent = `⏱ ${fmt(Math.floor(S.time))}`;
   $('hpChip').textContent = `❤️ ${Math.max(0, Math.ceil(S.hp))}`;
   $('hpChip').style.color = S.hp <= 40 ? '#ff8a8a' : '';
   $('keyChip').style.display = S.hasKey ? 'block' : 'none';
@@ -729,7 +762,7 @@ function onEnterRoom(i) {
   if (r.visited) return;
   r.visited = true;
   S.sinceDraft++;
-  if (i >= 4 && i < ROOMS - 1 && r.wardrobes.length && !S.draft && S.sinceDraft >= 2 && rng2() < .16 + S.sinceDraft * .05) { startDraft(i); return; }
+  if (i >= 4 && i < ROOMS - 1 && !r.dark && r.wardrobes.length && !S.draft && S.sinceDraft >= 2 && rng2() < .16 + S.sinceDraft * .05) { startDraft(i); return; }
   if (r.dark && !S.shade && rng2() < .75) spawnShade(r);
   else if (!r.dark && i >= 5 && i < ROOMS && !S.whisper && !S.draft && rng2() < .14) spawnWhisper();
 }
@@ -816,7 +849,10 @@ function updateWhisper(dt) {
 const rng2 = Math.random;
 function startDraft(i) {
   S.sinceDraft = 0;
-  const from = Math.max(0, i - 3), to = Math.min(ROOMS, i + 2);
+  // путь — только по освещённым комнатам подряд: в тёмные Сквозняк не залетает
+  let from = i, to = i;
+  while (from > Math.max(0, i - 3) && !rooms[from - 1].dark) from--;
+  while (to < Math.min(ROOMS, i + 2) && !rooms[to + 1].dark) to++;
   const path = [];
   for (let k = from; k <= to; k++) {
     const r = rooms[k];
@@ -882,7 +918,7 @@ function die(cause = 'draft') {
   document.exitPointerLock?.();
   const [title, color, tip] = DEATHS[cause] || DEATHS.draft;
   $('deadTitle').textContent = title; $('deadTitle').style.color = color;
-  $('deadText').textContent = `Ты дошёл до двери ${String(Math.min(ROOMS, S.maxRoom + 1)).padStart(3, '0')}. ${tip}`;
+  $('deadText').textContent = `Ты дошёл до двери ${String(Math.min(ROOMS, S.maxRoom + 1)).padStart(3, '0')} за ${fmt(Math.floor(S.time))}. ${tip}`;
   setTimeout(() => show('dead'), 700);
   setHud(false);
   lbStatus = 'deadStatus';
@@ -913,6 +949,7 @@ function setHud(on) {
 function pause(on) {
   if (S.dead || S.won) return;
   S.paused = on; show(on ? 'pause' : null); setHud(!on);
+  if (on) $('pauseText').textContent = `Время в отеле: ${fmt(Math.floor(S.time))} · дверь ${String(Math.min(ROOMS, S.maxRoom + 1)).padStart(3, '0')}. ${TOUCH ? 'Нажми «Продолжить».' : 'Нажми, чтобы вернуться в отель.'}`;
   if (!on) lockPointer();
 }
 function begin() {
@@ -989,7 +1026,9 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(.05, (now - last) / 1000); last = now;
   if (S.playing && !S.paused) {
+    const sec = Math.floor(S.time);
     S.time += dt;
+    if (Math.floor(S.time) !== sec) $('timeChip').textContent = `⏱ ${fmt(Math.floor(S.time))}`;
     updatePlayer(dt);
     updateDraft(dt);
     updateShade(dt);

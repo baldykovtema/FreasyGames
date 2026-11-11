@@ -15,6 +15,16 @@
   .screen { position: fixed; inset: 0; z-index: 20; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px; text-align: center;
     background: radial-gradient(circle at 50% 40%, #2a1610e6 0, #070505f2 70%); }
   .screen.on { display: flex; }
+  /* на телефоне боком экран низкий: меню прокручивается и становится компактнее */
+  .screen { overflow-y: auto; justify-content: safe center; }
+  @media (max-height: 520px) {
+    .screen { gap: 8px; padding: 14px 18px; }
+    h1 { font-size: 30px; } h2 { font-size: 24px; }
+    p { font-size: 13px; line-height: 1.4; }
+    .keys { font-size: 12px; gap: 2px 12px; margin: 0; }
+    button { font-size: 15px; padding: 9px 20px; }
+    .row button { font-size: 13px; padding: 7px 14px; }
+  }
   h1 { margin: 0; font-size: clamp(36px, 7vw, 68px); letter-spacing: -.04em; font-weight: 800; color: #f6d48a; text-shadow: 0 0 30px #c98a2a66; }
   h2 { margin: 0; font-size: clamp(28px, 5vw, 44px); letter-spacing: -.03em; }
   p { margin: 0; max-width: 560px; color: #c9bba3; line-height: 1.6; }
@@ -62,6 +72,7 @@
 
 <div id="hud">
   <div class="chip" id="roomChip">🚪 Дверь 001</div>
+  <div class="chip" id="timeChip">⏱ 0:00</div>
   <div class="chip" id="hpChip">❤️ 100</div>
   <div class="chip" id="coinChip">🪙 0</div>
   <div class="chip" id="keyChip">🔑 Ключ</div>
@@ -135,7 +146,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="../shared/leaderboard.js"></script>
 <script src="../shared/multiplayer.js"></script>
-<script src="game.js"></script>
+<script src="game.js?v=3"></script>
 <script src="../shared/back.js" data-href="../"></script>
 </body>
 </html>
