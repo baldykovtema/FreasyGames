@@ -136,9 +136,9 @@ window.FreasyMultiplayer = (opts) => {
   .mp-board b { margin-left: auto; color: #b9b6c9; font-weight: 700; padding-left: 8px; }
   .mp-board .me span { color: #bca0ff; }
   .mp-board small { display: block; color: #89879e; margin-top: 4px; font-weight: 600; white-space: normal; }
-  .mp-modal { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px; background: #0b0c18d0; backdrop-filter: blur(4px); user-select: text; -webkit-user-select: text; touch-action: auto; font-family: Manrope, system-ui, sans-serif; color: #f8f7ff; }
+  .mp-modal { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 64px 16px 16px; background: #0b0c18d0; backdrop-filter: blur(4px); user-select: text; -webkit-user-select: text; touch-action: auto; font-family: Manrope, system-ui, sans-serif; color: #f8f7ff; }
   .mp-modal[hidden] { display: none; }
-  .mp-sheet { width: min(420px, 100%); max-height: calc(100vh - 32px); overflow: auto; background: #1d1e31; border: 1px solid #b79aff80; border-radius: 28px; padding: 22px; box-shadow: 0 30px 80px #0009; }
+  .mp-sheet { width: min(420px, 100%); max-height: calc(100vh - 80px); overflow: auto; background: #1d1e31; border: 1px solid #b79aff80; border-radius: 28px; padding: 22px; box-shadow: 0 30px 80px #0009; }
   .mp-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
   .mp-head h2 { margin: 0; font-size: 26px; letter-spacing: -.05em; }
   .mp-sheet button { min-width: 0; padding: 0; box-shadow: none; transform: none; filter: none; }

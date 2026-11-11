@@ -14,7 +14,7 @@
   * { box-sizing: border-box; }
   html, body { min-height: 100%; }
   body { margin: 0; font-family: Manrope, system-ui, sans-serif; color: var(--text); background: radial-gradient(circle at 50% -10%, #3d326a 0, #181a30 38%, var(--bg) 72%); display: flex; justify-content: center; }
-  .app { width: min(720px, 100%); min-height: 100vh; padding: 24px 16px 32px; display: flex; flex-direction: column; align-items: center; gap: 18px; }
+  .app { width: min(720px, 100%); min-height: 100vh; padding: 60px 16px 32px; display: flex; flex-direction: column; align-items: center; gap: 18px; }
   .top { width: 100%; display: flex; justify-content: space-between; align-items: center; }
   .brand { font-weight: 800; font-size: 20px; letter-spacing: -0.03em; }
   .brand span { color: var(--accent); }
@@ -400,5 +400,6 @@ function remember(name) {
 $('restartTop').onclick = showStart;
 showStart();
 </script>
+<script src="../shared/back.js"></script>
 </body>
 </html>

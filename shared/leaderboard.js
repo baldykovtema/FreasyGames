@@ -19,10 +19,10 @@ window.FreasyLeaderboard = (opts) => {
 
   const style = document.createElement('style');
   style.textContent = `
-  .fl-modal { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 16px; background: #0b0c18d0; backdrop-filter: blur(4px); user-select: text; -webkit-user-select: text; touch-action: auto; font-family: Manrope, system-ui, sans-serif; color: #f8f7ff; }
+  .fl-modal { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 64px 16px 16px; background: #0b0c18d0; backdrop-filter: blur(4px); user-select: text; -webkit-user-select: text; touch-action: auto; font-family: Manrope, system-ui, sans-serif; color: #f8f7ff; }
   .fl-modal[hidden], .fl-modal [hidden] { display: none !important; }
   .fl-sheet:focus { outline: none; }
-  .fl-sheet { width: min(440px, 100%); max-height: calc(100vh - 32px); overflow: auto; background: #1d1e31; border: 1px solid #b79aff80; border-radius: 28px; padding: 22px; box-shadow: 0 30px 80px #0009; }
+  .fl-sheet { width: min(440px, 100%); max-height: calc(100vh - 80px); overflow: auto; background: #1d1e31; border: 1px solid #b79aff80; border-radius: 28px; padding: 22px; box-shadow: 0 30px 80px #0009; }
   .fl-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
   .fl-head h2 { margin: 0; font-size: 26px; letter-spacing: -.05em; }
   .fl-x { font: inherit; font-size: 22px; color: #d1cde5; width: 38px; height: 38px; border: 1px solid #ffffff24; border-radius: 50%; background: none; cursor: pointer; }

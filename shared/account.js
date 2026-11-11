@@ -65,7 +65,7 @@ window.FreasyAccount = (opts) => {
 
   const style = document.createElement('style');
   style.textContent = `
-  .fa-modal{position:fixed;inset:0;z-index:300;display:grid;place-items:center;padding:16px;background:#0b0c18d0;backdrop-filter:blur(4px);font-family:Manrope,system-ui,sans-serif;color:#f8f7ff;user-select:text}
+  .fa-modal{position:fixed;inset:0;z-index:300;display:grid;place-items:center;padding:64px 16px 16px;overflow-y:auto;background:#0b0c18d0;backdrop-filter:blur(4px);font-family:Manrope,system-ui,sans-serif;color:#f8f7ff;user-select:text}
   .fa-modal[hidden]{display:none}
   .fa-sheet{width:min(380px,100%);background:#1d1e31;border:1px solid #b79aff80;border-radius:24px;padding:22px;box-shadow:0 30px 80px #0009;display:flex;flex-direction:column;gap:10px;text-align:left}
   .fa-sheet h2{margin:0 0 4px;font-size:24px;display:flex;justify-content:space-between;align-items:center;color:#f8f7ff;text-shadow:none}

@@ -10,7 +10,7 @@ html,body{height:100%;background:#fff;color:#222;font-family:system-ui,-apple-sy
 #app{position:fixed;inset:0;display:flex;flex-direction:column}
 #field{position:relative;flex:1;min-height:0;background:#fff}
 #cv{position:absolute;inset:0;width:100%;height:100%}
-#top{position:absolute;left:0;right:0;top:0;padding:12px 14px 0;text-align:center;pointer-events:none;z-index:2}
+#top{position:absolute;left:0;right:0;top:0;padding:52px 14px 0;text-align:center;pointer-events:none;z-index:2}
 #score{font-size:clamp(30px,9vw,52px);font-weight:800;letter-spacing:-1px}
 #rate{font-size:14px;color:#777;margin-top:2px}
 #topBtns{position:absolute;top:10px;right:10px;display:flex;gap:6px;z-index:3}
@@ -72,8 +72,7 @@ html,body{height:100%;background:#fff;color:#222;font-family:system-ui,-apple-sy
   <div id="field">
     <canvas id="cv"></canvas>
     <div id="top"><div id="score">0</div><div id="rate">0 за клик · 0 в секунду</div></div>
-    <div id="topBtnsL"><button id="bMenu" title="Меню">☰</button></div>
-    <div id="topBtns"><button id="bLb" title="Таблица лидеров">🏆</button><button id="bSnd" title="Звук">🔊</button></div>
+    <div id="topBtns"><button id="bMenu" title="Меню">☰</button><button id="bLb" title="Таблица лидеров">🏆</button><button id="bSnd" title="Звук">🔊</button></div>
     <button id="big">ЖМИ!</button>
     <div id="hint">Нажимай на красную кнопку · покупай улучшения внизу</div>
   </div>
@@ -439,5 +438,6 @@ if(lb&&lb.signedIn())setTimeout(()=>sendScore(true),1500);
 resize();syncMen();updateUI();
 requestAnimationFrame(frame);
 </script>
+<script src="../shared/back.js"></script>
 </body>
 </html>

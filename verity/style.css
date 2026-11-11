@@ -50,3 +50,6 @@
   .left h1{font-size:36px;margin:8px 0}.left .eyebrow{margin:6px 0}.total{margin-top:16px}.notice{display:none}
 }
 #toast{transform:translate(-50%,-200%)}#toast.show{transform:translate(-50%,0)}
+
+/* место для «← FreasyGames» сверху */
+body{padding-top:48px}

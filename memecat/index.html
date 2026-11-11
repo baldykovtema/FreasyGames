@@ -38,7 +38,7 @@
   .item .grow b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .item small { opacity: .75; }
   .msg { min-height: 22px; text-align: center; opacity: .9; }
-  #hud { position: fixed; top: 0; left: 0; right: 0; display: none; align-items: center; gap: 14px; padding: 12px 18px; pointer-events: none; }
+  #hud { position: fixed; top: 0; left: 0; right: 0; display: none; align-items: center; gap: 14px; padding: 12px 18px 12px 152px; pointer-events: none; }
   #hud.on { display: flex; }
   #hud .bar { flex: 1; max-width: 520px; margin: 0 auto; height: 14px; border: 2px solid rgba(255,255,255,.6); }
   #hud button { pointer-events: auto; }
@@ -1000,5 +1000,6 @@ window.solveLevel = function (lv) {
   return { ok: false, farthest: +farthest.toFixed(1) };
 };
 </script>
+<script src="../shared/back.js"></script>
 </body>
 </html>
