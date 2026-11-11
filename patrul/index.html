@@ -7,7 +7,7 @@
 <style>
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:#05030f;color:#fff;font-family:-apple-system,"Segoe UI",system-ui,sans-serif;overflow:hidden;user-select:none}
-#wrap{position:fixed;inset:0;display:grid;place-items:center}
+#wrap{position:fixed;inset:0;display:grid;place-items:center;touch-action:none}
 canvas{display:block;border-radius:10px;box-shadow:0 0 60px #4b2cff44;touch-action:none;cursor:none}
 .ui{position:absolute;inset:0;display:none;align-items:center;justify-content:center;justify-content:safe center;flex-direction:column;gap:12px;background:#05030fd9;text-align:center;padding:20px;overflow:auto}
 .ui.on{display:flex}
@@ -36,7 +36,7 @@ h2{margin:0;font-size:32px;color:#7ef9ff}
 
 <div class="ui on" id="menu">
   <h1>ЗВЁЗДНЫЙ<br>ПАТРУЛЬ</h1>
-  <div class="muted">Мышь / палец / стрелки — управление. Стрельба автоматическая.<br>Каждые 5 волн — босс и точка сохранения.</div>
+  <div class="muted">Мышь, стрелки или джойстик на телефоне — управление. Стрельба автоматическая.<br>Каждые 5 волн — босс и точка сохранения.</div>
   <button class="btn" id="bPlay">▶ Новая игра</button>
   <button class="btn gold" id="bCont">⟳ Продолжить</button>
   <button class="btn sec" id="bShop">🛠 Мастерская</button>
@@ -54,6 +54,7 @@ h2{margin:0;font-size:32px;color:#7ef9ff}
 <div class="ui" id="pauseUI"><h2>Пауза</h2><button class="btn" id="bResume">Продолжить</button><button class="btn sec" id="bQuit">Выйти в меню</button><div class="muted">Монеты уже сохранены</div></div>
 
 <script src="../shared/leaderboard.js"></script>
+<script src="../shared/joystick.js"></script>
 <script>
 "use strict";
 const $=s=>document.querySelector(s);
@@ -136,6 +137,7 @@ function update(){
   const u=save.ups;
   // движение
   let dx=0,dy=0;if(keys.ArrowLeft||keys.KeyA)dx-=1;if(keys.ArrowRight||keys.KeyD)dx+=1;if(keys.ArrowUp||keys.KeyW)dy-=1;if(keys.ArrowDown||keys.KeyS)dy+=1;
+  if(!dx&&!dy&&joy.active){dx=joy.x*1.25;dy=joy.y*1.25;}
   if(dx||dy){P.x+=dx*7;P.y+=dy*7;ptr=null;}else if(ptr){P.x+=(ptr.x-P.x)*.25;P.y+=(ptr.y-P.y)*.25;}
   P.x=Math.max(24,Math.min(W-24,P.x));P.y=Math.max(60,Math.min(H-40,P.y));
   if(P.inv>0)P.inv--;if(P.dbl>0)P.dbl--;
@@ -240,8 +242,10 @@ addEventListener('keyup',e=>keys[e.code]=false);
 addEventListener('pagehide',store);
 addEventListener('blur',()=>{keys={};if(state==='play'){state='pause';store();showUI('pauseUI');}});
 function cpos(e){const r=cv.getBoundingClientRect();return {x:(e.clientX-r.left)/r.width*W,y:(e.clientY-r.top)/r.height*H};}
-cv.addEventListener('pointermove',e=>{const p=cpos(e);ptr=e.pointerType==='touch'?{x:p.x,y:p.y-70}:p;});
-cv.addEventListener('pointerdown',e=>{ac();const p=cpos(e);ptr=e.pointerType==='touch'?{x:p.x,y:p.y-70}:p;});
+// Мышь ведёт корабль за собой, а палец управляет джойстиком (он появляется там, где коснулся экрана).
+cv.addEventListener('pointermove',e=>{if(e.pointerType==='mouse')ptr=cpos(e);});
+cv.addEventListener('pointerdown',e=>{ac();if(e.pointerType==='mouse')ptr=cpos(e);});
+const joy=FreasyJoystick({target:document.body,axes:'xy',enabled:()=>state==='play',onStart:()=>{ac();ptr=null;}});
 
 /* ---------- меню ---------- */
 function showUI(id){document.querySelectorAll('.ui').forEach(u=>u.classList.toggle('on',u.id===id));}

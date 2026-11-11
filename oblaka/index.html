@@ -24,7 +24,7 @@
     <p>Высота: <b id="bestStart">0 м</b> · звёзд: <b id="bestStarsStart">0</b></p>
     <button class="play" id="go" type="button">Прыгать ↗</button>
     <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
-    <div class="hint">Держи половину экрана, стрелки или A и D</div>
+    <div class="hint">Стрелки или A и D. На телефоне — джойстик: коснись и веди пальцем</div>
   </div>
 </div>
 
@@ -43,6 +43,7 @@
 
 <script src="../shared/leaderboard.js"></script>
 <script src="../shared/multiplayer.js"></script>
+<script src="../shared/joystick.js"></script>
 <script>
 (() => {
   const cv = document.getElementById('c'), ctx = cv.getContext('2d');
@@ -343,19 +344,21 @@
   const side = (x) => (x < W / 2 ? -1 : 1);
   const fromPointers = () => { input = held.size ? [...held.values()].pop() : keys(); };
   // Capture, so the release reaches the canvas even over the game over screen; otherwise the pointer stays "held" and the keys stop working.
-  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); try { cv.setPointerCapture(e.pointerId); } catch {} held.set(e.pointerId, side(e.clientX)); fromPointers(); });
+  // A finger steers with the joystick (shared/joystick.js); the mouse still holds a half of the screen.
+  cv.addEventListener('pointerdown', (e) => { if (e.pointerType !== 'mouse') return; e.preventDefault(); try { cv.setPointerCapture(e.pointerId); } catch {} held.set(e.pointerId, side(e.clientX)); fromPointers(); });
   cv.addEventListener('pointermove', (e) => { if (held.has(e.pointerId)) { held.set(e.pointerId, side(e.clientX)); fromPointers(); } });
   for (const kind of ['pointerup', 'pointercancel', 'pointerleave']) cv.addEventListener(kind, (e) => { held.delete(e.pointerId); fromPointers(); });
+  const joy = FreasyJoystick({ target: cv, axes: 'x', enabled: () => state === 'play', onStart: unlockAudio, onChange: (x) => { input = joy.active ? x : (held.size ? [...held.values()].pop() : keys()); } });
   const down = new Set();
   const keys = () => (down.has('L') ? -1 : 0) + (down.has('R') ? 1 : 0);
   const KEYS = { ArrowLeft: 'L', KeyA: 'L', ArrowRight: 'R', KeyD: 'R' };
   addEventListener('keydown', (e) => {
     if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
     if (mp.settingsOpen()) return;
-    if (KEYS[e.code]) { e.preventDefault(); down.add(KEYS[e.code]); if (!held.size) input = keys(); return; }
+    if (KEYS[e.code]) { e.preventDefault(); down.add(KEYS[e.code]); if (!held.size && !joy.active) input = keys(); return; }
     if ((e.code === 'Space' || e.code === 'Enter') && state !== 'play' && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); }
   });
-  addEventListener('keyup', (e) => { if (KEYS[e.code]) { down.delete(KEYS[e.code]); if (!held.size) input = keys(); } });
+  addEventListener('keyup', (e) => { if (KEYS[e.code]) { down.delete(KEYS[e.code]); if (!held.size && !joy.active) input = keys(); } });
   addEventListener('blur', () => { down.clear(); held.clear(); input = 0; });
   $('go').addEventListener('click', start);
   $('again').addEventListener('click', start);

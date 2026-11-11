@@ -24,7 +24,7 @@
     <p>Рекорд: <b id="bestStart">0 м</b> · монет за заезд: <b id="bestCoinsStart">0</b></p>
     <button class="play" id="go" type="button">Поехали ↗</button>
     <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
-    <div class="hint">← → или A D. На телефоне — держи палец слева или справа</div>
+    <div class="hint">← → или A D. На телефоне — джойстик: коснись и веди пальцем</div>
   </div>
 </div>
 
@@ -42,6 +42,7 @@
 </div>
 
 <script src="../shared/leaderboard.js"></script>
+<script src="../shared/joystick.js"></script>
 <script>
 (() => {
   'use strict';
@@ -54,7 +55,7 @@
   const COLORS = ['#ff5f7e', '#7cc4ff', '#ffd23f', '#5df2a5', '#ff9f4a', '#c8ff6b', '#ff9ec2'];
   let scale = 1, ox = 0, oy = 0, dpr = 1;
   let state = 'start', dist = 0, coins = 0, fuel = 100, v = MIN_V, maxV = 0, playTime = 0, scroll = 0;
-  let player, traffic, items, parts, popups, spawnT = 0, itemT = 0, fuelT = 0, shake = 0, why = '';
+  let player, traffic, items, parts, popups, spawnT = 0, itemT = 0, fuelT = 0, shake = 0, why = '', safe = 1, safeT = 0;
   let best = +store.get('trassa-best', 0) || 0, bestCoins = +store.get('trassa-best-coins', 0) || 0;
   let runs = {}; try { runs = JSON.parse(store.get('trassa-runs', '{}')) || {}; } catch { runs = {}; }
   let muted = store.get('trassa-muted', '0') === '1', keys = {}, touchDir = 0;
@@ -87,14 +88,25 @@
     dist = 0; coins = 0; fuel = 100; v = MIN_V; maxV = 0; playTime = 0; spawnT = 1; itemT = 0.6; fuelT = 6; why = '';
     player = { x: laneX(1.5), y: FH - 150, tilt: 0 };
     traffic = []; items = []; parts = []; popups = [];
+    safe = 1 + Math.floor(Math.random() * 2); safeT = 3;
+  }
+  // One lane is always kept free of cars from the top of the screen down to the player, so every
+  // run can be driven through. It moves to a neighbour lane only once that lane is clear too, and
+  // then the old lane stays empty long enough for the player to change over.
+  const laneClear = (lane) => !traffic.some((c) => c.lane === lane && c.y + c.h / 2 > -300 && c.y - c.h / 2 < player.y + CAR_H / 2 + 30);
+  function moveSafeLane(dt) {
+    safeT -= dt; if (safeT > 0) return;
+    const next = safe + (safe === 0 ? 1 : safe === LANES - 1 ? -1 : Math.random() < 0.5 ? -1 : 1);
+    if (laneClear(next)) { safe = next; safeT = 2.5 + Math.random() * 3.5; } else safeT = 0.3;
   }
   function free(lane, y, gap = 220) { return !traffic.some((c) => c.lane === lane && Math.abs(c.y - y) < gap) && !items.some((it) => it.lane === lane && Math.abs(it.y - y) < 80); }
   function spawnCar() {
-    // Never block all four lanes at once: there is always a way through.
+    // Never in the safe lane, and never all four lanes at once near the top.
     const lanes = [0, 1, 2, 3].sort(() => Math.random() - 0.5), n = v > 40 && Math.random() < 0.35 ? 2 : 1;
     let made = 0;
     for (const lane of lanes) {
       if (made >= n) break;
+      if (lane === safe) continue;
       const busy = traffic.filter((c) => c.y < 140 && c.y > -260).map((c) => c.lane);
       if (new Set([...busy, lane]).size >= LANES) continue;
       if (!free(lane, -120)) continue;
@@ -109,7 +121,8 @@
     const n = 3 + Math.floor(Math.random() * 4);
     for (let i = 0; i < n; i++) items.push({ kind: 'coin', lane, x: laneX(lane), y: -40 - i * 60 });
   }
-  function spawnFuel() { const lane = Math.floor(Math.random() * LANES); if (free(lane, -60, 200)) items.push({ kind: 'fuel', lane, x: laneX(lane), y: -60 }); else fuelT = 0.5; }
+  // Fuel always comes in the safe lane, so the player can always reach it.
+  function spawnFuel() { const lane = safe; if (free(lane, -60, 200)) items.push({ kind: 'fuel', lane, x: laneX(lane), y: -60 }); else fuelT = 0.5; }
   function burst(x, y, col, n = 20, sp = 260) { for (let i = 0; i < n; i++) { const a = Math.random() * 7, s = Math.random() * sp; parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 1, col, r: 2 + Math.random() * 4 }); } }
   function popup(x, y, text, col) { popups.push({ x, y, text, col, life: 1 }); }
 
@@ -123,10 +136,11 @@
     fuel -= dt * (2.2 + v / 40);
     if (fuel <= 0) { fuel = 0; return finish('Кончилось топливо'); }
     // Steering.
-    const dir = (keys.ArrowRight || keys.KeyD ? 1 : 0) - (keys.ArrowLeft || keys.KeyA ? 1 : 0) || touchDir;
+    const dir = (keys.ArrowRight || keys.KeyD ? 1 : 0) - (keys.ArrowLeft || keys.KeyA ? 1 : 0) || (joy.active ? joy.x : touchDir);
     player.x += dir * (300 + v * 4) * dt; player.tilt += (dir * 0.18 - player.tilt) * Math.min(1, dt * 10);
     player.x = Math.max(ROAD_L + CAR_W / 2 + 4, Math.min(ROAD_L + ROAD_W - CAR_W / 2 - 4, player.x));
     // Traffic drives the same way, slower than us.
+    moveSafeLane(dt);
     spawnT -= dt; if (spawnT <= 0) { spawnCar(); spawnT = Math.max(0.42, 1.25 - v / 80) * (0.8 + Math.random() * 0.4); }
     itemT -= dt; if (itemT <= 0) { spawnItems(); itemT = 1.6 + Math.random() * 1.6; }
     // spawnFuel() may shorten the timer to retry soon when the lane is busy, so set the timer first.
@@ -268,7 +282,9 @@
   const side = (e) => { const r = cv.getBoundingClientRect(); return e.clientX < r.left + r.width / 2 ? -1 : 1; };
   // Each finger steers to its side; the last finger still down wins, so lifting one does not stop the other.
   const fingers = new Map(), steer = () => { touchDir = fingers.size ? [...fingers.values()].pop() : 0; };
-  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); unlockAudio(); fingers.set(e.pointerId, side(e)); steer(); cv.setPointerCapture(e.pointerId); });
+  // A finger steers with the joystick (shared/joystick.js); the mouse still holds a side of the road.
+  const joy = FreasyJoystick({ target: cv, axes: 'x', enabled: () => state === 'play', onStart: unlockAudio });
+  cv.addEventListener('pointerdown', (e) => { if (e.pointerType !== 'mouse') return; e.preventDefault(); unlockAudio(); fingers.set(e.pointerId, side(e)); steer(); cv.setPointerCapture(e.pointerId); });
   cv.addEventListener('pointermove', (e) => { if (fingers.has(e.pointerId)) { fingers.set(e.pointerId, side(e)); steer(); } });
   cv.addEventListener('pointerup', (e) => { fingers.delete(e.pointerId); steer(); });
   cv.addEventListener('pointercancel', (e) => { fingers.delete(e.pointerId); steer(); });
