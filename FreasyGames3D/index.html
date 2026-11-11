@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0d0f1c">
-  <meta name="description" content="FreasyGames 3D — бесплатные 3D-игры прямо в браузере: RCFCG 3D, Растения против Зомби 3D и Мемный Кот: Прыг 3D.">
+  <meta name="description" content="FreasyGames 3D — бесплатные 3D-игры прямо в браузере: RCFCG 3D, Растения против Зомби 3D, Мемный Кот: Прыг 3D и Отель «Полночь».">
   <title>FreasyGames 3D</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -149,6 +149,19 @@
     .run3d .catcube i:nth-child(5) { transform: rotateX(90deg) translateZ(23px); filter: brightness(1.1); }
     .run3d .catcube i:nth-child(6) { transform: rotateX(-90deg) translateZ(23px); filter: brightness(.6); }
     .art .pct.catp { color: #ffd23f; font-size: 13px; }
+    .art.hotel3d { background: radial-gradient(ellipse at 50% 60%, #6a3a1a55 0, transparent 70%), #0b0705; }
+    .hotel3d .hall { position: absolute; inset: 0; perspective: 260px; }
+    .hotel3d .hdoor { position: absolute; left: 50%; top: 50%; width: 70px; height: 110px; margin: -60px 0 0 -35px; background: #5e3b22;
+      border: 5px solid #3b2414; box-shadow: 0 0 0 200px #2a120e, inset 0 0 0 6px #4e3019; display: grid; place-items: start center; }
+    .hotel3d .hdoor b { margin-top: 14px; padding: 2px 6px; font-size: 11px; color: #2a1806; background: linear-gradient(#f2d58f, #a87a32); border-radius: 3px; }
+    .hotel3d .d1 { transform: translateZ(-40px); animation: hwalk 4s linear infinite; }
+    .hotel3d .d2 { transform: translateZ(-160px); animation: hwalk 4s linear infinite -1.33s; }
+    .hotel3d .d3 { transform: translateZ(-280px); animation: hwalk 4s linear infinite -2.66s; }
+    @keyframes hwalk { from { transform: translateZ(-300px); opacity: 0; } 20% { opacity: 1; } 90% { opacity: 1; } to { transform: translateZ(120px); opacity: 0; } }
+    .hotel3d .eyesx { position: absolute; left: 50%; top: 46%; display: flex; gap: 10px; margin-left: -16px; animation: blink 3s infinite; }
+    .hotel3d .eyesx i { width: 11px; height: 7px; border-radius: 50%; background: #dff0ff; box-shadow: 0 0 10px 3px #8fb4ff; }
+    @keyframes blink { 0%, 60%, 100% { opacity: 0; } 70%, 85% { opacity: 1; } }
+    .art .pct.hotp { color: #f6d48a; font-size: 13px; }
     .slot h3 { margin: 0 0 6px; font-size: 20px; letter-spacing: -.03em; }
     .slot p { margin: 0; color: #8f8ca6; font-size: 14px; line-height: 1.55; }
 
@@ -187,7 +200,7 @@
     <section class="wrap hero">
       <span class="eyebrow">Только 3D</span>
       <h1>Freasy<span class="three">Games 3D</span></h1>
-      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже три игры, и будут ещё.</p>
+      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже четыре игры, и будут ещё.</p>
       <a class="hero-action" href="#games">Смотреть игры ↓</a>
       <div class="hint">Двигай мышкой или пальцем — сцена повернётся</div>
     </section>
@@ -209,6 +222,10 @@
           <div class="catbox"><div class="catcube"><i class="f"></i><i></i><i></i><i></i><i></i><i></i></div></div>
           <span class="pct catp">Попытка 1</span></div>
           <span class="tag live">Играть</span><h3>Мемный Кот: Прыг 3D</h3><p>Кот-кубик бежит и прыгает через букву «А» — теперь в 3D с одного ракурса. Редактор и уровни игроков на месте.</p></a>
+        <a class="slot game" href="hotel/"><div class="art hotel3d" aria-hidden="true">
+          <div class="hall"><span class="hdoor d1"><b>027</b></span><span class="hdoor d2"><b>028</b></span><span class="hdoor d3"><b>029</b></span></div>
+          <span class="eyesx"><i></i><i></i></span><span class="pct hotp">🚪 Дверь 029</span></div>
+          <span class="tag live">Играть</span><h3>Отель «Полночь»</h3><p>Хоррор от первого лица: 30 дверей одного этажа, ключи в ящиках и шкафы, чтобы спрятаться от Сквозняка.</p></a>
       </div>
     </section>
 

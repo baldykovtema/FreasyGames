@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#050404">
+<title>Отель «Полночь» — FreasyGames 3D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #050404; color: #f3ead8; font-family: Manrope, system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
+  #gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  .screen { position: fixed; inset: 0; z-index: 20; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px; text-align: center;
+    background: radial-gradient(circle at 50% 40%, #2a1610e6 0, #070505f2 70%); }
+  .screen.on { display: flex; }
+  h1 { margin: 0; font-size: clamp(36px, 7vw, 68px); letter-spacing: -.04em; font-weight: 800; color: #f6d48a; text-shadow: 0 0 30px #c98a2a66; }
+  h2 { margin: 0; font-size: clamp(28px, 5vw, 44px); letter-spacing: -.03em; }
+  p { margin: 0; max-width: 560px; color: #c9bba3; line-height: 1.6; }
+  .keys { display: grid; grid-template-columns: auto auto; gap: 6px 14px; text-align: left; font-size: 14px; color: #c9bba3; margin: 6px 0; }
+  .keys b { color: #f6d48a; }
+  button { font: inherit; font-weight: 800; font-size: 17px; color: #1d120a; background: #f6d48a; border: 0; border-radius: 14px; padding: 13px 28px; cursor: pointer; box-shadow: 0 8px 30px #f6d48a33; }
+  button:hover { background: #ffe3a6; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .row button { font-size: 15px; padding: 10px 18px; }
+  button.ghost { background: #ffffff14; color: #f3ead8; box-shadow: none; border: 1px solid #ffffff26; }
+  .best { font-size: 13px; color: #a3957e; min-height: 18px; }
+  #hud { position: fixed; top: 54px; left: 14px; z-index: 10; display: none; gap: 8px; flex-direction: column; pointer-events: none; }
+  #hud.on { display: flex; }
+  .chip { background: #0b0806cc; border: 1px solid #ffffff1f; border-radius: 10px; padding: 7px 11px; font-weight: 800; font-size: 14px; width: max-content; }
+  #keyChip { display: none; color: #f6d48a; }
+  #cross { position: fixed; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: #f3ead8aa; z-index: 10; display: none; pointer-events: none; }
+  #prompt { position: fixed; left: 50%; top: 58%; transform: translateX(-50%); z-index: 10; font-weight: 800; font-size: 16px; text-shadow: 0 2px 8px #000; pointer-events: none; white-space: nowrap; }
+  #toast { position: fixed; left: 50%; top: 22%; transform: translateX(-50%); z-index: 11; font-weight: 800; font-size: 20px; color: #f6d48a; text-shadow: 0 2px 10px #000; pointer-events: none; opacity: 0; transition: opacity .3s; text-align: center; }
+  #toast.on { opacity: 1; }
+  #hideView { position: fixed; inset: 0; z-index: 9; display: none; pointer-events: none;
+    background: linear-gradient(90deg, #000 0 42%, #0008 46%, transparent 48% 52%, #0008 54%, #000 58% 100%); }
+  #hideView.on { display: block; }
+  #hideView span { position: absolute; left: 50%; bottom: 14%; transform: translateX(-50%); font-weight: 800; font-size: 14px; color: #c9bba3; white-space: nowrap; }
+  #flash { position: fixed; inset: 0; z-index: 8; pointer-events: none; background: #9fc4ff; opacity: 0; transition: opacity .15s; }
+  #hurt { position: fixed; inset: 0; z-index: 8; pointer-events: none; opacity: 0; transition: opacity .5s;
+    background: radial-gradient(ellipse at center, transparent 35%, #8a0000 100%); }
+  #wind { position: fixed; inset: 0; z-index: 8; pointer-events: none; opacity: 0;
+    background: radial-gradient(ellipse at center, transparent 40%, #0a1830 100%); transition: opacity .4s; }
+  /* сенсорное управление */
+  #touch { display: none; }
+  #touch.on { display: block; }
+  #stick { position: fixed; left: 26px; bottom: 26px; width: 130px; height: 130px; border-radius: 50%; background: #ffffff10; border: 2px solid #ffffff30; z-index: 12; touch-action: none; }
+  #stick i { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; background: #f3ead855; }
+  .tbtn { position: fixed; right: 24px; z-index: 12; width: 66px; height: 66px; border-radius: 50%; display: grid; place-items: center; font-size: 28px;
+    background: #ffffff14; border: 2px solid #ffffff30; padding: 0; box-shadow: none; color: #fff; }
+  #tAct { bottom: 112px; width: 78px; height: 78px; font-size: 32px; } #tLight { bottom: 30px; right: 110px; } #tRun { bottom: 30px; right: 24px; }
+  #tPause { top: 54px; right: 14px; width: 44px; height: 44px; font-size: 18px; }
+  .tbtn.on { background: #f6d48a55; border-color: #f6d48a; }
+  #tAct.ready { background: #f6d48a44; border-color: #f6d48a; }
+  @media (max-height: 460px) { #stick { width: 110px; height: 110px; left: 18px; bottom: 18px; } #tAct { bottom: 92px; width: 66px; height: 66px; } .tbtn { width: 56px; height: 56px; font-size: 24px; } #tLight { right: 92px; } }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div id="hud">
+  <div class="chip" id="roomChip">🚪 Дверь 001</div>
+  <div class="chip" id="hpChip">❤️ 100</div>
+  <div class="chip" id="coinChip">🪙 0</div>
+  <div class="chip" id="keyChip">🔑 Ключ</div>
+  <div class="chip" id="lightChip">🔦 F — фонарик</div>
+</div>
+<div id="cross"></div>
+<div id="prompt"></div>
+<div id="toast"></div>
+<div id="hideView"><span>Ты в шкафу · E — выйти</span></div>
+<div id="flash"></div>
+<div id="hurt"></div>
+<div id="wind"></div>
+
+<div id="touch">
+  <div id="stick"><i></i></div>
+  <button class="tbtn" id="tAct" type="button" aria-label="Действие">✋</button>
+  <button class="tbtn" id="tLight" type="button" aria-label="Фонарик">🔦</button>
+  <button class="tbtn" id="tRun" type="button" aria-label="Бег">🏃</button>
+  <button class="tbtn" id="tPause" type="button" aria-label="Пауза">❚❚</button>
+</div>
+
+<div id="start" class="screen on">
+  <h1>Отель «Полночь»</h1>
+  <p>Один этаж, тридцать дверей и выход в конце. Ищи ключи в ящиках, собирай монеты и аптечки и слушай отель.</p>
+  <p style="font-size:14px">🌬️ <b>Сквозняк</b> — свет мигает и дует ветер: прячься в шкаф. · 🌑 <b>Тень</b> — в тёмных комнатах: свети на неё фонариком. · 👤 <b>Шёпот</b> — шепчет за спиной: не оборачивайся.</p>
+  <div class="keys" id="keysDesk">
+    <b>WASD</b><span>идти · Shift — быстрее</span>
+    <b>Мышь</b><span>смотреть</span>
+    <b>E / клик</b><span>открыть ящик, спрятаться, отпереть</span>
+    <b>F</b><span>фонарик</span>
+    <b>Esc</b><span>пауза</span>
+  </div>
+  <div class="keys" id="keysTouch" style="display:none">
+    <b>Джойстик</b><span>идти</span>
+    <b>Правая половина</b><span>смотреть</span>
+    <b>✋</b><span>действие · 🔦 — фонарик</span>
+  </div>
+  <button id="playBtn" type="button">Войти в отель</button>
+  <div class="row">
+    <button class="ghost" id="lbBtn" type="button">🏆 Лидеры и аккаунт</button>
+    <button class="ghost" id="mpBtn" type="button">👥 Мультиплеер</button>
+  </div>
+  <div class="best" id="mpText"></div>
+  <div class="best" id="bestText"></div>
+</div>
+
+<div id="pause" class="screen">
+  <h2>Пауза</h2>
+  <p id="pauseText">Нажми, чтобы вернуться в отель.</p>
+  <button id="resumeBtn" type="button">Продолжить</button>
+  <button class="ghost" id="restartBtn" type="button">Начать заново</button>
+  <button class="ghost" id="pauseLbBtn" type="button">🏆 Лидеры</button>
+</div>
+
+<div id="dead" class="screen">
+  <h2 style="color:#9fc4ff" id="deadTitle">Тебя унёс Сквозняк</h2>
+  <p id="deadText"></p>
+  <div class="best" id="deadStatus"></div>
+  <button id="againBtn" type="button">Попробовать снова</button>
+  <button class="ghost" id="deadLbBtn" type="button">🏆 Лидеры</button>
+</div>
+
+<div id="win" class="screen">
+  <h2 style="color:#f6d48a">Ты выбрался из отеля!</h2>
+  <p id="winText"></p>
+  <div class="best" id="winStatus"></div>
+  <button id="winAgainBtn" type="button">Ещё раз</button>
+  <button class="ghost" id="winLbBtn" type="button">🏆 Лидеры</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<script src="../shared/multiplayer.js"></script>
+<script src="game.js"></script>
+<script src="../shared/back.js" data-href="../"></script>
+</body>
+</html>
