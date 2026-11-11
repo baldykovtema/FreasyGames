@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <meta name="theme-color" content="#0d0f1c">
+  <title>RCFCG 3D — FreasyGames 3D</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="gl" aria-hidden="true"></canvas>
+
+  <!-- Вход -->
+  <div id="authScreen" class="screen">
+    <form id="authBox" autocomplete="on">
+      <a class="backLink" href="../">← FreasyGames 3D</a>
+      <div id="authTitle">RCFCG <span>3D</span></div>
+      <div id="authSub">Один аккаунт для всех игр FreasyGames</div>
+      <input id="usernameInput" class="authInput" type="text" placeholder="Ник (A-Z, 0-9, _)" autocomplete="username" autocapitalize="off" spellcheck="false" maxlength="30">
+      <input id="passwordInput" class="authInput" type="password" placeholder="Пароль (от 6 символов)" autocomplete="current-password" maxlength="72">
+      <button id="loginButton" class="btn primary" type="submit">Войти</button>
+      <div id="registerText">Нет аккаунта?</div>
+      <button id="registerButton" class="btn ghost" type="button">Зарегистрироваться</button>
+      <button id="backToLogin" class="btn ghost" type="button">Назад</button>
+      <div id="authMessage"></div>
+    </form>
+  </div>
+
+  <!-- Игра -->
+  <div id="game" class="screen">
+    <div id="playerStats" class="panel">
+      <div id="playerStatsName">Игрок</div>
+      <div class="statLine">Лучший процент: <span id="bestPercentageStat">0%</span></div>
+      <div class="statLine">Время игры: <span id="playTimeStat">0с</span></div>
+      <div class="statLine">Открытые кубы: <span id="cubesCompletedStat">0</span></div>
+    </div>
+    <div id="unlockInfo" class="panel"></div>
+    <div id="topRightControls">
+      <div class="donutTimers">
+        <div id="donutTimer" class="chip">🍩 --:--</div>
+        <div id="goldenDonutTimer" class="chip">Золотой 🍩 --:--</div>
+      </div>
+      <div class="topButtons">
+        <a class="btn small ghost" href="../">← Сайт</a>
+        <button id="logoutButton" class="btn small red" type="button">Выйти</button>
+      </div>
+    </div>
+    <div id="donut" role="button" tabindex="0" aria-label="Собрать пончик">🍩</div>
+    <div id="goldenDonut" role="button" tabindex="0" aria-label="Собрать золотой пончик">🍩</div>
+    <div id="donutBoostInfo" class="chip">🍩 Бонус: шанс x2.5!</div>
+    <div id="adminPanel" class="panel">
+      <div id="adminPanelTitle">⚙ Панель тестирования</div>
+      <button id="spawnDonutButton" class="btn small ghost" type="button">Вызвать пончик</button>
+      <button id="spawnGoldenDonutButton" class="btn small ghost" type="button">Вызвать золотой пончик</button>
+    </div>
+    <div id="dragHint">Крути кубы мышкой или пальцем</div>
+
+    <div id="gameArea"><div id="cubes"></div></div>
+
+    <div id="controls">
+      <label class="toggle" id="autoClickMode"><input type="checkbox" id="autoClickCheckbox" disabled><span>Автокликер</span></label>
+      <label class="toggle" id="fastMode"><input type="checkbox" id="fastModeCheckbox"><span>Быстрый режим</span></label>
+      <label class="toggle" id="rotateMode" title="Можно ли крутить кубы мышкой или пальцем"><input type="checkbox" id="rotateCheckbox" checked><span>Крутить кубы</span></label>
+      <label class="toggle" id="disableAllMode"><input type="checkbox" id="disableAllCheckbox"><span>Отключить всё кроме заново</span></label>
+      <button id="addCube" class="btn blue" type="button">Добавить куб 1/1</button>
+      <button id="removeCube" class="btn red" type="button">Убрать куб</button>
+      <button id="restart" class="btn primary" type="button">Заново</button>
+      <button id="leaderboardButton" class="btn green" type="button">Таблицы лидеров</button>
+    </div>
+  </div>
+
+  <!-- Лидеры -->
+  <div id="leaderboardScreen" class="screen">
+    <div id="leaderboardTitle">🏆 Таблица лидеров</div>
+    <div id="leaderboardTabs">
+      <button class="lbTab active" data-mode="percentage" type="button">Проценты</button>
+      <button class="lbTab" data-mode="time" type="button">Время</button>
+      <button class="lbTab" data-mode="cubes" type="button">Кубы</button>
+    </div>
+    <div id="podium"></div>
+    <ol id="lbList"></ol>
+    <div id="leaderboardMessage"></div>
+    <button id="leaderboardBack" class="btn ghost" type="button">Назад</button>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+/* 3D-поле: обычное DOM-поле остаётся для расчётов, но его не видно — вместо него холст three.js. */
+#gameScreen .game-area { position: relative; padding: 0; }
+#view3d { position: absolute; inset: 0; width: 100%; height: 100%; display: block; z-index: 1; touch-action: none; outline: none; }
+#gameScreen .lawn { background: none !important; border-color: transparent !important; box-shadow: none !important; pointer-events: none !important; }
+#gameScreen .lawn > * { visibility: hidden !important; pointer-events: none !important; }
+#view3dHint { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); z-index: 2; pointer-events: none;
+  padding: 6px 12px; border-radius: 100px; background: rgba(10, 20, 10, .55); color: #e8f5dc; font-size: 12px; white-space: nowrap;
+  animation: view3dHint 9s forwards; }
+@keyframes view3dHint { 0%, 80% { opacity: 1; } 100% { opacity: 0; } }
+#resetViewButton, #rotateToggleButton { font-size: 18px; padding: 6px 10px; }
+#resetViewButton[hidden], #view3dHint[hidden] { display: none; }
+#exitGameButton { white-space: nowrap; }

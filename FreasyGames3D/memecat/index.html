@@ -1,0 +1,1054 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Мемный Кот: Прыг 3D — FreasyGames 3D</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1b1033; font-family: "Segoe UI", Arial, sans-serif; color: #fff; user-select: none; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; -webkit-touch-callout: none; }
+  #g3, #c { position: fixed; inset: 0; }
+  #g3 { pointer-events: none; }
+  .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: safe center; flex-direction: column; gap: 14px; padding: 24px; overflow-y: auto; }
+  @media (max-height: 520px) and (orientation: landscape) { .screen { gap: 8px; padding: 12px; } }
+  .screen.on { display: flex; }
+  .dim { background: rgba(15, 6, 35, .72); }
+  h1 { margin: 0; font-size: clamp(36px, 7vw, 72px); font-weight: 900; letter-spacing: 2px; text-shadow: 0 6px 0 #ff5d8f, 0 10px 24px rgba(0,0,0,.5); text-align: center; }
+  h2 { margin: 0 0 6px; font-size: 32px; font-weight: 900; text-align: center; }
+  .sub { opacity: .85; margin-top: -4px; text-align: center; }
+  button { font: inherit; font-weight: 800; font-size: 20px; color: #2a1145; background: #ffd23f; border: 0; border-radius: 14px; padding: 12px 26px; cursor: pointer; box-shadow: 0 5px 0 #c99a00; min-width: 240px; }
+  button:hover { filter: brightness(1.08); }
+  button:active { transform: translateY(3px); box-shadow: 0 2px 0 #c99a00; }
+  button.alt { background: #fff; box-shadow: 0 5px 0 #b9a9d6; }
+  button.small { min-width: 0; font-size: 15px; padding: 8px 14px; border-radius: 10px; box-shadow: 0 3px 0 #c99a00; }
+  button.small.alt { box-shadow: 0 3px 0 #b9a9d6; }
+  button.sel { background: #5df2a5; box-shadow: 0 3px 0 #1f9e5f; }
+  button:disabled { opacity: .45; cursor: default; }
+  input, select { font: inherit; font-size: 18px; padding: 10px 12px; border-radius: 10px; border: 2px solid #b9a9d6; background: #fff; color: #2a1145; }
+  .panel { background: #2d1a52; border: 3px solid #6c4bb0; border-radius: 20px; padding: 22px; width: min(640px, 100%); max-height: 86vh; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .row.center { justify-content: center; }
+  .grow { flex: 1; min-width: 0; }
+  .cards { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
+  .card { background: #2d1a52; border: 3px solid #6c4bb0; border-radius: 18px; padding: 18px; width: 230px; display: flex; flex-direction: column; gap: 8px; cursor: pointer; }
+  .card:hover { border-color: #ffd23f; }
+  .card b { font-size: 22px; }
+  .bar { height: 10px; background: #1b1033; border-radius: 6px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: #5df2a5; }
+  .item { background: #3a2468; border-radius: 12px; padding: 10px 12px; display: flex; gap: 10px; align-items: center; }
+  .item .grow b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item small { opacity: .75; }
+  .msg { min-height: 22px; text-align: center; opacity: .9; }
+  #hud { position: fixed; top: 0; left: 0; right: 0; display: none; align-items: center; gap: 14px; padding: 12px 18px 12px 152px; pointer-events: none; }
+  #hud.on { display: flex; }
+  #hud .bar { flex: 1; max-width: 520px; margin: 0 auto; height: 14px; border: 2px solid rgba(255,255,255,.6); }
+  #hud button { pointer-events: auto; }
+  #hudText { font-weight: 800; min-width: 160px; text-shadow: 0 2px 0 rgba(0,0,0,.5); }
+  #editbar { position: fixed; top: 0; left: 0; right: 0; display: none; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; background: rgba(20, 8, 42, .88); border-bottom: 3px solid #6c4bb0; }
+  #editbar.on { display: flex; }
+  #editbar input { font-size: 15px; padding: 7px 10px; width: 180px; }
+  #editbar select { font-size: 15px; padding: 7px 8px; }
+  #edithint { position: fixed; bottom: 10px; left: 0; right: 0; text-align: center; display: none; opacity: .85; font-size: 14px; text-shadow: 0 2px 0 #000; pointer-events: none; }
+  #edithint.on { display: block; }
+  #toast { position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); background: #ffd23f; color: #2a1145; font-weight: 800; padding: 12px 20px; border-radius: 12px; display: none; max-width: 90vw; text-align: center; z-index: 10; }
+  #toast.on { display: block; }
+  .sep { width: 2px; align-self: stretch; background: #6c4bb0; margin: 0 4px; }
+</style>
+</head>
+<body>
+<canvas id="g3"></canvas>
+<canvas id="c"></canvas>
+
+<div id="menu" class="screen on">
+  <h1>МЕМНЫЙ КОТ: ПРЫГ 3D</h1>
+  <div class="sub">Прыгай через букву «А» и не грусти</div>
+  <button data-go="levels">Играть</button>
+  <button data-go="editor">Редактор</button>
+  <button data-go="search">Поиск уровней</button>
+  <button class="alt" data-go="account" id="accBtn">Аккаунт</button>
+  <button class="alt" id="lbBtn">🏆 Таблица лидеров</button>
+  <button class="alt" id="settingsBtn">Настройки</button>
+  <button class="alt small" id="muteBtn">Звук: вкл</button>
+</div>
+
+<div id="levels" class="screen dim">
+  <h2>Выбери уровень</h2>
+  <div class="cards" id="levelCards"></div>
+  <button class="alt" data-go="menu">Назад</button>
+</div>
+
+<div id="hud">
+  <div id="hudText">Попытка 1</div>
+  <div class="bar"><i id="hudBar" style="width:0"></i></div>
+  <button class="small alt" id="pauseBtn">❚❚</button>
+</div>
+
+<div id="pause" class="screen dim">
+  <h2>Пауза</h2>
+  <button id="resumeBtn">Продолжить</button>
+  <button class="alt" id="restartBtn">Заново</button>
+  <button class="alt" id="quitBtn">Выйти</button>
+</div>
+
+<div id="win" class="screen dim">
+  <h2 id="winTitle">Уровень пройден!</h2>
+  <div class="sub" id="winText"></div>
+  <button id="againBtn">Ещё раз</button>
+  <button class="alt" id="winQuitBtn">Выйти</button>
+</div>
+
+<div id="editbar">
+  <button class="small alt" id="edExit">← Меню</button>
+  <span class="sep"></span>
+  <span id="tools" class="row"></span>
+  <span class="sep"></span>
+  <button class="small alt" id="edLeft" title="Листать влево">◀</button>
+  <button class="small alt" id="edRight" title="Листать вправо">▶</button>
+  <input id="edName" maxlength="40" placeholder="Название уровня">
+  <select id="edSpeed" title="Скорость">
+    <option value="0.85">Медленно</option>
+    <option value="1">Нормально</option>
+    <option value="1.2">Быстро</option>
+  </select>
+  <button class="small" id="edTest">▶ Тест</button>
+  <button class="small" id="edPublish">Опубликовать</button>
+  <button class="small alt" id="edClear">Очистить</button>
+</div>
+<div id="edithint">ЛКМ: поставить · ПКМ: стереть · колесо или ← →: листать · 1–5: инструменты · опубликовать можно после прохождения в тесте</div>
+
+<div id="search" class="screen dim">
+  <div class="panel">
+    <h2>Уровни игроков</h2>
+    <div class="row">
+      <input id="searchInput" class="grow" maxlength="40" placeholder="Название или ник автора">
+      <button class="small" id="searchBtn">Поиск</button>
+    </div>
+    <div class="row center">
+      <button class="small sel" data-sort="new">Новые</button>
+      <button class="small alt" data-sort="top">Популярные</button>
+    </div>
+    <div class="msg" id="searchMsg"></div>
+    <div id="searchList" class="row" style="flex-direction:column;align-items:stretch"></div>
+    <button class="alt" data-go="menu">Назад</button>
+  </div>
+</div>
+
+<div id="account" class="screen dim">
+  <div class="panel" id="accOut">
+    <h2>Аккаунт</h2>
+    <div class="sub">Нужен, чтобы публиковать уровни. Подходит аккаунт из «Растений против Зомби». Почта не нужна: только ник и пароль.</div>
+    <input id="accName" maxlength="30" placeholder="Ник (A-Z, 0-9, _)">
+    <input id="accPass" type="password" placeholder="Пароль (от 6 символов)">
+    <div class="row center">
+      <button class="small" id="loginBtn">Войти</button>
+      <button class="small alt" id="registerBtn">Зарегистрироваться</button>
+    </div>
+    <div class="msg" id="accMsg"></div>
+    <button class="alt" data-go="menu">Назад</button>
+  </div>
+  <div class="panel" id="accIn">
+    <h2 id="accHello">Привет!</h2>
+    <div class="sub">Твои опубликованные уровни</div>
+    <div class="msg" id="myMsg"></div>
+    <div id="myList" class="row" style="flex-direction:column;align-items:stretch"></div>
+    <div class="row center">
+      <button class="small alt" id="logoutBtn">Выйти из аккаунта</button>
+    </div>
+    <button class="alt" data-go="menu">Назад</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="cat3d.js"></script>
+<script src="../shared/multiplayer.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<script>
+'use strict';
+
+/* ================= Настройки ================= */
+
+const SB_URL = 'https://ywqxrbmgmvpbeytxjkpi.supabase.co';
+const SB_KEY = 'sb_publishable_igyJK68YpyJYo-0KNrVZPA_rm6_gIRg';
+// Общие аккаунты с PVZ. Старый адрес остался для аккаунтов, созданных в первой версии игры.
+const EMAIL_DOMAIN = '@pvz-game.com', OLD_EMAIL_DOMAIN = '@memecat-game.com';
+
+const SPEED = 8.4, G = 65, JUMP_V = 20.5, PAD_V = 28, P = 0.9, DT = 1 / 240;
+const MAX_LEN = 600, MAX_H = 10, MAX_OBJS = 2500;
+const VIEW_TILES = 13.5, GROUND_TILES = 3;
+const TOOLS = [['B', 'Блок'], ['A', 'Буква «А»'], ['J', 'Батут'], ['F', 'Рыбка'], ['X', 'Ластик']];
+const DEATH_WORDS = ['МЯУ?!', 'А-А-А!', 'кот устал', 'ну и ладно', 'это всё буква А', 'мрррр...', 'ПФФ', 'ещё разок'];
+const THEMES = [
+  { sky: ['#3b1f7a', '#ff7eb6'], ground: '#5b2a9e', line: '#8a5ad8', block: '#47c6ff', blockDark: '#1f7fb3', bass: 45 },
+  { sky: ['#0c4a4a', '#5df2a5'], ground: '#0f6b55', line: '#2fb38c', block: '#ffd23f', blockDark: '#c99a00', bass: 41 },
+  { sky: ['#0a0a2a', '#4b2a8a'], ground: '#251654', line: '#5a3aa8', block: '#ff5d8f', blockDark: '#b3305a', bass: 38 },
+];
+
+/* Встроенные уровни. Каждое слово — столбец снизу вверх: # блок, A буква, ^ батут, f рыбка, . пусто, _ пустой столбец, *N повтор. */
+const BUILTIN = [
+  { name: 'Мурчащий старт', diff: 'Легко', speed: 1, theme: 0, src:
+    '_*14 A _*10 A _*10 A*2 _*10 # _*9 #*3 _*9 A*2 _*8 ..f _*8 # _*3 ## _*3 ## _*10 A*3 _*10 ^ _*1 A*4 _*10 #*2 A*3 #*2 _*10 A _*4 A _*4 A _*8 ..f _*4 A*2 _*14' },
+  { name: 'Кошачья мята', diff: 'Нормально', speed: 1, theme: 1, src:
+    '_*12 A*2 _*8 A*3 _*8 # # A A # # _*8 ^ _*2 A*3 _*10 ## _*3 ## _*3 ## _*8 .# .# .# A .# .# _*6 A*2 _*3 A*2 _*8 ...f _*3 # #^ _*2 A*3 _*10 .# .# _*1 ..# ..# _*1 ...# ...# _*8 A*2 _*5 A _*5 A*2 _*10 ^ _*1 A*4 _*8 ## _*4 A*2 _*10 ..f _*14' },
+  { name: 'Ночной тыгыдык', diff: 'Сложно', speed: 1.15, theme: 2, src:
+    '_*12 A _*6 A*2 _*6 A*3 _*8 # #A #A # _*6 ## A ## _*8 ^ _*1 A*4 _*8 ## _*2 ### _*2 ## _*8 .# .# A A .# .# A A .# .# _*6 A*2 _*4 A*3 _*4 A*2 _*8 ..f _*2 ^ _*2 ..# ..# A A ..# _*6 # _*1 #^ _*1 A*4 _*10 A*3 _*3 A*3 _*10 ..f _*14' },
+];
+
+/* ================= Утилиты ================= */
+
+const $ = (id) => document.getElementById(id);
+function load(key, fallback) {
+  try { const v = localStorage.getItem(key); return v === null ? fallback : JSON.parse(v); } catch { return fallback; }
+}
+function save(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* хранилище недоступно */ }
+}
+let toastTimer = 0;
+function toast(text) {
+  const t = $('toast'); t.textContent = text; t.classList.add('on');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), 2800);
+}
+function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+/* ================= Уровни ================= */
+
+function parseSrc(src) {
+  const objs = []; let x = 0;
+  for (const tok of src.trim().split(/\s+/)) {
+    const [spec, n] = tok.split('*');
+    const count = n === undefined ? 1 : +n;
+    for (let i = 0; i < count; i++, x++) {
+      if (spec === '_') continue;
+      [...spec].forEach((ch, y) => { const t = { '#': 'B', A: 'A', '^': 'J', f: 'F' }[ch]; if (t) objs.push([t, x, y]); });
+    }
+  }
+  return { objs, len: x };
+}
+
+function prepare(lv) {
+  const len = lv.len || Math.max(30, lv.objs.reduce((m, o) => Math.max(m, o[1]), 0) + 12);
+  const cols = Array.from({ length: len + 4 }, () => []);
+  for (const o of lv.objs) if (o[1] < cols.length) cols[o[1]].push(o);
+  return { ...lv, len, cols, fishTotal: lv.objs.filter((o) => o[0] === 'F').length };
+}
+
+function sanitize(d) {
+  if (!d || !Array.isArray(d.objs)) throw new Error('Уровень повреждён');
+  const objs = [], seen = new Set();
+  for (const o of d.objs.slice(0, MAX_OBJS)) {
+    if (!Array.isArray(o)) continue;
+    const [t, x, y] = o;
+    if (!['B', 'A', 'J', 'F'].includes(t) || !Number.isInteger(x) || !Number.isInteger(y)) continue;
+    if (x < 0 || x >= MAX_LEN || y < 0 || y >= MAX_H || seen.has(x + ',' + y)) continue;
+    seen.add(x + ',' + y); objs.push([t, x, y]);
+  }
+  return { objs, speed: [0.85, 1, 1.2].includes(d.speed) ? d.speed : 1 };
+}
+
+const builtins = BUILTIN.map((b) => prepare({ ...b, ...parseSrc(b.src) }));
+
+/* ================= Физика ================= */
+
+function newRun() { return { x: 0, y: 0, vy: 0, ground: true, dead: false, won: false, got: new Set(), ev: null }; }
+
+function overlap(ax, ay, aw, ah, bx, by, bw, bh) { return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by; }
+
+function step(r, lv, hold) {
+  r.x += SPEED * lv.speed * DT;
+  r.vy -= G * DT; r.y += r.vy * DT; r.ground = false;
+  if (r.y <= 0) { r.y = 0; r.vy = 0; r.ground = true; }
+  const c0 = Math.max(0, Math.floor(r.x) - 1), c1 = Math.min(lv.cols.length - 1, Math.floor(r.x + P) + 1);
+  for (let c = c0; c <= c1; c++) {
+    for (const o of lv.cols[c]) {
+      const [t, ox, oy] = o;
+      if (t === 'B') {
+        if (!overlap(r.x, r.y, P, P, ox + 0.001, oy + 0.001, 0.998, 0.998)) continue;
+        if (r.vy <= 0 && r.y > oy + 1 - 0.3) { r.y = oy + 1; r.vy = 0; r.ground = true; } else { r.dead = true; return; }
+      } else if (t === 'A') {
+        if (overlap(r.x + 0.12, r.y + 0.12, P - 0.24, P - 0.24, ox + 0.3, oy, 0.4, 0.62)) { r.dead = true; return; }
+      } else if (t === 'J') {
+        if (r.vy <= 0 && overlap(r.x, r.y, P, P, ox, oy, 1, 0.35)) { r.vy = PAD_V; r.ground = false; r.ev && r.ev.push('pad'); }
+      } else if (t === 'F') {
+        const k = ox + ',' + oy;
+        if (!r.got.has(k) && overlap(r.x, r.y, P, P, ox + 0.2, oy + 0.2, 0.6, 0.6)) { r.got.add(k); r.ev && r.ev.push('fish'); }
+      }
+    }
+  }
+  if (hold && r.ground) { r.vy = JUMP_V; r.ground = false; r.ev && r.ev.push('jump'); }
+  if (r.x >= lv.len) r.won = true;
+}
+
+/* ================= Звук ================= */
+
+let actx = null, muted = load('catjump-muted', false), noiseBuf = null;
+function audio() {
+  if (!actx) {
+    try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch { return null; }
+    noiseBuf = actx.createBuffer(1, actx.sampleRate * 0.5, actx.sampleRate);
+    const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  if (actx.state === 'suspended') actx.resume();
+  return actx;
+}
+function tone(freq, dur, type = 'square', vol = 0.06, slide = 0, at = 0) {
+  const a = audio(); if (!a || muted) return;
+  const t = (at || a.currentTime), o = a.createOscillator(), g = a.createGain();
+  o.type = type; o.frequency.setValueAtTime(freq, t);
+  if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(20, freq * slide), t + dur);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(a.destination); o.start(t); o.stop(t + dur + 0.02);
+}
+function noise(dur, vol = 0.05, at = 0, hp = 4000) {
+  const a = audio(); if (!a || muted) return;
+  const t = at || a.currentTime, s = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain();
+  s.buffer = noiseBuf; f.type = 'highpass'; f.frequency.value = hp;
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  s.connect(f).connect(g).connect(a.destination); s.start(t); s.stop(t + dur);
+}
+const sfx = {
+  jump: () => tone(520, 0.12, 'square', 0.05, 1.6),
+  pad: () => tone(300, 0.25, 'triangle', 0.09, 3),
+  fish: () => { tone(880, 0.08, 'square', 0.05); tone(1320, 0.12, 'square', 0.05, 1, audio() ? actx.currentTime + 0.07 : 0); },
+  death: () => { noise(0.4, 0.12, 0, 300); tone(440, 0.4, 'sawtooth', 0.06, 0.3); },
+  win: () => { const a = audio(); if (!a) return; [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.18, 'square', 0.05, 1, a.currentTime + i * 0.11)); },
+};
+
+const music = { on: false, next: 0, stepI: 0, root: 45, timer: 0 };
+const BASS = [0, 0, 12, 0, 7, 0, 12, 10, 0, 0, 12, 0, 5, 7, 10, 12];
+function midi(n) { return 440 * Math.pow(2, (n - 69) / 12); }
+function startMusic(root) {
+  const a = audio(); if (!a) return;
+  music.on = true; music.root = root; music.stepI = 0; music.next = a.currentTime + 0.05;
+  clearInterval(music.timer); music.timer = setInterval(tickMusic, 25);
+}
+function stopMusic() { music.on = false; clearInterval(music.timer); }
+function tickMusic() {
+  if (!music.on || !actx) return;
+  const stepLen = 60 / 132 / 4;
+  while (music.next < actx.currentTime + 0.12) {
+    const i = music.stepI % 16, t = music.next;
+    tone(midi(music.root + BASS[i]), stepLen * 0.9, 'sawtooth', 0.035, 1, t);
+    if (i % 4 === 0) tone(110, 0.12, 'sine', 0.18, 0.3, t);
+    if (i % 4 === 2) noise(0.04, 0.03, t);
+    if (i % 8 === 4) noise(0.12, 0.05, t, 1500);
+    music.next += stepLen; music.stepI++;
+  }
+}
+
+/* ================= Отрисовка ================= */
+
+const cv = $('c'), ctx = cv.getContext('2d');
+Cat3D.init($('g3'));
+let W = 0, H = 0, TS = 40, GY = 120;
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  W = cv.width = Math.floor(innerWidth * dpr); H = cv.height = Math.floor(innerHeight * dpr);
+  // На узком экране (телефон вертикально) клетка меньше, иначе кот у правого края и препятствий не видно.
+  // Не ноль, даже если окно свёрнуто в 0 px: иначе W / TS бесконечно и цикл сетки земли не кончается.
+  TS = Math.max(1, Math.min(H / VIEW_TILES, W / 16));
+  GY = GROUND_TILES * TS + (H - VIEW_TILES * TS) * 0.4;
+}
+addEventListener('resize', resize); resize();
+
+function sx(x, camX) { return (x - camX) * TS; }
+function sy(y, camY) { return H - GY + camY * TS - y * TS; }
+
+function drawBackground(theme, camX, camY, time) {
+  const th = THEMES[theme];
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, th.sky[0]); grad.addColorStop(1, th.sky[1]);
+  ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
+  // Далёкие лапки и звёзды двигаются медленнее мира.
+  ctx.globalAlpha = 0.18; ctx.fillStyle = '#fff';
+  for (let i = 0; i < 18; i++) {
+    const px = ((i * 397 - camX * TS * 0.2) % (W + 200) + W + 200) % (W + 200) - 100;
+    const py = (i * 173) % (H * 0.6) + 30 + camY * TS * 0.1;
+    paw(px, py, TS * (0.3 + (i % 3) * 0.12));
+  }
+  ctx.globalAlpha = 0.12;
+  for (let i = 0; i < 6; i++) {
+    const px = ((i * 640 - camX * TS * 0.45) % (W + 600) + W + 600) % (W + 600) - 300;
+    ctx.beginPath(); ctx.arc(px, H - GY + camY * TS, TS * (3 + (i % 3)), Math.PI, 0); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  const gy = sy(0, camY);
+  ctx.fillStyle = th.ground; ctx.fillRect(0, gy, W, H - gy);
+  ctx.fillStyle = th.line; ctx.fillRect(0, gy, W, Math.max(3, TS * 0.08));
+  ctx.strokeStyle = th.line; ctx.lineWidth = 2; ctx.globalAlpha = 0.5;
+  const off = -((camX % 1) + 1) % 1;
+  for (let i = 0; i <= W / TS + 2; i++) { const x = (i + off) * TS; ctx.beginPath(); ctx.moveTo(x, gy); ctx.lineTo(x - TS * 0.6, H); ctx.stroke(); }
+  ctx.globalAlpha = 1;
+}
+
+function paw(x, y, r) {
+  ctx.beginPath(); ctx.ellipse(x, y, r, r * 0.8, 0, 0, Math.PI * 2); ctx.fill();
+  for (let i = 0; i < 4; i++) { const a = -2.4 + i * 0.55; ctx.beginPath(); ctx.arc(x + Math.cos(a) * r * 1.35, y + Math.sin(a) * r * 1.25, r * 0.36, 0, Math.PI * 2); ctx.fill(); }
+}
+
+function drawObj(o, theme, camX, camY, time) {
+  const [t, ox, oy] = o, x = sx(ox, camX), y = sy(oy + 1, camY), th = THEMES[theme];
+  if (t === 'B') {
+    ctx.fillStyle = th.blockDark; ctx.fillRect(x, y, TS, TS);
+    ctx.fillStyle = th.block; ctx.fillRect(x + TS * 0.08, y + TS * 0.08, TS * 0.84, TS * 0.84);
+    ctx.strokeStyle = th.blockDark; ctx.lineWidth = Math.max(2, TS * 0.06);
+    ctx.strokeRect(x + TS * 0.28, y + TS * 0.28, TS * 0.44, TS * 0.44);
+  } else if (t === 'A') {
+    ctx.font = `900 ${TS * 1.12}px "Arial Black", Arial, sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.lineWidth = TS * 0.12; ctx.strokeStyle = '#2a0010'; ctx.lineJoin = 'round';
+    ctx.strokeText('А', x + TS / 2, y + TS * 0.98);
+    ctx.fillStyle = '#ff3355'; ctx.fillText('А', x + TS / 2, y + TS * 0.98);
+  } else if (t === 'J') {
+    ctx.fillStyle = '#ffd23f';
+    ctx.beginPath(); ctx.ellipse(x + TS / 2, y + TS, TS * 0.48, TS * 0.32, 0, Math.PI, 0); ctx.fill();
+    ctx.fillStyle = '#c99a00'; ctx.fillRect(x + TS * 0.05, y + TS * 0.9, TS * 0.9, TS * 0.1);
+  } else if (t === 'F') {
+    fish(x + TS / 2, y + TS / 2 + Math.sin(time * 4 + ox) * TS * 0.08, TS * 0.32);
+  }
+}
+
+function fish(x, y, r) {
+  ctx.fillStyle = '#9ff3ff';
+  ctx.beginPath(); ctx.ellipse(x, y, r, r * 0.6, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(x - r * 0.8, y); ctx.lineTo(x - r * 1.5, y - r * 0.6); ctx.lineTo(x - r * 1.5, y + r * 0.6); ctx.fill();
+  ctx.fillStyle = '#123'; ctx.beginPath(); ctx.arc(x + r * 0.45, y - r * 0.12, r * 0.13, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawFinish(lv, camX, camY, time) {
+  const x = sx(lv.len, camX); if (x > W + TS * 2 || x < -TS * 2) return;
+  const top = sy(MAX_H, camY), bottom = sy(0, camY), cell = TS / 2;
+  for (let yy = top, row = 0; yy < bottom; yy += cell, row++) {
+    for (let c = 0; c < 2; c++) { ctx.fillStyle = (row + c) % 2 ? '#fff' : '#111'; ctx.fillRect(x + c * cell, yy, cell, Math.min(cell, bottom - yy)); }
+  }
+}
+
+function drawCat(px, py, size, rot, mood) {
+  ctx.save(); ctx.translate(px, py); ctx.rotate(rot);
+  const s = size, h = s / 2;
+  ctx.fillStyle = '#e07b00';
+  ctx.beginPath(); ctx.moveTo(-h, -h * 0.6); ctx.lineTo(-h * 0.75, -h * 1.45); ctx.lineTo(-h * 0.15, -h * 0.9); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(h, -h * 0.6); ctx.lineTo(h * 0.75, -h * 1.45); ctx.lineTo(h * 0.15, -h * 0.9); ctx.fill();
+  ctx.fillStyle = '#ff9f1c'; roundRect(-h, -h, s, s, s * 0.18); ctx.fill();
+  ctx.strokeStyle = '#a85a00'; ctx.lineWidth = Math.max(2, s * 0.06); roundRect(-h, -h, s, s, s * 0.18); ctx.stroke();
+  ctx.fillStyle = '#e07b00';
+  for (let i = -1; i <= 1; i++) ctx.fillRect(i * s * 0.18 - s * 0.04, -h, s * 0.08, s * 0.2);
+  // Глаза: огромные мемные, с крошечными зрачками.
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(-s * 0.2, -s * 0.05, s * 0.17, 0, Math.PI * 2); ctx.arc(s * 0.2, -s * 0.05, s * 0.17, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#111';
+  const pr = mood === 'dead' ? s * 0.02 : s * 0.055, look = s * 0.05;
+  ctx.beginPath(); ctx.arc(-s * 0.2 + look, -s * 0.05, pr, 0, Math.PI * 2); ctx.arc(s * 0.2 + look, -s * 0.05, pr, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#ff6f91';
+  ctx.beginPath(); ctx.arc(-s * 0.32, s * 0.2, s * 0.07, 0, Math.PI * 2); ctx.arc(s * 0.32, s * 0.2, s * 0.07, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#3a1c00'; ctx.lineWidth = Math.max(1.5, s * 0.045); ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.arc(-s * 0.06, s * 0.16, s * 0.06, 0, Math.PI); ctx.arc(s * 0.06, s * 0.16, s * 0.06, 0, Math.PI); ctx.stroke();
+  ctx.beginPath();
+  for (const d of [-1, 1]) { ctx.moveTo(d * s * 0.25, s * 0.12); ctx.lineTo(d * s * 0.62, s * 0.06); ctx.moveTo(d * s * 0.25, s * 0.2); ctx.lineTo(d * s * 0.62, s * 0.24); }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+
+let particles = [];
+function burst(x, y, color, n) {
+  if (Cat3D.ready()) { Cat3D.burst(x, y, color, n); return; }
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, v = 2 + Math.random() * 7;
+    particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v + 3, life: 0.6 + Math.random() * 0.5, color });
+  }
+}
+function drawParticles(dt, camX, camY) {
+  particles = particles.filter((p) => (p.life -= dt) > 0);
+  for (const p of particles) {
+    p.vy -= 20 * dt; p.x += p.vx * dt; p.y += p.vy * dt;
+    ctx.globalAlpha = Math.min(1, p.life * 2); ctx.fillStyle = p.color;
+    ctx.fillRect(sx(p.x, camX) - TS * 0.08, sy(p.y, camY) - TS * 0.08, TS * 0.16, TS * 0.16);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawLevel(lv, camX, camY, time) {
+  const from = Math.max(0, Math.floor(camX) - 1), to = Math.min(lv.cols.length - 1, Math.ceil(camX + W / TS) + 1);
+  for (let c = from; c <= to; c++) for (const o of lv.cols[c]) if (!(o[0] === 'F' && game && game.run.got.has(o[1] + ',' + o[2]))) drawObj(o, lv.theme, camX, camY, time);
+  drawFinish(lv, camX, camY, time);
+}
+
+/* ================= Игра ================= */
+
+let mode = 'menu', game = null, holding = false, acc = 0, time = 0;
+const progress = load('catjump-progress', {});
+
+function startGame(lv, src, extra = {}) {
+  game = { lv, src, run: newRun(), attempt: 1, deadT: 0, paused: false, won: false, camY: 0, rot: 0, word: '', best: 0, ...extra };
+  game.run.ev = [];
+  particles = []; acc = 0; holding = false;
+  // Иначе пробел для прыжка «нажимает» кнопку, которая осталась в фокусе.
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  setMode('play');
+  startMusic(THEMES[lv.theme].bass);
+}
+
+function restart() {
+  game.run = newRun(); game.run.ev = []; game.attempt++; game.deadT = 0; game.won = false; game.rot = 0; game.camY = 0;
+  acc = 0; particles = []; show(null);
+  startMusic(THEMES[game.lv.theme].bass);
+}
+
+function percent() { return Math.min(100, Math.floor(game.run.x / game.lv.len * 100)); }
+
+function onDeath() {
+  const r = game.run; sfx.death(); stopMusic();
+  burst(r.x + P / 2, r.y + P / 2, '#ff9f1c', 30); burst(r.x + P / 2, r.y + P / 2, '#fff', 12);
+  game.deadT = 1.0; game.word = DEATH_WORDS[Math.floor(Math.random() * DEATH_WORDS.length)];
+  game.best = Math.max(game.best, percent()); saveBest(percent(), 0);
+}
+
+function onWin() {
+  game.won = true; sfx.win(); stopMusic(); holding = false;
+  const fishGot = game.run.got.size;
+  saveBest(100, fishGot);
+  $('winTitle').textContent = game.src === 'editor' ? 'Тест пройден!' : 'Уровень пройден!';
+  let text = `Попыток: ${game.attempt}`;
+  if (game.lv.fishTotal) text += ` · Рыбок: ${fishGot} из ${game.lv.fishTotal}`;
+  if (game.src === 'editor') { editor.verified = true; text += ' · теперь уровень можно опубликовать'; }
+  $('winText').textContent = text;
+  $('winQuitBtn').textContent = game.src === 'editor' ? 'В редактор' : game.src === 'online' ? 'К поиску' : 'К уровням';
+  show('win');
+}
+
+function saveBest(pct, fishGot) {
+  if (game.src !== 'builtin') return;
+  const p = progress[game.idx] || { best: 0, fish: 0 };
+  p.best = Math.max(p.best, pct); p.fish = Math.max(p.fish, fishGot);
+  progress[game.idx] = p; save('catjump-progress', progress);
+  // Отправляем только когда сумма выросла, а не после каждой попытки.
+  const t = progressTotals(), key = t.new_progress + '/' + t.new_fish;
+  if (key !== lastTotals) { lastTotals = key; lb.submit(t); }
+}
+let lastTotals = '';
+
+/* ================= Таблица лидеров ================= */
+
+// Сумма лучших процентов и рыбок по встроенным уровням: сервер хранит лучшие значения игрока.
+function progressTotals() {
+  let pct = 0, fish = 0;
+  builtins.forEach((_, i) => { const p = progress[i]; if (p) { pct += p.best; fish += p.fish; } });
+  return { new_progress: Math.round(pct), new_fish: fish };
+}
+const lb = FreasyLeaderboard({
+  key: 'catjump',
+  boards: [
+    { id: 'progress', title: 'Прогресс', column: 'best_progress', order: 'desc', note: 'Сумма лучших результатов на встроенных уровнях: 100% за каждый пройденный.', format: (v) => v + '%' },
+    { id: 'fish', title: 'Рыбки', column: 'best_fish', order: 'desc', note: 'Сколько рыбок собрано на встроенных уровнях.', format: (v) => v + ' 🐟' },
+  ],
+  bests: () => progressTotals(),
+  onStatus: () => {},
+});
+
+function quitGame() {
+  stopMusic(); holding = false;
+  const src = game.src; game = null;
+  if (src === 'editor') setMode('editor');
+  else { setMode('menu'); show(src === 'online' ? 'search' : 'levels'); }
+}
+
+function updatePlay(dt) {
+  const g = game;
+  if (g.paused || g.won) return;
+  if (g.run.dead) { g.deadT -= dt; if (g.deadT <= 0) restart(); return; }
+  acc += dt;
+  while (acc >= DT) {
+    acc -= DT;
+    step(g.run, g.lv, holding);
+    for (const e of g.run.ev) {
+      sfx[e]();
+      if (e === 'fish') burst(g.run.x + P, g.run.y + P / 2, '#9ff3ff', 12);
+    }
+    g.run.ev.length = 0;
+    if (g.run.dead) { onDeath(); break; }
+    if (g.run.won) { onWin(); break; }
+  }
+  const r = g.run;
+  if (r.ground) g.rot = Math.round(g.rot / (Math.PI / 2)) * (Math.PI / 2);
+  else g.rot += dt * 8.5 * g.lv.speed;
+  const wantY = Math.max(0, r.y - 6);
+  g.camY += (wantY - g.camY) * Math.min(1, dt * 5);
+  $('hudText').textContent = `Попытка ${g.attempt} · ${percent()}%`;
+  $('hudBar').style.width = percent() + '%';
+}
+
+function renderPlay(dt) {
+  const g = game, r = g.run, camX = r.x - 6;
+  if (!Cat3D.ready()) { renderPlay2D(dt); return; }
+  ctx.clearRect(0, 0, W, H);
+  const ghosts = ghostList();
+  Cat3D.render({ theme: g.lv.theme, lv: g.lv, catX: r.x, catY: r.y, camY: g.camY, rot: g.rot, dead: r.dead, got: r.got, ghosts, time });
+  const dpr = window.devicePixelRatio || 1;
+  for (const p of ghosts) {
+    const q = Cat3D.project(p.x + P / 2, p.y + P + 0.35, -0.9); if (q.behind) continue;
+    ctx.font = `800 ${Math.max(12, TS * 0.38)}px "Segoe UI", Arial, sans-serif`; ctx.textAlign = 'center';
+    ctx.lineWidth = Math.max(3, TS * 0.08); ctx.strokeStyle = 'rgba(20,8,42,.8)'; ctx.strokeText(p.name, q.x * dpr, q.y * dpr);
+    ctx.fillStyle = p.color; ctx.fillText(p.name, q.x * dpr, q.y * dpr);
+  }
+  if (r.dead) {
+    ctx.font = `900 ${TS * 1.1}px "Arial Black", Arial, sans-serif`; ctx.textAlign = 'center';
+    ctx.lineWidth = TS * 0.14; ctx.strokeStyle = '#2a1145'; ctx.strokeText(g.word, W / 2, H * 0.4);
+    ctx.fillStyle = '#ffd23f'; ctx.fillText(g.word, W / 2, H * 0.4);
+  }
+  if (g.attempt && r.x < 10) {
+    const hintX = Math.min(8, W / TS / 2 - 6);
+    ctx.font = `800 ${TS * 0.7}px "Segoe UI", Arial, sans-serif`; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,.85)';
+    ctx.lineWidth = TS * 0.1; ctx.strokeStyle = 'rgba(20,8,42,.55)';
+    const a = Cat3D.project(hintX + 2, 5.2, 0);
+    ctx.strokeText(`Попытка ${g.attempt}`, a.x * dpr, a.y * dpr); ctx.fillText(`Попытка ${g.attempt}`, a.x * dpr, a.y * dpr);
+    if (g.attempt === 1 && g.src === 'builtin' && g.idx === 0) {
+      const b = Cat3D.project(hintX + 2, 4.2, 0);
+      ctx.strokeText('Пробел, ↑ или клик — прыжок', b.x * dpr, b.y * dpr); ctx.fillText('Пробел, ↑ или клик — прыжок', b.x * dpr, b.y * dpr);
+    }
+  }
+}
+
+// Запасной 2D-вид, если браузер не умеет WebGL.
+function renderPlay2D(dt) {
+  const g = game, r = g.run, camX = r.x - 6;
+  drawBackground(g.lv.theme, camX, g.camY, time);
+  drawLevel(g.lv, camX, g.camY, time);
+  drawGhosts(camX, g.camY);
+  if (!r.dead) drawCat(sx(r.x + P / 2, camX), sy(r.y + P / 2, g.camY), P * TS, g.rot, 'ok');
+  drawParticles(dt, camX, g.camY);
+  if (r.dead) {
+    ctx.font = `900 ${TS * 1.1}px "Arial Black", Arial, sans-serif`; ctx.textAlign = 'center';
+    ctx.lineWidth = TS * 0.14; ctx.strokeStyle = '#2a1145'; ctx.strokeText(g.word, W / 2, H * 0.4);
+    ctx.fillStyle = '#ffd23f'; ctx.fillText(g.word, W / 2, H * 0.4);
+  }
+}
+
+function ghostList() {
+  if (!game.lid) return [];
+  const out = [];
+  for (const p of mp.peers()) {
+    const s = p.s;
+    if (s.st !== 'play' || s.lv !== game.lid || s.dead) continue;
+    out.push({ x: s.x, y: s.y, rot: s.rot || 0, name: p.name, color: p.color });
+  }
+  return out;
+}
+
+// Other players in the room who play the same level run next to you as see-through cats.
+function drawGhosts(camX, camY) {
+  if (!game.lid) return;
+  for (const p of mp.peers()) {
+    const s = p.s;
+    if (s.st !== 'play' || s.lv !== game.lid || s.dead) continue;
+    const x = sx(s.x + P / 2, camX), y = sy(s.y + P / 2, camY);
+    if (x < -TS * 2 || x > W + TS * 2) continue;
+    ctx.save(); ctx.globalAlpha = 0.45; drawCat(x, y, P * TS, s.rot, 'ok'); ctx.restore();
+    ctx.font = `800 ${Math.max(12, TS * 0.38)}px "Segoe UI", Arial, sans-serif`; ctx.textAlign = 'center';
+    ctx.lineWidth = Math.max(3, TS * 0.08); ctx.strokeStyle = 'rgba(20,8,42,.8)'; ctx.strokeText(p.name, x, y - TS * 0.85);
+    ctx.fillStyle = p.color; ctx.fillText(p.name, x, y - TS * 0.85);
+  }
+}
+
+function mpState() {
+  if (mode === 'play' && game) {
+    const r = game.run;
+    return { st: 'play', lv: game.lid || '', ln: game.lv.name || '', run: game.attempt, x: r.x, y: r.y, rot: game.rot, pct: game.won ? 100 : percent(), dead: r.dead ? 1 : 0, won: game.won ? 1 : 0 };
+  }
+  return { st: mode === 'editor' ? 'edit' : 'menu' };
+}
+
+function renderMenu(dt) {
+  const camX = time * SPEED * 0.6;
+  const jump = Math.max(0, Math.sin(time * 3.2)) * 2.2;
+  const rot = jump > 0.05 ? (time * 3.2 % Math.PI) * 1.0 : 0;
+  if (Cat3D.ready()) {
+    ctx.clearRect(0, 0, W, H);
+    Cat3D.render({ theme: Math.floor(time / 12) % 3, lv: null, catX: camX % 600, catY: jump, camY: 0, rot, dead: false, got: null, ghosts: [], time });
+    return;
+  }
+  drawBackground(Math.floor(time / 12) % 3, camX, 0, time);
+  drawCat(W * 0.18, sy(jump + P / 2, 0), P * TS * 1.4, rot, 'ok');
+}
+
+/* ================= Редактор ================= */
+
+const editor = { name: '', speed: 1, cells: new Map(), camX: -2, tool: 'B', verified: false, painting: 0, hover: null };
+(function loadDraft() {
+  const d = load('catjump-draft', null);
+  if (!d) return;
+  try {
+    const s = sanitize(d); editor.name = String(d.name || '').slice(0, 40); editor.speed = s.speed;
+    for (const [t, x, y] of s.objs) editor.cells.set(x + ',' + y, t);
+  } catch { /* черновик повреждён, начинаем с пустого */ }
+})();
+
+function editorData() {
+  const objs = [...editor.cells].map(([k, t]) => { const [x, y] = k.split(',').map(Number); return [t, x, y]; });
+  return { objs, speed: editor.speed };
+}
+function saveDraft() { save('catjump-draft', { ...editorData(), name: editor.name }); }
+function editorLevel() { return prepare({ ...editorData(), theme: 1, name: editor.name || 'Мой уровень' }); }
+
+function editCell(x, y, button) {
+  if (x < 0 || x >= MAX_LEN || y < 0 || y >= MAX_H) return;
+  const k = x + ',' + y, erase = button === 2 || editor.tool === 'X';
+  if (erase) { if (!editor.cells.delete(k)) return; }
+  else {
+    if (editor.cells.get(k) === editor.tool) return;
+    if (editor.cells.size >= MAX_OBJS && !editor.cells.has(k)) { toast('Слишком много объектов'); return; }
+    editor.cells.set(k, editor.tool);
+  }
+  editor.verified = false; saveDraft();
+}
+
+function cellAt(e) {
+  const dpr = window.devicePixelRatio || 1, px = e.clientX * dpr, py = e.clientY * dpr;
+  return { x: Math.floor(px / TS + editor.camX), y: Math.floor((H - GY - py) / TS) };
+}
+
+function renderEditor() {
+  const lv = editorLevel(), camX = editor.camX;
+  drawBackground(1, camX, 0, time);
+  ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 1;
+  for (let i = Math.floor(camX); i <= camX + W / TS + 1; i++) { ctx.beginPath(); ctx.moveTo(sx(i, camX), sy(MAX_H, 0)); ctx.lineTo(sx(i, camX), sy(0, 0)); ctx.stroke(); }
+  for (let j = 0; j <= MAX_H; j++) { ctx.beginPath(); ctx.moveTo(0, sy(j, 0)); ctx.lineTo(W, sy(j, 0)); ctx.stroke(); }
+  const saved = game; game = null; drawLevel(lv, camX, 0, time); game = saved;
+  drawCat(sx(P / 2, camX), sy(P / 2, 0), P * TS, 0, 'ok');
+  if (editor.hover) {
+    const { x, y } = editor.hover;
+    if (y >= 0 && y < MAX_H && x >= 0) { ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 3; ctx.strokeRect(sx(x, camX), sy(y + 1, 0), TS, TS); }
+  }
+  ctx.font = `700 ${TS * 0.4}px "Segoe UI", Arial, sans-serif`; ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(255,255,255,.8)';
+  ctx.fillText(`Длина: ${lv.len} · объектов: ${editor.cells.size}`, TS * 0.4, sy(-1.2, 0));
+}
+
+function openEditor() {
+  $('edName').value = editor.name; $('edSpeed').value = String(editor.speed);
+  setMode('editor');
+}
+
+function selectTool(t) {
+  editor.tool = t;
+  for (const b of $('tools').children) b.className = 'small ' + (b.dataset.tool === t ? 'sel' : 'alt');
+}
+TOOLS.forEach(([t, label], i) => {
+  const b = document.createElement('button'); b.dataset.tool = t; b.textContent = `${i + 1} ${label}`;
+  b.onclick = () => selectTool(t); $('tools').appendChild(b);
+});
+selectTool('B');
+
+$('edName').addEventListener('input', (e) => { editor.name = e.target.value; saveDraft(); });
+$('edSpeed').addEventListener('change', (e) => { editor.speed = +e.target.value; editor.verified = false; saveDraft(); });
+$('edExit').onclick = () => setMode('menu');
+// На телефоне нет колеса и стрелок, поэтому листаем кнопками.
+$('edLeft').onclick = () => { editor.camX = Math.max(-2, editor.camX - 5); };
+$('edRight').onclick = () => { editor.camX = Math.min(MAX_LEN, editor.camX + 5); };
+$('edClear').onclick = () => { if (confirm('Удалить все объекты?')) { editor.cells.clear(); editor.verified = false; saveDraft(); } };
+$('edTest').onclick = () => startGame(editorLevel(), 'editor');
+$('edPublish').onclick = publishLevel;
+
+/* ================= Supabase: аккаунты и уровни ================= */
+
+let session = load('catjump-session', null);
+// Ту же запись сессии меняет и таблица лидеров (вход, выход, обновление токена), поэтому перечитываем её.
+function syncSession() { const s = load('catjump-session', null); session = s && s.access_token ? s : null; }
+
+function errorText(data, status) {
+  const raw = (data && (data.msg || data.message || data.error_description || data.error)) || `Ошибка ${status}`;
+  if (/invalid login credentials/i.test(raw)) return 'Неверный ник или пароль';
+  if (/already registered|already exists/i.test(raw)) return 'Такой ник уже занят';
+  if (/catjump_levels/.test(raw) || (data && (data.code === 'PGRST205' || data.code === '42P01'))) return 'Онлайн-уровни ещё не включены на сервере';
+  if (/rate limit/i.test(raw)) return 'Слишком много попыток, подожди немного';
+  return raw;
+}
+
+async function sbFetch(path, { method = 'GET', body, headers = {}, auth = true } = {}) {
+  const h = { apikey: SB_KEY, 'Content-Type': 'application/json', ...headers };
+  syncSession();
+  if (auth && session) { await refreshIfNeeded(); if (session) h.Authorization = 'Bearer ' + session.access_token; }
+  let res;
+  try { res = await fetch(SB_URL + path, { method, headers: h, body: body === undefined ? undefined : JSON.stringify(body) }); }
+  catch { throw new Error('Нет связи с сервером. Проверь интернет'); }
+  const text = await res.text();
+  let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = { message: text }; }
+  if (!res.ok) throw new Error(errorText(data, res.status));
+  return data;
+}
+
+function setSession(s) {
+  session = s && s.access_token ? { access_token: s.access_token, refresh_token: s.refresh_token, expires_at: s.expires_at || Math.floor(Date.now() / 1000) + (s.expires_in || 3600), user: s.user } : null;
+  save('catjump-session', session); updateAccountButton();
+}
+
+async function refreshIfNeeded() {
+  if (!session || session.expires_at * 1000 > Date.now() + 60000) return;
+  try {
+    const s = await sbFetch('/auth/v1/token?grant_type=refresh_token', { method: 'POST', body: { refresh_token: session.refresh_token }, auth: false });
+    setSession(s);
+  } catch { setSession(null); toast('Сессия закончилась, войди снова'); }
+}
+
+function username() { syncSession(); return session && session.user && session.user.user_metadata && session.user.user_metadata.username; }
+function updateAccountButton() { $('accBtn').textContent = username() ? `Аккаунт: ${username()}` : 'Аккаунт'; }
+
+async function authRequest(kind) {
+  const name = $('accName').value.trim(), pass = $('accPass').value, msg = $('accMsg');
+  if (!/^[A-Za-z0-9_]{3,30}$/.test(name)) { msg.textContent = 'Ник: 3–30 символов, латиница, цифры или _'; return; }
+  if (pass.length < 6) { msg.textContent = 'Пароль должен быть от 6 символов'; return; }
+  msg.textContent = kind === 'signup' ? 'Создаём аккаунт...' : 'Входим...';
+  const email = name.toLowerCase() + EMAIL_DOMAIN;
+  const login = (address) => sbFetch('/auth/v1/token?grant_type=password', { method: 'POST', body: { email: address, password: pass }, auth: false });
+  try {
+    const s = kind === 'signup'
+      ? await sbFetch('/auth/v1/signup', { method: 'POST', body: { email, password: pass, data: { username: name } }, auth: false })
+      : await login(email).catch((e) => login(name.toLowerCase() + OLD_EMAIL_DOMAIN).catch(() => { throw e; }));
+    if (!s || !s.access_token) { msg.textContent = 'Аккаунт создан, теперь нажми «Войти»'; return; }
+    setSession(s); $('accPass').value = ''; msg.textContent = '';
+    toast(`Привет, ${username()}!`); openAccount();
+    lb.submit(progressTotals());
+  } catch (e) { msg.textContent = e.message; }
+}
+
+async function logout() {
+  try { await sbFetch('/auth/v1/logout', { method: 'POST' }); } catch { /* всё равно выходим локально */ }
+  setSession(null); openAccount();
+}
+
+function openAccount() {
+  const inside = !!username();
+  $('accOut').style.display = inside ? 'none' : 'flex';
+  $('accIn').style.display = inside ? 'flex' : 'none';
+  show('account');
+  if (inside) { $('accHello').textContent = `Привет, ${username()}!`; loadMyLevels(); }
+}
+
+let myReq = 0;
+async function loadMyLevels() {
+  const list = $('myList'), msg = $('myMsg'), req = ++myReq;
+  list.innerHTML = ''; msg.textContent = 'Загружаем...';
+  try {
+    const rows = await sbFetch(`/rest/v1/catjump_levels?select=id,name,plays,created_at&author_id=eq.${session.user.id}&order=created_at.desc`);
+    // Пока шёл запрос, список могли запросить снова: старый ответ не добавляем, иначе уровни задвоятся.
+    if (req !== myReq) return;
+    msg.textContent = rows.length ? '' : 'Пока ничего. Сделай уровень в редакторе!';
+    for (const row of rows) {
+      const el = levelItem(row, false);
+      const del = document.createElement('button'); del.className = 'small alt'; del.textContent = 'Удалить';
+      del.onclick = async () => {
+        if (!confirm(`Удалить уровень «${row.name}»?`)) return;
+        try { await sbFetch(`/rest/v1/catjump_levels?id=eq.${row.id}`, { method: 'DELETE' }); loadMyLevels(); } catch (e) { toast(e.message); }
+      };
+      el.appendChild(del); list.appendChild(el);
+    }
+  } catch (e) { if (req === myReq) msg.textContent = e.message; }
+}
+
+async function publishLevel() {
+  if (!username()) { toast('Сначала войди в аккаунт'); setMode('menu'); openAccount(); return; }
+  const name = editor.name.trim();
+  if (!name) { toast('Придумай название уровня'); $('edName').focus(); return; }
+  if (!editor.cells.size) { toast('Уровень пустой'); return; }
+  if (!editor.verified) { toast('Сначала пройди уровень в тесте до конца'); return; }
+  $('edPublish').disabled = true;
+  try {
+    await sbFetch('/rest/v1/catjump_levels', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: { author_name: username(), name, data: editorData() } });
+    toast('Уровень опубликован! Его можно найти в поиске');
+  } catch (e) { toast(e.message); }
+  $('edPublish').disabled = false;
+}
+
+let searchSort = 'new', searchReq = 0;
+async function runSearch() {
+  const list = $('searchList'), msg = $('searchMsg'), req = ++searchReq;
+  const q = $('searchInput').value.trim().replace(/[,()*%\\:."]/g, ' ').trim();
+  list.innerHTML = ''; msg.textContent = 'Ищем...';
+  let path = '/rest/v1/catjump_levels?select=id,name,author_name,plays,created_at&limit=40&order=' + (searchSort === 'top' ? 'plays.desc,created_at.desc' : 'created_at.desc');
+  if (q) path += '&or=' + encodeURIComponent(`(name.ilike.*${q}*,author_name.ilike.*${q}*)`);
+  try {
+    const rows = await sbFetch(path);
+    if (req !== searchReq) return;
+    msg.textContent = rows.length ? '' : (q ? 'Ничего не нашли' : 'Уровней пока нет. Опубликуй первый!');
+    for (const row of rows) list.appendChild(levelItem(row, true));
+  } catch (e) { if (req === searchReq) msg.textContent = e.message; }
+}
+
+function levelItem(row, withAuthor) {
+  const el = document.createElement('div'); el.className = 'item';
+  el.innerHTML = `<div class="grow"><b>${esc(row.name)}</b><small>${withAuthor ? 'автор ' + esc(row.author_name) + ' · ' : ''}сыграно ${row.plays}</small></div>`;
+  const play = document.createElement('button'); play.className = 'small'; play.textContent = '▶ Играть';
+  play.onclick = () => playOnline(row.id, play);
+  el.appendChild(play); return el;
+}
+
+async function playOnline(id, btn) {
+  btn.disabled = true;
+  try {
+    const rows = await sbFetch(`/rest/v1/catjump_levels?select=name,data&id=eq.${id}`);
+    if (!rows.length) throw new Error('Уровень удалён');
+    const lv = prepare({ ...sanitize(rows[0].data), name: rows[0].name, theme: 2 });
+    sbFetch('/rest/v1/rpc/catjump_played', { method: 'POST', body: { level_id: id } }).catch(() => {});
+    startGame(lv, 'online', { lid: 'o' + id });
+  } catch (e) { toast(e.message); }
+  btn.disabled = false;
+}
+
+/* ================= Мультиплеер ================= */
+
+const mp = FreasyMultiplayer({
+  key: 'catjump', sessionKey: 'catjump-session', boardTop: 64,
+  describe: (s) => {
+    if (s.st === 'play') { const n = String(s.ln || 'Уровень'); return `${n.length > 14 ? n.slice(0, 13) + '…' : n} · ${s.won ? '✓' : Math.floor(s.pct) + '%'}`; }
+    return s.st === 'edit' ? 'в редакторе' : 'в меню';
+  },
+});
+$('settingsBtn').onclick = () => { audio(); mp.openSettings(); };
+$('lbBtn').onclick = () => lb.open();
+
+/* ================= Экраны и ввод ================= */
+
+const SCREENS = ['menu', 'levels', 'pause', 'win', 'search', 'account'];
+function show(id) { for (const s of SCREENS) $(s).classList.toggle('on', s === id); }
+
+function setMode(m) {
+  mode = m;
+  $('hud').classList.toggle('on', m === 'play');
+  $('editbar').classList.toggle('on', m === 'editor');
+  $('edithint').classList.toggle('on', m === 'editor');
+  show(m === 'menu' ? 'menu' : null);
+}
+
+function openLevels() {
+  const box = $('levelCards'); box.innerHTML = '';
+  builtins.forEach((lv, i) => {
+    const p = progress[i] || { best: 0, fish: 0 };
+    const card = document.createElement('div'); card.className = 'card';
+    card.innerHTML = `<b>${i + 1}. ${esc(lv.name)}</b><span>${lv.diff}</span><div class="bar"><i style="width:${p.best}%"></i></div><small>Лучший результат: ${p.best}% · рыбок ${p.fish}/${lv.fishTotal}</small>`;
+    card.onclick = () => startGame(lv, 'builtin', { idx: i, lid: 'b' + i });
+    box.appendChild(card);
+  });
+  show('levels');
+}
+
+document.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => {
+  audio();
+  const go = b.dataset.go;
+  if (go === 'levels') openLevels();
+  else if (go === 'editor') openEditor();
+  else if (go === 'search') { show('search'); runSearch(); }
+  else if (go === 'account') openAccount();
+  else show(go);
+}));
+document.querySelectorAll('[data-sort]').forEach((b) => b.addEventListener('click', () => {
+  searchSort = b.dataset.sort;
+  document.querySelectorAll('[data-sort]').forEach((x) => { x.className = 'small ' + (x === b ? 'sel' : 'alt'); });
+  runSearch();
+}));
+$('searchBtn').onclick = runSearch;
+$('searchInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') runSearch(); });
+$('loginBtn').onclick = () => authRequest('login');
+$('registerBtn').onclick = () => authRequest('signup');
+$('accPass').addEventListener('keydown', (e) => { if (e.key === 'Enter') authRequest('login'); });
+$('logoutBtn').onclick = logout;
+$('muteBtn').onclick = () => { muted = !muted; save('catjump-muted', muted); $('muteBtn').textContent = muted ? 'Звук: выкл' : 'Звук: вкл'; };
+$('muteBtn').textContent = muted ? 'Звук: выкл' : 'Звук: вкл';
+
+function pause(on) {
+  if (!game || game.won) return;
+  game.paused = on; holding = false; show(on ? 'pause' : null);
+  if (on) stopMusic(); else if (!game.run.dead) startMusic(THEMES[game.lv.theme].bass);
+}
+$('pauseBtn').onclick = (e) => { e.currentTarget.blur(); pause(true); };
+$('resumeBtn').onclick = () => pause(false);
+$('restartBtn').onclick = () => { game.paused = false; game.attempt = 0; restart(); };
+$('quitBtn').onclick = quitGame;
+$('againBtn').onclick = () => { game.attempt = 0; restart(); };
+$('winQuitBtn').onclick = quitGame;
+
+const JUMP_KEYS = ['Space', 'ArrowUp', 'KeyW'];
+addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || mp.settingsOpen() || lb.isOpen()) return;
+  if (mode === 'play') {
+    if (JUMP_KEYS.includes(e.code)) { holding = true; e.preventDefault(); }
+    else if (e.code === 'Escape') pause(!game.paused);
+    else if (e.code === 'KeyR' && !game.won) { game.paused = false; restart(); }
+  } else if (mode === 'editor') {
+    if (e.code === 'ArrowRight') editor.camX = Math.min(MAX_LEN, editor.camX + 3);
+    else if (e.code === 'ArrowLeft') editor.camX = Math.max(-2, editor.camX - 3);
+    else if (/^Digit[1-5]$/.test(e.code)) selectTool(TOOLS[+e.code.slice(5) - 1][0]);
+    else if (e.code === 'Escape') setMode('menu');
+  } else if (e.code === 'Escape') show('menu');
+});
+addEventListener('keyup', (e) => {
+  if (!JUMP_KEYS.includes(e.code)) return;
+  holding = false;
+  if (mode === 'play' && e.target.tagName === 'BUTTON') e.preventDefault();
+});
+addEventListener('blur', () => { holding = false; if (mode === 'play') pause(true); });
+
+cv.addEventListener('contextmenu', (e) => e.preventDefault());
+cv.addEventListener('pointerdown', (e) => {
+  audio();
+  if (mode === 'play') { holding = true; return; }
+  if (mode === 'editor') { editor.painting = e.button === 2 ? 2 : 1; const c = cellAt(e); editCell(c.x, c.y, editor.painting === 2 ? 2 : 0); }
+});
+const pointerEnd = () => { holding = false; editor.painting = 0; };
+addEventListener('pointerup', pointerEnd);
+addEventListener('pointercancel', pointerEnd);
+cv.addEventListener('pointermove', (e) => {
+  if (mode !== 'editor') return;
+  const c = cellAt(e); editor.hover = c;
+  if (editor.painting) editCell(c.x, c.y, editor.painting === 2 ? 2 : 0);
+});
+cv.addEventListener('wheel', (e) => {
+  if (mode !== 'editor') return;
+  editor.camX = Math.min(MAX_LEN, Math.max(-2, editor.camX + (e.deltaY + e.deltaX) / 40));
+  e.preventDefault();
+}, { passive: false });
+
+/* ================= Цикл ================= */
+
+let last = performance.now();
+function frame(now) {
+  // The first frame can be stamped a little before the script finished, so dt is never negative.
+  const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; time += dt;
+  if (mode === 'play' && game) { updatePlay(dt); renderPlay(dt); }
+  else if (mode === 'editor') renderEditor();
+  else renderMenu(dt);
+  mp.send(mpState());
+  requestAnimationFrame(frame);
+}
+updateAccountButton();
+// Вход и выход бывают и в окне таблицы лидеров (и в другой вкладке): кнопка аккаунта не должна отставать.
+setInterval(() => { if (mode === 'menu') updateAccountButton(); }, 1000);
+requestAnimationFrame(frame);
+
+/* Проверка уровней: ищет последовательность прыжков, которая проходит уровень. */
+window.solveLevel = function (lv) {
+  const seen = new Set(), stack = [{ r: newRun(), t: 0 }];
+  let farthest = 0;
+  while (stack.length) {
+    const { r, t } = stack.pop();
+    for (const jump of [false, true]) {
+      const n = { ...r, got: r.got }; let k = t;
+      step(n, lv, jump); k++;
+      while (!n.dead && !n.won && !n.ground) { step(n, lv, false); k++; }
+      farthest = Math.max(farthest, n.x);
+      if (n.won) return { ok: true };
+      if (n.dead) continue;
+      const key = k + '|' + n.y.toFixed(3);
+      if (seen.has(key)) continue;
+      seen.add(key); stack.push({ r: n, t: k });
+    }
+  }
+  return { ok: false, farthest: +farthest.toFixed(1) };
+};
+</script>
+<script src="../shared/back.js" data-href="../"></script>
+</body>
+</html>
