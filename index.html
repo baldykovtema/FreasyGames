@@ -21,6 +21,13 @@
     .brand-icon { display: grid; place-items: center; width: 35px; height: 35px; border-radius: 11px; background: linear-gradient(135deg,#bd8cff,#7b67fc); color: #171329; font-size: 20px; box-shadow: 0 8px 26px #9d73f744; }
     .nav-link { color: #d1cde5; font-size: 13px; font-weight: 700; padding: 10px 15px; border: 1px solid #ffffff1e; border-radius: 100px; transition: background .2s; }
     .nav-link:hover { background: #ffffff14; }
+    .top-nav { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .nav-3d { color: #c9f4ff; border-color: #6fe3ff66; background: #6fe3ff14; }
+    .hero-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .hero-action.hero-3d { background: linear-gradient(120deg, #bca0ff, #6fe3ff); }
+    .hero-action.hero-3d:hover { background: linear-gradient(120deg, #d3beff, #9becff); }
+    @media (max-width: 450px) { .nav-3d { display: none; } }
+    .badge-3d { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 7px; background: #171225; color: #6fe3ff; font-size: 11px; font-weight: 800; }
     .hero { text-align: center; padding: 84px 0 86px; }
     .eyebrow { display: inline-flex; gap: 9px; align-items: center; border: 1px solid #a98aff55; background: #a98aff14; color: #d9c9ff; border-radius: 100px; padding: 8px 15px; font-size: 12px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
     .eyebrow::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #b79bff; box-shadow: 0 0 12px #b79bff; }
@@ -68,7 +75,10 @@
 <body>
   <header class="topbar wrap">
     <a class="brand" href="#top" aria-label="FreasyGames — наверх"><span class="brand-icon" aria-hidden="true">✦</span> FreasyGames</a>
-    <a class="nav-link" href="#games">Смотреть игры ↓</a>
+    <nav class="top-nav">
+      <a class="nav-link nav-3d" href="FreasyGames3D/">FreasyGames 3D ↗</a>
+      <a class="nav-link" href="#games">Смотреть игры ↓</a>
+    </nav>
   </header>
   <main id="top">
     <section class="apk-offer wrap" id="apk-offer" aria-labelledby="apk-title" hidden>
@@ -100,7 +110,10 @@
       <div class="eyebrow">Играй прямо в браузере</div>
       <h1 id="welcome-title">Добро пожаловать на <span>FreasyGames</span></h1>
       <p>Бесплатные лёгкие веб-игры здесь. Выбирай игру, открывай её в браузере и наслаждайся!</p>
-      <a class="hero-action" href="#games">Выбрать игру <span aria-hidden="true">↗</span></a>
+      <div class="hero-actions">
+        <a class="hero-action" href="#games">Выбрать игру <span aria-hidden="true">↗</span></a>
+        <a class="hero-action hero-3d" href="FreasyGames3D/"><span class="badge-3d" aria-hidden="true">3D</span>FreasyGames 3D</a>
+      </div>
     </section>
     <section class="wrap" id="games" aria-labelledby="games-title">
       <div class="section-heading"><div><div class="section-kicker">Твоя игровая коллекция</div><h2 id="games-title">Выбирай и играй</h2></div><p class="section-note">21 бесплатная игра</p></div>
