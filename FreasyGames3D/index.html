@@ -162,6 +162,19 @@
     .hotel3d .eyesx i { width: 11px; height: 7px; border-radius: 50%; background: #dff0ff; box-shadow: 0 0 10px 3px #8fb4ff; }
     @keyframes blink { 0%, 60%, 100% { opacity: 0; } 70%, 85% { opacity: 1; } }
     .art .pct.hotp { color: #f6d48a; font-size: 13px; }
+    .art.road3d { background: radial-gradient(ellipse at 50% 30%, #3a3f7a55 0, transparent 70%), #0b0e1e; }
+    .road3d .rd { position: absolute; left: 50%; top: 20px; width: 150px; height: 220px; margin-left: -75px; transform: perspective(160px) rotateX(58deg); transform-origin: 50% 100%;
+      background: linear-gradient(90deg, #e8e6f0 0 3px, #2b2d3a 3px calc(100% - 3px), #e8e6f0 0); overflow: hidden; }
+    .road3d .dash { position: absolute; inset: -40px 0 0; background: repeating-linear-gradient(transparent 0 18px, #ffffffaa 18px 36px) 50% 0 / 4px 100% no-repeat,
+      repeating-linear-gradient(transparent 0 18px, #ffffff66 18px 36px) 25% 0 / 3px 100% no-repeat, repeating-linear-gradient(transparent 0 18px, #ffffff66 18px 36px) 75% 0 / 3px 100% no-repeat;
+      animation: dashmove .5s linear infinite; }
+    @keyframes dashmove { to { transform: translateY(36px); } }
+    .road3d .rcar { position: absolute; border-radius: 6px; box-shadow: inset 0 -5px 0 #0004; }
+    .road3d .rcar.me { left: calc(50% - 16px); top: 128px; width: 32px; height: 22px; background: #bca0ff; box-shadow: inset 0 -6px 0 #0004, 0 8px 14px #0008; }
+    .road3d .rcar.c1 { left: calc(50% - 34px); top: 70px; width: 14px; height: 9px; background: #ff5f7e; animation: carcome 2.2s linear infinite; }
+    .road3d .rcar.c2 { left: calc(50% + 16px); top: 60px; width: 12px; height: 8px; background: #5df2a5; animation: carcome 2.8s linear infinite -1.2s; }
+    @keyframes carcome { from { transform: translateY(-20px) scale(.6); opacity: 0; } 20% { opacity: 1; } to { transform: translateY(70px) scale(2.2); opacity: 0; } }
+    .art .pct.roadp { color: #bca0ff; font-size: 13px; }
     .slot h3 { margin: 0 0 6px; font-size: 20px; letter-spacing: -.03em; }
     .slot p { margin: 0; color: #8f8ca6; font-size: 14px; line-height: 1.55; }
 
@@ -200,7 +213,7 @@
     <section class="wrap hero">
       <span class="eyebrow">Только 3D</span>
       <h1>Freasy<span class="three">Games 3D</span></h1>
-      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже четыре игры, и будут ещё.</p>
+      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже пять игр, и будут ещё.</p>
       <a class="hero-action" href="#games">Смотреть игры ↓</a>
       <div class="hint">Двигай мышкой или пальцем — сцена повернётся</div>
     </section>
@@ -226,6 +239,10 @@
           <div class="hall"><span class="hdoor d1"><b>027</b></span><span class="hdoor d2"><b>028</b></span><span class="hdoor d3"><b>029</b></span></div>
           <span class="eyesx"><i></i><i></i></span><span class="pct hotp">🚪 Дверь 029</span></div>
           <span class="tag live">Играть</span><h3>Отель «Полночь»</h3><p>Хоррор от первого лица: 30 дверей одного этажа, ключи в ящиках и шкафы, чтобы спрятаться от Сквозняка.</p></a>
+        <a class="slot game" href="trassa/"><div class="art road3d" aria-hidden="true">
+          <div class="rd"><i class="dash"></i></div><span class="rcar me"></span><span class="rcar c1"></span><span class="rcar c2"></span>
+          <span class="pct roadp">259 км/ч</span></div>
+          <span class="tag live">Играть</span><h3>Трасса 3D</h3><p>Ночное шоссе в 3D: обгоняй поток, лови канистры и монеты. Мультиплеер вместе с игроками Трассы 2D.</p></a>
       </div>
     </section>
 
@@ -371,5 +388,9 @@
     el.addEventListener('pointerleave', () => { el.style.transform = ''; });
   });
   </script>
+  <!-- FreasyChat: общий чат и голосовая комната игроков FreasyGames 2D и 3D -->
+  <script src="shared/account.js"></script>
+  <script src="shared/chat.js"></script>
+  <script>FreasyChat({ room: 'общий', site: 'FreasyGames 3D' });</script>
 </body>
 </html>

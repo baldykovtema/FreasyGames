@@ -13,7 +13,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" id="mpBtn" type="button" aria-label="Мультиплеер">👥</button><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
 
 <div class="screen" id="start">
   <div class="box">
@@ -24,6 +24,7 @@
     <p>Рекорд: <b id="bestStart">0 м</b> · монет за заезд: <b id="bestCoinsStart">0</b></p>
     <button class="play" id="go" type="button">Поехали ↗</button>
     <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <button class="ghost" type="button" data-mp>👥 Мультиплеер</button>
     <div class="hint">← → или A D. На телефоне — джойстик: коснись и веди пальцем</div>
   </div>
 </div>
@@ -43,6 +44,7 @@
 
 <script src="../shared/leaderboard.js"></script>
 <script src="../shared/joystick.js"></script>
+<script src="../shared/multiplayer.js"></script>
 <script>
 (() => {
   'use strict';
@@ -84,7 +86,9 @@
   const sfx = { coin: () => { tone(1100, 0.06, 'square', 0.04); setTimeout(() => tone(1650, 0.1, 'square', 0.04), 55); }, fuel: () => [440, 660, 880].forEach((f, i) => setTimeout(() => tone(f, 0.1, 'triangle', 0.07), i * 60)), close: () => tone(700, 0.15, 'sine', 0.05, 0.6) };
 
   const laneX = (i) => ROAD_L + LANE_W * (i + 0.5);
+  let runNo = 0;
   function reset() {
+    runNo++;
     dist = 0; coins = 0; fuel = 100; v = MIN_V; maxV = 0; playTime = 0; spawnT = 1; itemT = 0.6; fuelT = 6; why = '';
     player = { x: laneX(1.5), y: FH - 150, tilt: 0 };
     traffic = []; items = []; parts = []; popups = [];
@@ -260,6 +264,16 @@
         g.shadowBlur = 0;
       }
     }
+    // Другие игроки в комнате мультиплеера — полупрозрачные машины на своей дистанции.
+    for (const p of mp.peers()) {
+      const s = p.s;
+      if (s.st !== 'play' || s.crash) continue;
+      const y = player.y - (s.d - dist) * PX_PER_M;
+      if (y < vy0 - 120 || y > vy1 + 120) continue;
+      g.globalAlpha = 0.45; drawCar(s.x, y, CAR_W, CAR_H, p.color, 0, true); g.globalAlpha = 1;
+      g.font = '800 15px Manrope, system-ui'; g.textAlign = 'center'; g.lineWidth = 4; g.strokeStyle = '#111321cc';
+      g.strokeText(p.name, s.x, y - CAR_H / 2 - 8); g.fillStyle = p.color; g.fillText(p.name, s.x, y - CAR_H / 2 - 8);
+    }
     if (state === 'play' || state === 'start' || state === 'shot') {
       // Headlight beams.
       const beam = g.createLinearGradient(0, player.y - 60, 0, player.y - 260); beam.addColorStop(0, '#fff6c455'); beam.addColorStop(1, '#fff6c400');
@@ -291,6 +305,7 @@
     shake = Math.max(0, shake - dt);
     if (engine && ac) { const on = state === 'play' && !muted && !lb.isOpen(); engine.gn.gain.setTargetAtTime(on ? 0.035 : 0, ac.currentTime, 0.08); engine.o.frequency.setTargetAtTime(50 + v * 2.2, ac.currentTime, 0.1); }
     draw();
+    mp.send(state === 'play' || state === 'crash' ? { st: 'play', run: runNo, d: Math.round(dist * 10) / 10, x: Math.round(player.x), kmh: Math.round(v * 3.6), crash: state === 'crash' ? 1 : 0 } : { st: 'menu', best });
     requestAnimationFrame(frame);
   }
   function resize() {
@@ -314,6 +329,13 @@
     onStatus: (text) => { $('onlineNote').textContent = text; },
   });
 
+  const mp = FreasyMultiplayer({
+    key: 'trassa', sessionKey: 'trassa-session', boardTop: 150,
+    describe: (s) => s.st === 'play' ? (s.crash ? `финиш ${fmtM(Math.floor(s.d))}` : `${fmtM(Math.floor(s.d))} · ${s.kmh} км/ч`) : 'в меню',
+  });
+  $('mpBtn').addEventListener('click', () => mp.openSettings());
+  document.querySelectorAll('[data-mp]').forEach((b) => b.addEventListener('click', () => mp.openSettings()));
+
   const side = (e) => { const r = cv.getBoundingClientRect(); return e.clientX < r.left + r.width / 2 ? -1 : 1; };
   // Each finger steers to its side; the last finger still down wins, so lifting one does not stop the other.
   const fingers = new Map(), steer = () => { touchDir = fingers.size ? [...fingers.values()].pop() : 0; };
@@ -325,6 +347,7 @@
   cv.addEventListener('pointercancel', (e) => { fingers.delete(e.pointerId); steer(); });
   addEventListener('keydown', (e) => {
     if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (mp.settingsOpen()) return;
     keys[e.code] = true;
     // On a focused button Space/Enter already press it; starting here too would also run its own action.
     const onButton = !!e.target.closest?.('button, a');

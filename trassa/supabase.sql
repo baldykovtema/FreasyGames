@@ -37,8 +37,8 @@ begin
     if new_distance < 0 or new_coins < 0 or new_time < 0 then
         raise exception 'Неверный результат';
     end if;
-    -- Быстрее 60 м/с (216 км/ч) машина не едет.
-    if new_distance > new_time * 60 + 50 then
+    -- Быстрее 72 м/с (259 км/ч) машина не едет; запас — до 75 м/с.
+    if new_distance > new_time * 75 + 50 then
         raise exception 'Неверный результат';
     end if;
     -- Монеты в рядах и за обгон «впритирку» — не больше нескольких в секунду.
