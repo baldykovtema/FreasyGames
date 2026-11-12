@@ -72,21 +72,39 @@ window.FreasyChat = (opts = {}) => {
     const title = (document.title || '').split(' — ')[0].replace(/^[^\wа-яё«]+/i, '').trim().slice(0, 40);
     return { path: location.pathname, title: ingame ? title : '', mp };
   }
-  const presence = () => { const m = me(); return { uid: m ? m.id : null, name: m ? m.name : 'Гость', ...whereAmI() }; };
+  const presence = () => { const m = me(); return { uid: m ? m.id : null, name: m ? m.name : 'Гость', ...whereAmI(), voice: voice.on ? voice.room : null }; };
 
   async function connect() {
     if (client) return;
     status = 'connecting'; render();
     try { await loadLib(); } catch { status = 'error'; render(); return; }
     client = window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: false, autoRefreshToken: false }, realtime: { params: { eventsPerSecond: 20 } } });
-    online = client.channel('freasy-online', { config: { presence: { key: tabId } } });
-    online.on('presence', { event: 'sync' }, syncPeople).subscribe(async (st) => {
-      if (st === 'SUBSCRIBED') { status = 'online'; await online.track(presence()); render(); }
-      else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT') { status = 'error'; render(); }
-    });
+    joinOnline();
     await subscribeDb();
     loadConversations();
     loadRoom(current);
+  }
+  function joinOnline() {
+    if (online) client.removeChannel(online);
+    online = client.channel('freasy-online', { config: { presence: { key: tabId } } });
+    online.on('presence', { event: 'sync' }, syncPeople).subscribe(async (st) => {
+      if (st === 'SUBSCRIBED') { status = 'online'; await online.track(presence()); render(); }
+      else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT') { if (!anonFallback()) { status = 'error'; render(); } }
+    });
+  }
+  // Сервис реального времени отвергает испорченный или устаревший токен — и тогда молча не подключает НИЧЕГО
+  // (ни онлайн, ни голос, ни новые сообщения). В этом случае один раз переподключаемся как гость.
+  let usedAnon = false;
+  function anonFallback() {
+    if (usedAnon || !session()) return false;
+    usedAnon = true;
+    console.warn('FreasyChat: токен не принят, подключаемся без него');
+    client.realtime.setAuth(SB_KEY);
+    joinOnline();
+    if (db) { client.removeChannel(db); db = null; }
+    db = client.channel('freasy-chat-db-' + tabId).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, ({ new: row }) => onRow(row)).subscribe();
+    if (voice.on) { const room = voice.room; leaveVoice(); current = room; joinVoice(); }
+    return true;
   }
   // Новые сообщения из базы: сервер присылает только те, что мне можно читать.
   async function subscribeDb() {
@@ -94,17 +112,37 @@ window.FreasyChat = (opts = {}) => {
     const s = session();
     if (s) { try { await api('/auth/v1/user'); } catch { /* обновит токен или выйдет */ } }
     const fresh = session();
-    client.realtime.setAuth(fresh ? fresh.access_token : SB_KEY);
+    if (!usedAnon) client.realtime.setAuth(fresh ? fresh.access_token : SB_KEY);
     db = client.channel('freasy-chat-db-' + tabId)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, ({ new: row }) => onRow(row))
-      .subscribe();
+      .subscribe((st) => { if (st === 'CHANNEL_ERROR') anonFallback(); });
   }
   setInterval(() => { if (client && session()) subscribeDb(); }, 40 * 60 * 1000); // токен живёт час
+  const invited = new Set();
   function syncPeople() {
     const st = online.presenceState();
     people.clear();
     for (const [id, metas] of Object.entries(st)) if (id !== tabId && metas[0]) people.set(id, metas[0]);
+    const m = me();
+    for (const p of people.values()) {
+      const r = p.voice;
+      if (!r || r === GENERAL || !convs.has(r) || (m && p.uid === m.id) || (voice.on && voice.room === r) || hidden.has(p.name)) continue;
+      const key = p.uid + '|' + r;
+      if (invited.has(key)) continue;
+      invited.add(key);
+      ping();
+      toast(`🎙 ${cleanName(p.name)} в голосовом «${convs.get(r).title}» — нажми, чтобы присоединиться`, () => { openRoom(r); joinVoice(); });
+    }
+    // приглашение снова придёт, если он выйдет и зайдёт ещё раз
+    for (const key of [...invited]) { const [uid, r] = key.split('|'); if (![...people.values()].some((p) => p.uid === uid && p.voice === r)) invited.delete(key); }
     render();
+  }
+  // Сколько человек сейчас в голосовом этой переписки (по игрокам, не по вкладкам).
+  function inVoice(room) {
+    const uids = new Set();
+    for (const p of people.values()) if (p.voice === room) uids.add(p.uid || p.name + Math.random());
+    if (voice.on && voice.room === room) { const m = me(); uids.add(m ? m.id : 'me'); }
+    return uids.size;
   }
   // Один человек с несколькими вкладками — один игрок; гости — по вкладкам.
   function onlineList() {
@@ -258,7 +296,9 @@ window.FreasyChat = (opts = {}) => {
     try { voice.ctx ||= new (window.AudioContext || window.webkitAudioContext)(); await voice.ctx.resume(); } catch { /* без движка — останется аудио-элемент */ }
     try { voice.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
     catch { toast('Нет доступа к микрофону — разреши его в браузере'); return; }
+    if (inVoice(current) >= MAX_VOICE) { toast(`В голосовом уже ${MAX_VOICE} человек`); voice.stream.getTracks().forEach((t) => t.stop()); voice.stream = null; return; }
     voice.on = true; voice.room = current; voice.muted = false;
+    if (online && status === 'online') online.track(presence());
     watchLevel('me', voice.stream);
     const ch = client.channel('freasy-voice-' + current.replace(/[^\w-]/g, '-'), { config: { broadcast: { self: false }, presence: { key: tabId } } });
     voice.ch = ch;
@@ -266,7 +306,6 @@ window.FreasyChat = (opts = {}) => {
       .on('presence', { event: 'sync' }, () => {
         voice.peers.clear();
         for (const [id, metas] of Object.entries(ch.presenceState())) if (id !== tabId && metas[0]) voice.peers.set(id, metas[0]);
-        if (voice.peers.size >= MAX_VOICE) toast(`В комнате уже ${MAX_VOICE} человек`);
         for (const id of [...voice.pcs.keys()]) if (!voice.peers.has(id)) hangUp(id);
         syncVoice(); render();
       })
@@ -280,6 +319,7 @@ window.FreasyChat = (opts = {}) => {
     voice.stream = null; voice.levels.delete('me');
     if (voice.ch && client) { try { voice.ch.untrack(); client.removeChannel(voice.ch); } catch { /* уже закрыт */ } }
     voice.ch = null; voice.room = null; voice.peers.clear();
+    if (online && status === 'online') online.track(presence());
     render();
   }
   function toggleMute() { voice.muted = !voice.muted; if (voice.stream) voice.stream.getAudioTracks().forEach((t) => { t.enabled = !voice.muted; }); render(); }
@@ -510,13 +550,13 @@ window.FreasyChat = (opts = {}) => {
     const rows = [...convs.values()].filter((c) => c.room !== GENERAL).sort((a, b) => String(b.last || '').localeCompare(String(a.last || '')));
     const g = convs.get(GENERAL), gu = 0;
     const rowHtml = (c) => {
-      const n = unreadOf(c.room), list = msgs.get(c.room) || [], lastMsg = list[list.length - 1];
+      const n = unreadOf(c.room), list = msgs.get(c.room) || [], lastMsg = list[list.length - 1], talking = inVoice(c.room);
       const st = c.kind === 'dm' ? findOnline(c.other) : null;
       const sub = st && st.title ? '🎮 ' + st.title : st ? '🟢 онлайн' : lastMsg ? `${cleanName(lastMsg.sender_name)}: ${clean(lastMsg.body)}` : c.kind === 'group' ? 'Группа' : 'Личные сообщения';
-      return `<button class="fc-row" type="button" data-room="${esc(c.room)}">${avatar(c.title, c.kind === 'group' ? '👥' : '')}<span class="fc-mid"><strong>${esc(c.title)}</strong><small>${esc(sub)}</small></span>${n ? `<span class="fc-count">${n > 9 ? '9+' : n}</span>` : ''}</button>`;
+      return `<button class="fc-row" type="button" data-room="${esc(c.room)}">${avatar(c.title, c.kind === 'group' ? '👥' : '')}<span class="fc-mid"><strong>${esc(c.title)}</strong><small>${talking ? `🎙 ${talking} в голосовом · ` : ''}${esc(sub)}</small></span>${n ? `<span class="fc-count">${n > 9 ? '9+' : n}</span>` : ''}</button>`;
     };
     return head('<span>FreasyChat</span>', false) + `<div class="fc-body">
-      <button class="fc-row" type="button" data-room="${GENERAL}">${avatar('Общий', '🌐')}<span class="fc-mid"><strong>${esc(g.title)}</strong><small>Все игроки FreasyGames 2D и 3D${gu ? '' : ''}</small></span></button>
+      <button class="fc-row" type="button" data-room="${GENERAL}">${avatar('Общий', '🌐')}<span class="fc-mid"><strong>${esc(g.title)}</strong><small>${inVoice(GENERAL) ? `🎙 ${inVoice(GENERAL)} в голосовом · ` : ''}Все игроки FreasyGames 2D и 3D${gu ? '' : ''}</small></span></button>
       ${m ? rows.map(rowHtml).join('') : ''}
       <div class="fc-actions">${m ? `<button class="fc-b vio" type="button" data-a="dm">✉️ Написать игроку</button><button class="fc-b alt" type="button" data-a="group">👥 Новая группа</button>`
         : `<button class="fc-b vio" type="button" data-a="login">Войти в аккаунт</button><small style="color:#89879e;font-size:12px;width:100%">Войди, чтобы писать, переписываться лично, создавать группы и говорить голосом.</small>`}</div>
