@@ -13,8 +13,9 @@ if (/iPhone|iPod|Android.*Mobile|Windows Phone|IEMobile|Opera Mini/i.test(naviga
 <title>🌱 Растения против Зомби 3D — FreasyGames 3D</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase-fallback.js"></script>
 
-<link rel="stylesheet" href="css/styles.css?v=back-1">
+<link rel="stylesheet" href="css/styles.css?v=offline-1">
 <link rel="stylesheet" href="css/view3d.css">
 </head>
 
@@ -115,6 +116,16 @@ if (/iPhone|iPod|Android.*Mobile|Windows Phone|IEMobile|Opera Mini/i.test(naviga
         <div
             id="authMessage"
             class="message">
+        </div>
+
+        <button
+            class="secondary offline-play"
+            onclick="playOffline()">
+            ⚡ Офлайн-режим — играть без аккаунта
+        </button>
+
+        <div class="message offline-note">
+            Прогресс сохранится только на этом устройстве. Онлайн-игра — после входа.
         </div>
 
     </div>
@@ -887,6 +898,7 @@ if (/iPhone|iPod|Android.*Mobile|Windows Phone|IEMobile|Opera Mini/i.test(naviga
 <script src="js/lobby.js"></script>
 <script src="js/match.js"></script>
 <script src="js/saves.js"></script>
+<script src="js/guest.js"></script>
 <script src="js/main.js"></script>
 
 <script src="../shared/back.js" data-href="../"></script>

@@ -25,6 +25,9 @@ const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 /* ================= Состояние ================= */
 const emptyStats = () => ({ bestPercentage: 0, dominantColor: 'white', totalPlaySeconds: 0, cubesCompleted: 0, bestColors: [] });
 let session = null;
+// Офлайн-режим: без аккаунта, прогресс хранится только на этом устройстве.
+let guest = false;
+const GUEST_STATS_KEY = 'rcfcg3dGuestStats', GUEST_ACTIVE_KEY = 'rcfcg3dGuestActive';
 let stats = emptyStats();
 let cubes = [];
 let addingCube = false;
@@ -136,9 +139,9 @@ async function sb(path, { method = 'GET', body, auth = true, keepalive = false }
 async function refreshSession() {
   if (!session || session.expires_at * 1000 > Date.now() + 60000) return;
   try { setSession(await sb('/auth/v1/token?grant_type=refresh_token', { method: 'POST', body: { refresh_token: session.refresh_token }, auth: false })); }
-  catch { setSession(null); }
+  catch (e) { if (!/Нет связи/.test(e.message)) setSession(null); } // без интернета не выкидываем из аккаунта
 }
-const username = () => (session && session.user && session.user.user_metadata && session.user.user_metadata.username) || 'Игрок';
+const username = () => guest ? 'Офлайн-режим' : (session && session.user && session.user.user_metadata && session.user.user_metadata.username) || 'Игрок';
 const userId = () => session && session.user && session.user.id;
 const isAdmin = () => !!session && username().toLowerCase() === 'updatetest';
 
@@ -169,6 +172,11 @@ function updateStatsUI() {
 }
 async function loadPlayerStats() {
   stats = emptyStats();
+  if (guest) {
+    try { Object.assign(stats, JSON.parse(localStorage.getItem(GUEST_STATS_KEY) || '{}')); } catch { /* приватный режим */ }
+    updateStatsUI();
+    return;
+  }
   try {
     const rows = await sb(`/rest/v1/rcfcg3d_scores?select=best_percentage,dominant_color,colors,total_play_seconds,cubes_completed&user_id=eq.${userId()}`);
     const r = rows && rows[0];
@@ -197,6 +205,7 @@ function statsPayload() {
 }
 // Сервер хранит лучшие значения игрока, так что повторная отправка безопасна.
 async function savePlayerStats() {
+  if (guest) { try { localStorage.setItem(GUEST_STATS_KEY, JSON.stringify(stats)); } catch { /* приватный режим */ } return; }
   if (!session) return;
   if (saving) { saveAgain = true; return; }
   saving = true;
@@ -627,13 +636,25 @@ async function doAuth(kind) {
 authForm.addEventListener('submit', (e) => { e.preventDefault(); doAuth(registrationMode ? 'signup' : 'login'); });
 registerButton.addEventListener('click', () => { if (!registrationMode) enterRegistrationMode(); else doAuth('signup'); });
 backToLogin.addEventListener('click', exitRegistrationMode);
+async function startOffline() {
+  guest = true;
+  try { localStorage.setItem(GUEST_ACTIVE_KEY, '1'); } catch { /* приватный режим */ }
+  if (registrationMode) exitRegistrationMode();
+  await enterGame();
+}
+$('offlineButton').addEventListener('click', startOffline);
 usernameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); passwordInput.focus(); } });
 
 $('logoutButton').addEventListener('click', async () => {
   stopPlayTimer();
   await savePlayerStats();
-  try { await sb('/auth/v1/logout', { method: 'POST' }); } catch { /* выходим локально */ }
-  setSession(null);
+  if (guest) {
+    guest = false;
+    try { localStorage.removeItem(GUEST_ACTIVE_KEY); } catch { /* приватный режим */ }
+  } else {
+    try { await sb('/auth/v1/logout', { method: 'POST' }); } catch { /* выходим локально */ }
+    setSession(null);
+  }
   while (cubes.length > 1) destroyCube(cubes.pop());
   stats = emptyStats();
   fastModeCheckbox.checked = false; disableAllCheckbox.checked = false;
@@ -688,6 +709,7 @@ $('leaderboardBack').addEventListener('click', () => { showScreen('game'); updat
 
 /* ================= Старт ================= */
 window.addEventListener('pagehide', () => {
+  if (guest) { tickPlayTime(); savePlayerStats(); return; }
   if (!session) return;
   tickPlayTime();
   fetch(SB_URL + '/rest/v1/rpc/rcfcg3d_save', {
@@ -702,6 +724,9 @@ applyRotateSetting();
 requestAnimationFrame(frame);
 
 (async () => {
+  let wasGuest = false;
+  try { wasGuest = localStorage.getItem(GUEST_ACTIVE_KEY) === '1'; } catch { /* приватный режим */ }
+  if (wasGuest) { await startOffline(); return; }
   session = loadSession();
   if (session) {
     await refreshSession();

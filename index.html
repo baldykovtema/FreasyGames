@@ -210,10 +210,13 @@
     (() => {
       const offer = document.getElementById('apk-offer');
       const platform = navigator.userAgentData?.platform || '';
+      // В приложении FreasyGames (Android, Mac, Windows) предлагать скачать приложение не нужно.
+      const inApp = /FreasyGamesApp/.test(navigator.userAgent);
+      if (inApp) document.querySelectorAll('footer .apk-link').forEach(a => { a.hidden = true; });
       const supportsApk = /Android/i.test(platform) || /Android|HarmonyOS|Silk\//i.test(navigator.userAgent);
       let dismissed = false;
       try { dismissed = sessionStorage.getItem('freasy-apk-dismissed') === '1'; } catch {}
-      offer.hidden = !supportsApk || dismissed;
+      offer.hidden = inApp || !supportsApk || dismissed;
       document.getElementById('apk-dismiss').addEventListener('click', () => {
         offer.hidden = true;
         try { sessionStorage.setItem('freasy-apk-dismissed', '1'); } catch {}
@@ -223,7 +226,7 @@
       const isMac = (/macOS/i.test(platform) || /Macintosh/i.test(navigator.userAgent)) && (navigator.maxTouchPoints || 0) <= 1;
       let dmgDismissed = false;
       try { dmgDismissed = sessionStorage.getItem('freasy-dmg-dismissed') === '1'; } catch {}
-      dmgOffer.hidden = !isMac || dmgDismissed;
+      dmgOffer.hidden = inApp || !isMac || dmgDismissed;
       document.getElementById('dmg-dismiss').addEventListener('click', () => {
         dmgOffer.hidden = true;
         try { sessionStorage.setItem('freasy-dmg-dismissed', '1'); } catch {}
@@ -233,7 +236,7 @@
       const isWindows = /^Windows$/i.test(platform) || /Windows NT/i.test(navigator.userAgent);
       let windowsDismissed = false;
       try { windowsDismissed = sessionStorage.getItem('freasy-windows-dismissed') === '1'; } catch {}
-      windowsOffer.hidden = !isWindows || windowsDismissed;
+      windowsOffer.hidden = inApp || !isWindows || windowsDismissed;
       document.getElementById('windows-dismiss').addEventListener('click', () => {
         windowsOffer.hidden = true;
         try { sessionStorage.setItem('freasy-windows-dismissed', '1'); } catch {}

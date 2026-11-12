@@ -742,7 +742,7 @@ async function refreshIfNeeded() {
   try {
     const s = await sbFetch('/auth/v1/token?grant_type=refresh_token', { method: 'POST', body: { refresh_token: session.refresh_token }, auth: false });
     setSession(s);
-  } catch { setSession(null); toast('Сессия закончилась, войди снова'); }
+  } catch (e) { if (!navigator.onLine || /связи|fetch|network|load failed/i.test(e && e.message || '')) return; setSession(null); toast('Сессия закончилась, войди снова'); }
 }
 
 function username() { syncSession(); return session && session.user && session.user.user_metadata && session.user.user_metadata.username; }

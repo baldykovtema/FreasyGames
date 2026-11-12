@@ -127,3 +127,6 @@ a { color: inherit; text-decoration: none; }
   .lbCube i:nth-child(6) { transform: rotateX(-90deg) translateZ(25px); }
   .lbName { font-size: 13px; }
 }
+
+#offlineButton { margin-top: 4px; border-style: dashed; }
+#offlineNote { margin-top: 6px; color: #8f8ca6; font-size: 12px; text-align: center; }

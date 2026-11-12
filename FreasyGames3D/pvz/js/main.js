@@ -4,6 +4,7 @@
 
 async function init() {
     if (document.documentElement.classList.contains("phone-device")) return;
+    if (guestAutoStart()) return;
 
     const {
         data

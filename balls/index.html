@@ -66,7 +66,7 @@ async function sb(path,{method='GET',body,auth=true}={}){
  const text=await res.text();let data=null;try{data=text?JSON.parse(text):null}catch{data={message:text}}
  if(!res.ok)throw new Error(errorText(data,res.status));return data}
 async function refresh(){if(!session||session.expires_at*1000>Date.now()+60000)return;
- try{saveSession(await sb('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:{refresh_token:session.refresh_token},auth:false}))}catch{saveSession(null)}}
+ try{saveSession(await sb('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:{refresh_token:session.refresh_token},auth:false}))}catch(e){if (navigator.onLine && !/связи|fetch|network|load failed/i.test(e && e.message || '')) saveSession(null)}}
 async function auth(kind){
  const name=$('nameInput').value.trim(),pass=$('passInput').value,msg=$('authMsg');
  if(!/^[A-Za-z0-9_]{3,30}$/.test(name)){msg.textContent='Ник: 3–30 символов, латиница, цифры или _';return}

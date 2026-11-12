@@ -101,7 +101,7 @@ window.FreasyLeaderboard = (opts) => {
   async function refresh() {
     if (!session || session.expires_at * 1000 > Date.now() + 60000) return;
     try { setSession(await sb('/auth/v1/token?grant_type=refresh_token', { method: 'POST', body: { refresh_token: session.refresh_token }, auth: false })); }
-    catch { setSession(null); }
+    catch (e) { if (navigator.onLine && !/связи|fetch|network|load failed/i.test(e && e.message || '')) setSession(null); }
   }
 
   // The server keeps each player's best values, so sending a result that is not a record is harmless.

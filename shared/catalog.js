@@ -291,7 +291,9 @@ window.FreasyCatalog = (opts) => {
     empty.hidden = shown > 0;
     clear.hidden = !input.value;
     const filtered = words.length || tag;
-    info.textContent = filtered ? `Найдено: ${shown} ${plural(shown, 'игра', 'игры', 'игр')} из ${items.length}` : '';
+    const offlineNote = navigator.onLine === false || !online
+      ? 'Нет интернета — игры работают офлайн, а лайки, звёзды и заходы обновятся, когда появится сеть.' : '';
+    info.textContent = [filtered ? `Найдено: ${shown} ${plural(shown, 'игра', 'игры', 'игр')} из ${items.length}` : '', offlineNote].filter(Boolean).join(' · ');
   }
 
   input.addEventListener('input', apply);
@@ -312,6 +314,8 @@ window.FreasyCatalog = (opts) => {
   Promise.all([loadStats(), loadMine()]).then(renderAll);
   // Вернулся на вкладку каталога после игры — подтянем свежие числа.
   document.addEventListener('visibilitychange', () => { if (!document.hidden) loadStats().then(renderAll); });
+  addEventListener('online', () => Promise.all([loadStats(), loadMine()]).then(renderAll));
+  addEventListener('offline', apply);
 
   return { byId, refresh: () => loadStats().then(renderAll) };
 };

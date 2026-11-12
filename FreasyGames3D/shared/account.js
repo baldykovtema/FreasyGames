@@ -42,7 +42,7 @@ window.FreasyAccount = (opts) => {
   async function refreshIfNeeded() {
     if (!session || session.expires_at * 1000 > Date.now() + 60000) return;
     try { setSession(await raw('/auth/v1/token?grant_type=refresh_token', { method: 'POST', body: { refresh_token: session.refresh_token }, auth: false })); }
-    catch { setSession(null); }
+    catch (e) { if (navigator.onLine && !/связи|fetch|network|load failed/i.test(e && e.message || '')) setSession(null); } // без интернета не выкидываем из аккаунта
   }
   const username = () => (sync(), session) && session.user && session.user.user_metadata && session.user.user_metadata.username || null;
   const userId = () => (sync(), session) && session.user && session.user.id || null;

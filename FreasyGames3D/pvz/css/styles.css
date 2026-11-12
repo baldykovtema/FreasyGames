@@ -1344,3 +1344,15 @@ html:not(.phone-device) #gameScreen { height: calc(100dvh - 46px); }
 html:not(.phone-device) #plantsScreen { top: 46px; height: calc(100dvh - 46px); }
 html:not(.phone-device) .plants-container { height: calc(100dvh - 102px); }
 #phoneBlock .fg-phone-back { display: inline-block; margin-top: 22px; padding: 12px 20px; border-radius: 100px; color: #fff; background: #2d6a2d; border: 1px solid #ffffff40; text-decoration: none; font-size: 18px; }
+
+/* Офлайн-режим на экране входа */
+.offline-play {
+    width: 100%;
+    margin-top: 14px;
+}
+
+.offline-note {
+    margin-top: 8px;
+    font-size: 13px;
+    opacity: .75;
+}
