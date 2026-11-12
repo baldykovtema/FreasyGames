@@ -175,6 +175,9 @@
     .road3d .rcar.c2 { left: calc(50% + 16px); top: 60px; width: 12px; height: 8px; background: #5df2a5; animation: carcome 2.8s linear infinite -1.2s; }
     @keyframes carcome { from { transform: translateY(-20px) scale(.6); opacity: 0; } 20% { opacity: 1; } to { transform: translateY(70px) scale(2.2); opacity: 0; } }
     .art .pct.roadp { color: #bca0ff; font-size: 13px; }
+    .slot-link { position: absolute; inset: 0; z-index: 1; border-radius: inherit; }
+    .slot-link:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 3px; }
+    .slot.game .tag, .slot.game h3, .slot.game p { position: relative; pointer-events: none; }
     .slot h3 { margin: 0 0 6px; font-size: 20px; letter-spacing: -.03em; }
     .slot p { margin: 0; color: #8f8ca6; font-size: 14px; line-height: 1.55; }
 
@@ -222,27 +225,27 @@
       <div class="section-kicker">Каталог</div>
       <h2>Игры</h2>
       <div class="soon">
-        <a class="slot game" href="rcfcg/"><div class="art" aria-hidden="true"><div class="glow"></div><div class="floor"></div><div class="stage"><div class="cube rcfcg"><i></i><i></i><i></i><i></i><i></i><i></i></div></div><span class="mini a"></span><span class="mini b"></span><span class="pct">24%</span></div>
-          <span class="tag live">Играть</span><h3>RCFCG 3D</h3><p>Заливай кубы случайными цветами и лови большой процент одного цвета. Все 6 граней, кубы можно крутить.</p></a>
-        <a class="slot game" href="pvz/"><div class="art lawn3d" aria-hidden="true"><div class="glow green"></div>
+        <div class="slot game" data-game="3d-rcfcg" data-tags="Аркада, Кубы"><a class="slot-link" href="rcfcg/" aria-label="Играть: RCFCG 3D"></a><div class="art" aria-hidden="true"><div class="glow"></div><div class="floor"></div><div class="stage"><div class="cube rcfcg"><i></i><i></i><i></i><i></i><i></i><i></i></div></div><span class="mini a"></span><span class="mini b"></span><span class="pct">24%</span></div>
+          <span class="tag live">Играть</span><h3>RCFCG 3D</h3><p>Заливай кубы случайными цветами и лови большой процент одного цвета. Все 6 граней, кубы можно крутить.</p></div>
+        <div class="slot game" data-game="3d-pvz" data-tags="Стратегия, Растения против зомби, Онлайн"><a class="slot-link" href="pvz/" aria-label="Играть: Растения против Зомби 3D"></a><div class="art lawn3d" aria-hidden="true"><div class="glow green"></div>
           <div class="board"><div class="tiles"></div>
             <span class="pz p1">🌻</span><span class="pz p2">🌱</span><span class="pz p3">🌰</span><span class="pz p4">🧊</span>
             <span class="pz z1">🧟</span><span class="pz z2">🧟</span><span class="pz pea"></span></div>
           <span class="pct sunc">☀️ 125</span></div>
-          <span class="tag live">Играть</span><h3>Растения против Зомби 3D</h3><p>Та же игра — кампания, онлайн и песочница, но поле, растения, зомби и газонокосилки в 3D. Поле можно крутить.</p></a>
-        <a class="slot game" href="memecat/"><div class="art run3d" aria-hidden="true"><div class="glow pink"></div>
+          <span class="tag live">Играть</span><h3>Растения против Зомби 3D</h3><p>Та же игра — кампания, онлайн и песочница, но поле, растения, зомби и газонокосилки в 3D. Поле можно крутить.</p></div>
+        <div class="slot game" data-game="3d-memecat" data-tags="Раннер, Редактор уровней"><a class="slot-link" href="memecat/" aria-label="Играть: Мемный Кот: Прыг 3D"></a><div class="art run3d" aria-hidden="true"><div class="glow pink"></div>
           <div class="track"><span class="la a1">А</span><span class="la a2">А</span><span class="blk"></span></div>
           <div class="catbox"><div class="catcube"><i class="f"></i><i></i><i></i><i></i><i></i><i></i></div></div>
           <span class="pct catp">Попытка 1</span></div>
-          <span class="tag live">Играть</span><h3>Мемный Кот: Прыг 3D</h3><p>Кот-кубик бежит и прыгает через букву «А» — теперь в 3D с одного ракурса. Редактор и уровни игроков на месте.</p></a>
-        <a class="slot game" href="hotel/"><div class="art hotel3d" aria-hidden="true">
+          <span class="tag live">Играть</span><h3>Мемный Кот: Прыг 3D</h3><p>Кот-кубик бежит и прыгает через букву «А» — теперь в 3D с одного ракурса. Редактор и уровни игроков на месте.</p></div>
+        <div class="slot game" data-game="3d-hotel" data-tags="Хоррор, От первого лица"><a class="slot-link" href="hotel/" aria-label="Играть: Отель «Полночь»"></a><div class="art hotel3d" aria-hidden="true">
           <div class="hall"><span class="hdoor d1"><b>027</b></span><span class="hdoor d2"><b>028</b></span><span class="hdoor d3"><b>029</b></span></div>
           <span class="eyesx"><i></i><i></i></span><span class="pct hotp">🚪 Дверь 029</span></div>
-          <span class="tag live">Играть</span><h3>Отель «Полночь»</h3><p>Хоррор от первого лица: 30 дверей одного этажа, ключи в ящиках и шкафы, чтобы спрятаться от Сквозняка.</p></a>
-        <a class="slot game" href="trassa/"><div class="art road3d" aria-hidden="true">
+          <span class="tag live">Играть</span><h3>Отель «Полночь»</h3><p>Хоррор от первого лица: 30 дверей одного этажа, ключи в ящиках и шкафы, чтобы спрятаться от Сквозняка.</p></div>
+        <div class="slot game" data-game="3d-trassa" data-tags="Гонки, Мультиплеер"><a class="slot-link" href="trassa/" aria-label="Играть: Трасса 3D"></a><div class="art road3d" aria-hidden="true">
           <div class="rd"><i class="dash"></i></div><span class="rcar me"></span><span class="rcar c1"></span><span class="rcar c2"></span>
           <span class="pct roadp">259 км/ч</span></div>
-          <span class="tag live">Играть</span><h3>Трасса 3D</h3><p>Ночное шоссе в 3D: обгоняй поток, лови канистры и монеты. Мультиплеер вместе с игроками Трассы 2D.</p></a>
+          <span class="tag live">Играть</span><h3>Трасса 3D</h3><p>Ночное шоссе в 3D: обгоняй поток, лови канистры и монеты. Мультиплеер вместе с игроками Трассы 2D.</p></div>
       </div>
     </section>
 
@@ -264,6 +267,8 @@
     </div>
   </footer>
 
+  <script src="../shared/catalog.js"></script>
+  <script>FreasyCatalog({ grid: '.soon', card: '.slot.game', playLink: '.slot-link' });</script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script>
   (function () {
