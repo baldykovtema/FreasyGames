@@ -225,6 +225,8 @@ revoke all on function public.chat_find_user(text) from public;
 revoke all on function public.chat_my_dms() from public;
 revoke all on function public.chat_create_group(text, text[]) from public;
 revoke all on function public.chat_add_member(uuid, text) from public;
+-- Supabase по умолчанию даёт гостям (anon) право вызывать функции — забираем его явно.
+revoke execute on function public.chat_find_user(text), public.chat_my_dms(), public.chat_create_group(text, text[]), public.chat_add_member(uuid, text), public.chat_is_member(uuid) from anon;
 grant execute on function public.chat_can_access(text) to anon, authenticated;
 grant execute on function public.chat_is_member(uuid) to authenticated;
 grant execute on function public.chat_find_user(text) to authenticated;
