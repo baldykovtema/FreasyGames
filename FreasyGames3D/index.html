@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0d0f1c">
-  <meta name="description" content="FreasyGames 3D — бесплатные 3D-игры прямо в браузере: RCFCG 3D, Растения против Зомби 3D, Мемный Кот: Прыг 3D и Отель «Полночь».">
+  <meta name="description" content="FreasyGames 3D — бесплатные 3D-игры прямо в браузере: RCFCG 3D, Растения против Зомби 3D, Мемный Кот: Прыг 3D, Отель «Полночь», Трасса 3D, Шариковый рекорд 3D и Лиана 3D.">
   <title>FreasyGames 3D</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -178,6 +178,32 @@
     .slot-link { position: absolute; inset: 0; z-index: 1; border-radius: inherit; }
     .slot-link:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 3px; }
     .slot.game .tag, .slot.game h3, .slot.game p { position: relative; pointer-events: none; }
+    .art.balls3d { background: radial-gradient(ellipse at 50% 40%, #6fe3ff33 0, transparent 70%), #0e1430; }
+    .balls3d .bboard { position: absolute; left: 50%; top: 18px; width: 150px; height: 160px; margin-left: -75px; border-radius: 10px;
+      background: radial-gradient(circle, #c8d4ea 0 3px, transparent 4px) 0 0 / 22px 22px, #1b2540; border: 4px solid #7b67fc;
+      transform: perspective(420px) rotateY(-24deg) rotateX(8deg); box-shadow: 0 20px 30px #0008; }
+    .balls3d .bboard::after { content: ""; position: absolute; left: 4px; right: 4px; bottom: 4px; height: 18px;
+      background: linear-gradient(90deg, #39b879 0 20%, #4a9de8 0 40%, #a477ed 0 60%, #39b879 0 80%, #e05262 0); opacity: .85; border-radius: 3px; }
+    .balls3d .bball { position: absolute; left: calc(50% - 10px); top: 30px; width: 20px; height: 20px; border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, #fff, #69e2ff 40%, #1875c9); box-shadow: 0 0 16px #69e2ff; animation: bdrop 2.4s cubic-bezier(.5,0,.8,1) infinite; }
+    @keyframes bdrop { 0% { transform: translate(0, 0); } 25% { transform: translate(-14px, 40px); } 50% { transform: translate(10px, 80px); } 75% { transform: translate(-6px, 112px); } 100% { transform: translate(4px, 128px); opacity: 0; } }
+    .balls3d .bscore { position: absolute; right: 18px; top: 30px; width: 46px; height: 62px; border-radius: 6px; background: #181a2e; border: 2px solid #ffd23f88;
+      transform: perspective(300px) rotateY(28deg); }
+    .balls3d .bscore::before { content: "🏆"; position: absolute; top: 6px; left: 0; right: 0; text-align: center; font-size: 14px; }
+    .balls3d .bscore::after { content: ""; position: absolute; left: 8px; right: 8px; top: 28px; height: 22px; background: repeating-linear-gradient(#bca0ff 0 3px, transparent 3px 7px); opacity: .7; }
+    .art .pct.ballp { color: #69e2ff; font-size: 13px; }
+    .art.liana3d { background: radial-gradient(ellipse at 70% 30%, #ffeecb22 0, transparent 40%), linear-gradient(180deg, #1b1637 0, #2c2350 60%, #1d4a8f 100%); }
+    .liana3d .moon { position: absolute; right: 30px; top: 18px; width: 26px; height: 26px; border-radius: 50%; background: #ffeecb; box-shadow: 0 0 20px #ffeecb88; }
+    .liana3d .trees { position: absolute; left: 0; right: 0; bottom: 34px; height: 70px;
+      background: radial-gradient(ellipse 28px 22px at 20px 40px, #2a4a3f 98%, transparent) 0 0 / 70px 70px repeat-x, radial-gradient(ellipse 22px 18px at 50px 52px, #224036 98%, transparent) 0 0 / 90px 70px repeat-x; animation: trees 6s linear infinite; }
+    @keyframes trees { to { background-position: -70px 0, -90px 0; } }
+    .liana3d .river { position: absolute; left: 0; right: 0; bottom: 0; height: 36px; background: linear-gradient(#2f6fc9, #173a70); }
+    .liana3d .hook { position: absolute; top: 40px; width: 16px; height: 16px; border-radius: 50%; border: 4px solid #ffd23f; box-shadow: 0 0 10px #ffd23f; }
+    .liana3d .h1 { left: 34%; } .liana3d .h2 { left: 66%; top: 30px; }
+    .liana3d .swing { position: absolute; left: calc(34% + 8px); top: 52px; width: 2px; height: 70px; background: #c9a26b; transform-origin: 50% 0; animation: swing 1.6s ease-in-out infinite alternate; }
+    .liana3d .swing::after { content: ""; position: absolute; left: -13px; bottom: -14px; width: 28px; height: 28px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #e6dcff, #a382ff 60%, #6a4bd8); }
+    @keyframes swing { from { transform: rotate(38deg); } to { transform: rotate(-38deg); } }
+    .art .pct.lianap { color: #bca0ff; font-size: 13px; }
     .slot h3 { margin: 0 0 6px; font-size: 20px; letter-spacing: -.03em; }
     .slot p { margin: 0; color: #8f8ca6; font-size: 14px; line-height: 1.55; }
 
@@ -216,7 +242,7 @@
     <section class="wrap hero">
       <span class="eyebrow">Только 3D</span>
       <h1>Freasy<span class="three">Games 3D</span></h1>
-      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже пять игр, и будут ещё.</p>
+      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже семь игр, и будут ещё.</p>
       <a class="hero-action" href="#games">Смотреть игры ↓</a>
       <div class="hint">Двигай мышкой или пальцем — сцена повернётся</div>
     </section>
@@ -246,6 +272,12 @@
           <div class="rd"><i class="dash"></i></div><span class="rcar me"></span><span class="rcar c1"></span><span class="rcar c2"></span>
           <span class="pct roadp">259 км/ч</span></div>
           <span class="tag live">Играть</span><h3>Трасса 3D</h3><p>Ночное шоссе в 3D: обгоняй поток, лови канистры и монеты. Мультиплеер вместе с игроками Трассы 2D.</p></div>
+        <div class="slot game" data-game="3d-balls" data-tags="Аркада, Рекорды, Таблица лидеров"><a class="slot-link" href="balls/" aria-label="Играть: Шариковый рекорд 3D"></a><div class="art balls3d" aria-hidden="true">
+          <div class="bboard"></div><span class="bball"></span><span class="bscore"></span><span class="pct ballp">×5</span></div>
+          <span class="tag live">Играть</span><h3>Шариковый рекорд 3D</h3><p>Шарик летит через штырьки в объёмном автомате. Крути поле или поставь камеру за шариком, а рекорды смотри на 3D-табло рядом.</p></div>
+        <div class="slot game" data-game="3d-liana" data-tags="Аркада, Таблица лидеров"><a class="slot-link" href="liana/" aria-label="Играть: Лиана 3D"></a><div class="art liana3d" aria-hidden="true">
+          <span class="moon"></span><div class="trees"></div><div class="river"></div><span class="hook h1"></span><span class="hook h2"></span><span class="swing"></span><span class="pct lianap">164 м</span></div>
+          <span class="tag live">Играть</span><h3>Лиана 3D</h3><p>Раскачивайся над ночной рекой в объёмных джунглях — камера летит прямо за героем. Рекорды общие с Лианой 2D.</p></div>
       </div>
     </section>
 

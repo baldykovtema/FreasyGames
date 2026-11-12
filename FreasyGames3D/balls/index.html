@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0d0f1c">
+<title>Шариковый рекорд 3D — FreasyGames 3D</title>
+<meta name="description" content="Шариковый рекорд 3D: бросай шарик через штырьки в объёмном поле, крути камеру или следи за шариком, а рекорды смотри на 3D-табло рядом с полем.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0d0f1c; color: #f8f7ff; font-family: Manrope, system-ui, sans-serif; }
+  body { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+  #gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  .stats { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 5; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; pointer-events: none; max-width: calc(100% - 200px); }
+  .stats span { background: #11132199; border: 1px solid #ffffff24; border-radius: 100px; padding: 8px 14px; font-size: 13px; font-weight: 700; backdrop-filter: blur(6px); white-space: nowrap; }
+  .stats b { color: #bca0ff; }
+  .bar { position: fixed; bottom: max(14px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 5; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; width: min(640px, calc(100% - 20px)); }
+  .bar button, .dialog button { font: inherit; font-weight: 800; font-size: 14px; border: 0; border-radius: 14px; padding: 13px 16px; cursor: pointer; }
+  .drop { background: #bca0ff; color: #171225; box-shadow: 0 12px 35px #a178f840; font-size: 16px !important; padding: 14px 22px !important; }
+  .drop:disabled { opacity: .45; cursor: default; }
+  .alt { background: #1d1e31e6; color: #f8f7ff; border: 1px solid #ffffff2e !important; backdrop-filter: blur(6px); }
+  .alt[aria-pressed="true"] { background: #6fe3ff; color: #0d0f1c; }
+  .hint { position: fixed; bottom: 86px; left: 0; right: 0; text-align: center; color: #8f8ca6; font-size: 12px; pointer-events: none; z-index: 4; }
+  .overlay { position: fixed; inset: 0; background: #07081ad0; backdrop-filter: blur(4px); display: grid; place-items: safe center; padding: 20px; z-index: 20; overflow-y: auto; }
+  .overlay[hidden] { display: none; }
+  .dialog { width: min(420px, 100%); background: #181a2e; border: 1px solid #bca0ff66; border-radius: 24px; padding: 24px; text-align: center; box-shadow: 0 20px 70px #0009; }
+  .dialog h2 { margin: 0 0 10px; font-size: 26px; letter-spacing: -.04em; }
+  .dialog p { color: #b9b6c9; line-height: 1.55; margin: 0 0 10px; }
+  .dialog input { width: 100%; margin: 5px 0; font: inherit; font-size: 15px; color: #f8f7ff; background: #0f1122; border: 1px solid #ffffff2a; border-radius: 12px; padding: 12px; }
+  .dialog button { width: 100%; margin-top: 8px; background: #bca0ff; color: #171225; }
+  .dialog button.alt { background: #26283f; color: #f8f7ff; }
+  .msg { min-height: 20px; color: #ffd27a; font-size: 14px; margin: 4px 0; }
+  .eyebrow { display: inline-block; color: #c9f4ff; border: 1px solid #6fe3ff55; background: #6fe3ff14; border-radius: 100px; padding: 6px 12px; font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; margin-bottom: 10px; }
+  .nowebgl { position: fixed; inset: 0; display: grid; place-items: center; text-align: center; padding: 20px; }
+  @media (max-width: 620px) { .stats { top: 58px; max-width: calc(100% - 16px); flex-wrap: nowrap; gap: 4px; } .stats span { padding: 5px 9px; font-size: 11px; } .bar button { padding: 11px 12px; font-size: 13px; } .hint { bottom: 132px; } }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div class="stats"><span>Игрок: <b id="player">—</b></span><span>Очки: <b id="score">0</b></span><span>Рекорд: <b id="best">—</b></span></div>
+<div class="hint" id="hint">Тяни поле мышью или пальцем, чтобы повернуть · колёсико или щипок — приблизить</div>
+<div class="bar">
+  <button class="drop" id="dropBtn" type="button">Бросить шарик ↓</button>
+  <button class="alt" id="camBtn" type="button" aria-pressed="false">🎥 За шариком</button>
+  <button class="alt" id="viewBtn" type="button">🏆 Табло</button>
+  <button class="alt" id="accountBtn" type="button">Войти</button>
+</div>
+
+<div class="overlay" id="startScreen"><div class="dialog">
+  <div class="eyebrow">3D</div>
+  <h2>Шариковый рекорд 3D</h2>
+  <p>Бросай шарик через штырьки. Корзинки внизу добавляют или умножают очки, красная «СТОП» завершает игру.</p>
+  <div id="loginBox">
+    <p>Войди, чтобы попасть в рекорды. Почта не нужна: только ник и пароль.</p>
+    <input id="nameInput" maxlength="30" placeholder="Ник (A-Z, 0-9, _)" autocomplete="username">
+    <input id="passInput" type="password" placeholder="Пароль (от 6 символов)" autocomplete="current-password">
+    <div class="msg" id="authMsg"></div>
+    <button id="loginBtn" type="button">Войти</button>
+    <button class="alt" id="registerBtn" type="button">Зарегистрироваться</button>
+    <button class="alt" id="guestBtn" type="button">Играть без входа</button>
+  </div>
+  <div id="loggedBox" hidden>
+    <p>Ты вошёл как <b id="loggedName"></b></p>
+    <button id="startBtn" type="button">Начать игру</button>
+    <button class="alt" id="logoutBtn" type="button">Выйти из аккаунта</button>
+  </div>
+</div></div>
+<div class="overlay" id="endScreen" hidden><div class="dialog"><h2>Игра окончена!</h2><p id="finalText"></p><p class="msg" id="recordText"></p><button id="againBtn" type="button">Играть ещё</button><button class="alt" id="menuBtn" type="button">В меню</button></div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(() => {
+'use strict';
+const $ = (id) => document.getElementById(id);
+
+/* ===== Аккаунты и рекорды: та же таблица balls_records, что и у 2D-версии ===== */
+const SB_URL = 'https://ywqxrbmgmvpbeytxjkpi.supabase.co', SB_KEY = 'sb_publishable_igyJK68YpyJYo-0KNrVZPA_rm6_gIRg', EMAIL_DOMAIN = '@pvz-game.com', OLD_EMAIL_DOMAIN = '@memecat-game.com';
+const MAX_SCORE = 1e15;
+let session = null; try { session = JSON.parse(localStorage.getItem('balls-session') || 'null'); } catch {}
+function saveSession(s) { session = s && s.access_token ? { access_token: s.access_token, refresh_token: s.refresh_token, expires_at: s.expires_at || Math.floor(Date.now() / 1000) + (s.expires_in || 3600), user: s.user } : null; try { localStorage.setItem('balls-session', JSON.stringify(session)); } catch {} }
+const username = () => (session && session.user && session.user.user_metadata && session.user.user_metadata.username) || null;
+function errorText(data, status) {
+  const raw = (data && (data.msg || data.message || data.error_description || data.error)) || `Ошибка ${status}`;
+  if (/invalid login credentials/i.test(raw)) return 'Неверный ник или пароль';
+  if (/already registered|already exists/i.test(raw)) return 'Такой ник уже занят';
+  if (/balls_/.test(raw) || (data && ['PGRST205', 'PGRST202', '42P01'].includes(data.code))) return 'Таблица рекордов ещё не включена на сервере';
+  if (/rate limit/i.test(raw)) return 'Слишком много попыток, подожди немного';
+  return raw;
+}
+async function sb(path, { method = 'GET', body, auth = true } = {}) {
+  const h = { apikey: SB_KEY, 'Content-Type': 'application/json' };
+  if (auth && session) { await refresh(); if (session) h.Authorization = 'Bearer ' + session.access_token; }
+  let res; try { res = await fetch(SB_URL + path, { method, headers: h, body: body === undefined ? undefined : JSON.stringify(body) }); } catch { throw new Error('Нет связи с сервером. Проверь интернет'); }
+  const text = await res.text(); let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = { message: text }; }
+  if (!res.ok) throw new Error(errorText(data, res.status)); return data;
+}
+async function refresh() {
+  if (!session || session.expires_at * 1000 > Date.now() + 60000) return;
+  try { saveSession(await sb('/auth/v1/token?grant_type=refresh_token', { method: 'POST', body: { refresh_token: session.refresh_token }, auth: false })); }
+  catch (e) { if (navigator.onLine && !/связи|fetch|network|load failed/i.test((e && e.message) || '')) saveSession(null); }
+}
+async function auth(kind) {
+  const name = $('nameInput').value.trim(), pass = $('passInput').value, msg = $('authMsg');
+  if (!/^[A-Za-z0-9_]{3,30}$/.test(name)) { msg.textContent = 'Ник: 3–30 символов, латиница, цифры или _'; return; }
+  if (pass.length < 6) { msg.textContent = 'Пароль должен быть от 6 символов'; return; }
+  msg.textContent = kind === 'signup' ? 'Создаём аккаунт...' : 'Входим...';
+  const email = name.toLowerCase() + EMAIL_DOMAIN;
+  const login = (address) => sb('/auth/v1/token?grant_type=password', { method: 'POST', body: { email: address, password: pass }, auth: false });
+  try {
+    const s = kind === 'signup' ? await sb('/auth/v1/signup', { method: 'POST', body: { email, password: pass, data: { username: name } }, auth: false })
+      : await login(email).catch(() => login(name.toLowerCase() + OLD_EMAIL_DOMAIN));
+    if (!s || !s.access_token) { msg.textContent = 'Аккаунт создан, теперь нажми «Войти»'; return; }
+    saveSession(s); $('passInput').value = ''; msg.textContent = ''; start(username());
+  } catch (e) { msg.textContent = e.message; }
+}
+async function logout() { try { await sb('/auth/v1/logout', { method: 'POST' }); } catch {} saveSession(null); myBest = null; showStart(); }
+let myBest = null, tableRows = [], tableNote = 'Загружаем…';
+async function loadRecords() {
+  try {
+    tableRows = await sb('/rest/v1/balls_records?select=user_id,username,score&order=score.desc,updated_at.asc&limit=10', { auth: false });
+    const me = session && tableRows.find((r) => r.user_id === session.user.id);
+    if (session && !me && myBest === null) { const own = await sb(`/rest/v1/balls_records?select=score&user_id=eq.${session.user.id}`, { auth: false }); myBest = own.length ? own[0].score : 0; }
+    else if (me) myBest = me.score;
+    tableNote = tableRows.length ? '' : 'Пока рекордов нет. Стань первым!';
+  } catch (e) { tableNote = e.message; }
+  drawBoard(); updateUI();
+}
+async function submit() {
+  if (!session) { $('recordText').textContent = 'Войди в аккаунт, чтобы результат попал в рекорды'; return; }
+  $('recordText').textContent = 'Сохраняем результат...';
+  const sent = score;
+  try {
+    const before = myBest || 0, best = await sb('/rest/v1/rpc/balls_submit', { method: 'POST', body: { new_score: sent } }); myBest = best;
+    $('recordText').textContent = sent > before && sent === best ? 'Новый личный рекорд!' : `Твой рекорд: ${best} очков`; updateUI(); loadRecords();
+  } catch (e) { $('recordText').textContent = e.message; }
+}
+
+/* ===== Игра: та же физика, что в 2D (поле 560×700), в 3D показана на вертикальной доске ===== */
+const W = 560, H = 700, bins = 10, floorY = 620;
+const pegs = [];
+for (let row = 0; row < 9; row++) { const y = 130 + row * 52, count = row % 2 === 0 ? 8 : 7, gap = W / 9; for (let i = 0; i < count; i++) pegs.push({ x: gap * (i + 1) + (row % 2 ? gap / 2 : 0), y, r: 6 }); }
+const baskets = [
+  { label: '+10', kind: 'add', v: 10, c: '#39b879' }, { label: '×2', kind: 'mul', v: 2, c: '#4a9de8' },
+  { label: '+25', kind: 'add', v: 25, c: '#39b879' }, { label: '×3', kind: 'mul', v: 3, c: '#a477ed' },
+  { label: '+50', kind: 'add', v: 50, c: '#39b879' }, { label: '×2', kind: 'mul', v: 2, c: '#4a9de8' },
+  { label: '+100', kind: 'add', v: 100, c: '#39b879' }, { label: '×5', kind: 'mul', v: 5, c: '#a477ed' },
+  { label: '+20', kind: 'add', v: 20, c: '#39b879' }, { label: 'СТОП', kind: 'stop', v: 0, c: '#e05262' },
+];
+let player = '', score = 0, ball = null, running = false, finished = false, lastBin = -1, binFlash = 0;
+function updateUI() {
+  $('player').textContent = player || '—'; $('score').textContent = score;
+  $('best').textContent = session ? (myBest === null ? '…' : myBest) : 'войди';
+  $('accountBtn').textContent = session ? 'Аккаунт' : 'Войти';
+  $('dropBtn').disabled = !!(finished || ball || running);
+}
+function showStart() {
+  const inside = !!username();
+  $('loginBox').hidden = inside; $('loggedBox').hidden = !inside; $('loggedName').textContent = username() || '';
+  ball = null; running = false; $('startScreen').hidden = false; $('endScreen').hidden = true; updateUI();
+}
+function start(name) { player = name || 'Гость'; score = 0; ball = null; running = false; finished = false; $('startScreen').hidden = true; $('endScreen').hidden = true; updateUI(); loadRecords(); unlockAudio(); }
+function drop() {
+  if (finished || ball || running || !$('startScreen').hidden) return;
+  ball = { x: W / 2 + (Math.random() - 0.5) * 22, y: 45, vx: (Math.random() - 0.5) * 1.5, vy: 0, r: 10 }; running = true; updateUI(); tone(660, 0.08, 'triangle', 0.08, 1.4);
+}
+function end() { running = false; finished = true; updateUI(); $('finalText').textContent = `${player}, твой результат: ${score} очков!`; $('recordText').textContent = ''; setTimeout(() => { $('endScreen').hidden = false; }, 700); submit(); }
+function collideCircle(p) {
+  const dx = ball.x - p.x, dy = ball.y - p.y, d = Math.hypot(dx, dy), min = ball.r + p.r;
+  if (d < min && d > 0) {
+    const nx = dx / d, ny = dy / d; ball.x = p.x + nx * min; ball.y = p.y + ny * min;
+    const dot = ball.vx * nx + ball.vy * ny;
+    if (dot < 0) { ball.vx -= 1.82 * dot * nx; ball.vy -= 1.82 * dot * ny; ball.vx += (Math.random() - 0.5) * 0.35; p.hit = 1; tone(900 + Math.random() * 400, 0.05, 'sine', 0.04); }
+  }
+}
+function update() {
+  if (!running || !ball) return;
+  ball.vy += 0.19; ball.vx *= 0.999; ball.x += ball.vx; ball.y += ball.vy;
+  if (ball.x < ball.r) { ball.x = ball.r; ball.vx = Math.abs(ball.vx) * 0.75; }
+  if (ball.x > W - ball.r) { ball.x = W - ball.r; ball.vx = -Math.abs(ball.vx) * 0.75; }
+  for (const p of pegs) collideCircle(p);
+  if (ball.y >= floorY - 18) {
+    const idx = Math.max(0, Math.min(bins - 1, Math.floor(ball.x / (W / bins)))), b = baskets[idx];
+    if (b.kind === 'add') score += b.v; else if (b.kind === 'mul') score *= b.v;
+    score = Math.min(score, MAX_SCORE);
+    lastBin = idx; binFlash = 1;
+    if (b.kind === 'stop') tone(160, 0.5, 'sawtooth', 0.1, 0.5); else { tone(523, 0.12, 'square', 0.05); tone(784, 0.16, 'triangle', 0.06, 1, 0.08); }
+    ball = null; running = false; updateUI();
+    if (b.kind === 'stop') end();
+  }
+}
+
+/* ===== Звук ===== */
+let ac = null;
+function unlockAudio() { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (ac && ac.state === 'suspended') ac.resume(); }
+function tone(f, dur, type, vol, slide = 1, delay = 0) {
+  if (!ac) return;
+  const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + dur);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+}
+
+/* ===== 3D-сцена ===== */
+const canvas = $('gl');
+let renderer;
+try { renderer = new THREE.WebGLRenderer({ canvas, antialias: true }); } catch (e) {
+  document.body.insertAdjacentHTML('beforeend', '<div class="nowebgl"><div><h2>3D не запускается</h2><p>Браузер не поддерживает WebGL. Попробуй обычную версию игры.</p><p><a style="color:#bca0ff" href="../../balls/">Шариковый рекорд 2D ↗</a></p></div></div>');
+  return;
+}
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#0d0f1c'); scene.fog = new THREE.Fog('#0d0f1c', 90, 200);
+const camera = new THREE.PerspectiveCamera(45, 1, 0.5, 500);
+const controls = new THREE.OrbitControls(camera, canvas);
+controls.enableDamping = true; controls.dampingFactor = 0.08; controls.minDistance = 25; controls.maxDistance = 160;
+controls.maxPolarAngle = Math.PI * 0.62; controls.minAzimuthAngle = -Math.PI * 0.6; controls.maxAzimuthAngle = Math.PI * 0.6;
+controls.enablePan = false;
+
+const S = 0.1; // 10 пикселей 2D-поля = 1 единица 3D
+const X = (x) => (x - W / 2) * S, Y = (y) => (H / 2 - y) * S;
+scene.add(new THREE.HemisphereLight('#bfb4ff', '#1a1530', 0.75));
+const sun = new THREE.DirectionalLight('#ffffff', 0.9);
+sun.position.set(-30, 60, 60); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -60, right: 60, top: 60, bottom: -60, near: 10, far: 200 });
+scene.add(sun);
+const glow = new THREE.PointLight('#6fe3ff', 0.6, 120); glow.position.set(0, 20, 30); scene.add(glow);
+
+// пол
+const floor = new THREE.Mesh(new THREE.CircleGeometry(140, 64), new THREE.MeshStandardMaterial({ color: '#15172b', roughness: 0.95 }));
+floor.rotation.x = -Math.PI / 2; floor.position.y = Y(H) - 2; floor.receiveShadow = true; scene.add(floor);
+const grid = new THREE.GridHelper(280, 56, '#2a2c4a', '#1c1e36'); grid.position.y = floor.position.y + 0.02; scene.add(grid);
+
+// доска
+const board = new THREE.Group(); scene.add(board);
+const back = new THREE.Mesh(new THREE.BoxGeometry(W * S + 3, H * S + 4, 1.2), new THREE.MeshStandardMaterial({ color: '#1b2540', roughness: 0.7, metalness: 0.1 }));
+back.position.set(0, 0, -1.6); back.receiveShadow = true; board.add(back);
+const rimMat = new THREE.MeshStandardMaterial({ color: '#7b67fc', roughness: 0.35, metalness: 0.4, emissive: '#2a1f6a', emissiveIntensity: 0.6 });
+for (const side of [-1, 1]) { const rail = new THREE.Mesh(new THREE.BoxGeometry(1.2, H * S + 4, 3.4), rimMat); rail.position.set(side * (W * S / 2 + 0.9), 0, 0); rail.castShadow = true; board.add(rail); }
+const top = new THREE.Mesh(new THREE.BoxGeometry(W * S + 3, 1, 3.4), rimMat); top.position.set(0, H * S / 2 + 1.5, 0); board.add(top);
+// стекло спереди, чтобы шарик выглядел внутри автомата
+const glass = new THREE.Mesh(new THREE.PlaneGeometry(W * S, H * S), new THREE.MeshPhysicalMaterial({ color: '#9fd8ff', transparent: true, opacity: 0.06, roughness: 0.05, metalness: 0, depthWrite: false }));
+glass.position.set(0, 0, 1.6); board.add(glass);
+
+// штырьки
+const pegGeo = new THREE.CylinderGeometry(0.6, 0.6, 3, 16); pegGeo.rotateX(Math.PI / 2);
+const pegMat = new THREE.MeshStandardMaterial({ color: '#c8d4ea', roughness: 0.25, metalness: 0.8 });
+const pegMeshes = pegs.map((p) => { const m = new THREE.Mesh(pegGeo, pegMat.clone()); m.position.set(X(p.x), Y(p.y), 0); m.castShadow = true; board.add(m); return m; });
+
+// корзинки
+function labelTexture(text, color) {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 128; const g = c.getContext('2d');
+  g.fillStyle = color; g.globalAlpha = 0.9; g.fillRect(0, 0, 256, 128); g.globalAlpha = 1;
+  g.fillStyle = '#ffffff'; g.font = '900 64px Manrope, Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 128, 70);
+  const t = new THREE.CanvasTexture(c); t.anisotropy = 4; return t;
+}
+const bw = W / bins;
+const binMeshes = baskets.map((b, i) => {
+  const grp = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color: b.c, roughness: 0.4, emissive: b.c, emissiveIntensity: 0.15, transparent: true, opacity: 0.85 });
+  const base = new THREE.Mesh(new THREE.BoxGeometry(bw * S - 0.4, 0.6, 3.2), mat); base.position.y = -6.2 * 0.5; base.receiveShadow = true; grp.add(base);
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(bw * S - 0.6, 2.8), new THREE.MeshBasicMaterial({ map: labelTexture(b.label, b.c) }));
+  face.position.set(0, -0.2, 1.65); grp.add(face);
+  grp.position.set(X(i * bw + bw / 2), Y(floorY + 32), 0); board.add(grp);
+  return { grp, mat };
+});
+const wallMat = new THREE.MeshStandardMaterial({ color: '#d5e1f5', roughness: 0.4, metalness: 0.5 });
+for (let i = 0; i <= bins; i++) { const w = new THREE.Mesh(new THREE.BoxGeometry(0.35, 6.5, 3.2), wallMat); w.position.set(X(i * bw), Y(floorY + 32), 0); w.castShadow = true; board.add(w); }
+
+// шарик и след
+const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 20), new THREE.MeshStandardMaterial({ color: '#69e2ff', roughness: 0.15, metalness: 0.3, emissive: '#1875c9', emissiveIntensity: 0.35 }));
+ballMesh.castShadow = true; ballMesh.visible = false; board.add(ballMesh);
+const ballLight = new THREE.PointLight('#69e2ff', 1.2, 18); ballMesh.add(ballLight);
+const trailMeshes = Array.from({ length: 10 }, (_, i) => { const m = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), new THREE.MeshBasicMaterial({ color: '#5bd3ff', transparent: true, opacity: 0.25 * (i / 10) })); m.visible = false; board.add(m); return m; });
+const trail = [];
+// шарик-подсказка наверху, откуда он полетит
+const dropper = new THREE.Mesh(new THREE.ConeGeometry(1.2, 2.2, 20), new THREE.MeshStandardMaterial({ color: '#bca0ff', emissive: '#7b67fc', emissiveIntensity: 0.6 }));
+dropper.rotation.x = Math.PI; dropper.position.set(0, Y(20), 0); board.add(dropper);
+
+/* ===== 3D-табло рекордов рядом с полем ===== */
+const boardCanvas = document.createElement('canvas'); boardCanvas.width = 640; boardCanvas.height = 900;
+const boardTex = new THREE.CanvasTexture(boardCanvas); boardTex.anisotropy = 4;
+const scoreboard = new THREE.Group();
+const frame = new THREE.Mesh(new THREE.BoxGeometry(34, 47, 1.5), new THREE.MeshStandardMaterial({ color: '#181a2e', roughness: 0.6, metalness: 0.3 }));
+frame.castShadow = true; scoreboard.add(frame);
+const screen = new THREE.Mesh(new THREE.PlaneGeometry(32, 45), new THREE.MeshBasicMaterial({ map: boardTex }));
+screen.position.z = 0.8; scoreboard.add(screen);
+const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.2, 22, 16), rimMat); leg.position.y = -34; scoreboard.add(leg);
+const foot = new THREE.Mesh(new THREE.CylinderGeometry(5, 6, 1, 24), rimMat); foot.position.y = -45; scoreboard.add(foot);
+scoreboard.position.set(W * S / 2 + 26, 4, -4); scoreboard.rotation.y = -0.45; scene.add(scoreboard);
+const esc = (s) => String(s);
+function drawBoard() {
+  const g = boardCanvas.getContext('2d'), Wc = boardCanvas.width, Hc = boardCanvas.height;
+  const bg = g.createLinearGradient(0, 0, 0, Hc); bg.addColorStop(0, '#231c4a'); bg.addColorStop(1, '#0f1024');
+  g.fillStyle = bg; g.fillRect(0, 0, Wc, Hc);
+  g.strokeStyle = '#bca0ff88'; g.lineWidth = 6; g.strokeRect(10, 10, Wc - 20, Hc - 20);
+  g.fillStyle = '#ffd23f'; g.font = '800 54px Manrope, Arial'; g.textAlign = 'center'; g.fillText('🏆 РЕКОРДЫ', Wc / 2, 90);
+  g.fillStyle = '#8f8ca6'; g.font = '700 24px Manrope, Arial'; g.fillText('лучший результат каждого игрока', Wc / 2, 130);
+  if (!tableRows.length) { g.fillStyle = '#d1cde5'; g.font = '700 30px Manrope, Arial'; wrap(g, tableNote, Wc / 2, 300, Wc - 80, 40); boardTex.needsUpdate = true; return; }
+  const medal = ['#ffd700', '#c0c0c0', '#cd7f32'];
+  tableRows.slice(0, 10).forEach((r, i) => {
+    const y = 200 + i * 68, mine = session && r.user_id === session.user.id;
+    if (mine) { g.fillStyle = '#bca0ff33'; g.fillRect(28, y - 44, Wc - 56, 60); }
+    g.textAlign = 'left'; g.fillStyle = medal[i] || '#8f8ca6'; g.font = '800 34px Manrope, Arial'; g.fillText(String(i + 1), 44, y);
+    g.fillStyle = mine ? '#6fe3ff' : '#f8f7ff'; g.font = '700 32px Manrope, Arial';
+    let name = esc(r.username); while (g.measureText(name).width > 330 && name.length > 3) name = name.slice(0, -2) + '…';
+    g.fillText(name, 100, y);
+    g.textAlign = 'right'; g.fillStyle = '#bca0ff'; g.font = '800 32px Manrope, Arial'; g.fillText(Number(r.score).toLocaleString('ru-RU'), Wc - 44, y);
+  });
+  boardTex.needsUpdate = true;
+}
+function wrap(g, text, x, y, maxW, lh) {
+  const words = String(text).split(' '); let line = '';
+  for (const w of words) { const t = line ? line + ' ' + w : w; if (g.measureText(t).width > maxW && line) { g.fillText(line, x, y); line = w; y += lh; } else line = t; }
+  g.fillText(line, x, y);
+}
+drawBoard();
+
+// звёзды на фоне
+const starGeo = new THREE.BufferGeometry(), starPos = [];
+for (let i = 0; i < 600; i++) { const r = 160 + Math.random() * 60, a = Math.random() * Math.PI * 2, h = Math.random() * 120 - 10; starPos.push(Math.cos(a) * r, h, Math.sin(a) * r - 40); }
+starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
+scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: '#cfc8ff', size: 0.8, sizeAttenuation: true })));
+
+/* ===== Камера: свободная (крутить поле) или за шариком ===== */
+let follow = false;
+const homePos = new THREE.Vector3(14, 6, 82), homeTarget = new THREE.Vector3(6, 0, 0);
+function home() { camera.position.copy(homePos); controls.target.copy(homeTarget); controls.update(); }
+function fitHome() {
+  const portrait = innerHeight > innerWidth;
+  homePos.set(portrait ? 4 : 14, portrait ? 4 : 6, portrait ? 112 : 82); homeTarget.set(portrait ? 0 : 6, portrait ? -2 : 0, 0);
+}
+function resize() { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); fitHome(); }
+addEventListener('resize', resize); resize(); home();
+const followPos = new THREE.Vector3(), followTarget = new THREE.Vector3();
+$('camBtn').addEventListener('click', () => {
+  follow = !follow; $('camBtn').setAttribute('aria-pressed', String(follow));
+  controls.enabled = !follow;
+  $('hint').textContent = follow ? 'Камера следит за шариком · нажми ещё раз, чтобы крутить поле самому' : 'Тяни поле мышью или пальцем, чтобы повернуть · колёсико или щипок — приблизить';
+  if (!follow) setView('field');
+});
+// «Вид»: поле → табло рекордов → общий вид → поле.
+const VIEWS = ['field', 'board', 'all'], VIEW_LABEL = { field: '🏆 Табло', board: '🔭 Всё', all: '🎯 Поле' };
+let view = 'field';
+function setView(v) {
+  view = v; $('viewBtn').textContent = VIEW_LABEL[v];
+  const portrait = innerHeight > innerWidth;
+  if (v === 'field') { home(); return; }
+  if (v === 'board') {
+    const b = scoreboard.position, dir = new THREE.Vector3(Math.sin(scoreboard.rotation.y), 0, Math.cos(scoreboard.rotation.y));
+    controls.target.set(b.x, b.y, b.z); camera.position.set(b.x + dir.x * (portrait ? 95 : 62), b.y + 2, b.z + dir.z * (portrait ? 95 : 62));
+  } else { controls.target.set(22, -2, 0); camera.position.set(22, 18, portrait ? 210 : 140); }
+  controls.update();
+}
+$('viewBtn').addEventListener('click', () => { if (follow) $('camBtn').click(); setView(VIEWS[(VIEWS.indexOf(view) + 1) % VIEWS.length]); });
+
+/* ===== Цикл ===== */
+const STEP = 1000 / 60; let last = performance.now(), acc = 0, t = 0;
+function loop(now) {
+  const dt = Math.min(0.1, (now - last) / 1000);
+  acc = Math.min(acc + (now - last), STEP * 10); last = now; t += dt;
+  while (acc >= STEP) {
+    update(); acc -= STEP;
+    if (ball) { trail.push({ x: ball.x, y: ball.y }); if (trail.length > 10) trail.shift(); }
+  }
+  // шарик
+  if (ball) { ballMesh.visible = true; ballMesh.position.set(X(ball.x), Y(ball.y), 0); ballMesh.rotation.z -= ball.vx * 0.08; ballMesh.rotation.x += ball.vy * 0.05; }
+  else { ballMesh.visible = false; trail.length = 0; }
+  trailMeshes.forEach((m, i) => { const p = trail[i]; m.visible = !!(ball && p); if (p) { m.position.set(X(p.x), Y(p.y), -0.2); m.scale.setScalar(0.65 * (i / trail.length)); } });
+  // штырьки вспыхивают от удара
+  pegs.forEach((p, i) => { if (p.hit) { p.hit = Math.max(0, p.hit - dt * 3); pegMeshes[i].material.emissive.set('#6fe3ff'); pegMeshes[i].material.emissiveIntensity = p.hit; } });
+  binMeshes.forEach((b, i) => { b.mat.emissiveIntensity = 0.15 + (i === lastBin ? binFlash * 1.2 : 0); });
+  binFlash = Math.max(0, binFlash - dt * 1.2);
+  dropper.position.y = Y(20) + Math.sin(t * 3) * 0.4; dropper.visible = !ball && !finished;
+  // камера
+  if (follow) {
+    const bx = ball ? X(ball.x) : 0, by = ball ? Y(ball.y) : Y(80);
+    followTarget.set(bx, by - 3, 0); followPos.set(bx + 8, by + 6, 32);
+    camera.position.lerp(followPos, Math.min(1, dt * 4)); controls.target.lerp(followTarget, Math.min(1, dt * 6)); camera.lookAt(controls.target);
+  } else controls.update();
+  scoreboard.position.y = 4 + Math.sin(t * 0.8) * 0.4;
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+
+/* ===== Кнопки ===== */
+$('dropBtn').addEventListener('click', drop);
+addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); if (!$('endScreen').hidden) { start(player); return; } drop(); }
+  if (e.code === 'KeyC') $('camBtn').click();
+});
+$('loginBtn').onclick = () => auth('login'); $('registerBtn').onclick = () => auth('signup');
+$('passInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') auth('login'); });
+$('guestBtn').onclick = () => start('Гость'); $('startBtn').onclick = () => start(username()); $('logoutBtn').onclick = logout;
+$('againBtn').onclick = () => start(player); $('menuBtn').onclick = showStart; $('accountBtn').onclick = showStart;
+showStart(); loadRecords(); requestAnimationFrame(loop);
+})();
+</script>
+<script src="../shared/back.js" data-href="../"></script>
+</body>
+</html>
