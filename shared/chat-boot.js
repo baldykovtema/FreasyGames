@@ -9,9 +9,12 @@
   const inGame = me ? me.dataset.catalog === undefined : true;
   const load = (src) => new Promise((ok) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = ok; document.head.appendChild(s); });
   const start = async () => {
-    if (!window.FreasyAccount) await load(base + 'account.js?v=6');
-    if (!window.FreasyChat) await load(base + 'chat.js?v=6');
+    if (!window.FreasyAccount) await load(base + 'account.js?v=7');
+    if (!window.FreasyChat) await load(base + 'chat.js?v=7');
     if (window.FreasyChat) window.FreasyChat({ inGame });
+    // над кнопкой чата — погода и время
+    if (!window.FreasyWeather) await load(base + 'weather.js?v=2');
+    if (window.FreasyWeather) window.FreasyWeather({ inGame });
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 })();

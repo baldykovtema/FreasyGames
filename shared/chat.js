@@ -491,6 +491,7 @@ window.FreasyChat = (opts = {}) => {
     if (!panel.hidden) {
       // в игре с захватом мыши (Отель) сначала отпускаем курсор
       if (document.pointerLockElement) document.exitPointerLock();
+      if (window.__freasyWeather && window.__freasyWeather.isOpen()) window.__freasyWeather.close();
       connect(); placePanel();
       if (view === 'room') { markRead(current); setTimeout(() => { const l = q('.fc-list'); if (l) l.scrollTop = l.scrollHeight; }, 0); }
     }
