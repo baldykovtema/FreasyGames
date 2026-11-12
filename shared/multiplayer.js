@@ -245,6 +245,8 @@ window.FreasyMultiplayer = (opts) => {
 
   if (on) connect();
   renderBoard();
+  // FreasyChat видит, в какой игре и какой комнате мультиплеера игрок, — чтобы друзья могли «зайти» к нему.
+  window.__freasyMp = { key, enabled: () => on, room: () => room };
   return {
     send, peers: list, openSettings, closeSettings, settingsOpen: () => !sheet.hidden,
     enabled: () => on, setEnabled, room: () => room, setRoom, name, setGuest, status: () => status,
