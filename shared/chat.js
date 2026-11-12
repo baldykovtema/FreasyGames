@@ -229,6 +229,7 @@ window.FreasyChat = (opts = {}) => {
   }
   function openRoom(room) {
     current = room; view = 'room';
+    setTimeout(saveUi, 0);
     if (panel.hidden) togglePanel(true);
     const c = convs.get(room);
     if (c && c.kind === 'group') loadMembers(c.gid);
@@ -481,8 +482,12 @@ window.FreasyChat = (opts = {}) => {
   });
   for (const ev of ['mousedown', 'touchstart', 'click', 'keydown', 'keyup']) btn.addEventListener(ev, (e) => e.stopPropagation());
 
+  // Открытый чат остаётся открытым при переходе на другую страницу или в другую игру (в этой вкладке).
+  const UI_KEY = 'freasy-chat-ui';
+  const saveUi = () => { try { sessionStorage.setItem(UI_KEY, JSON.stringify({ open: !panel.hidden, view: view === 'room' ? 'room' : 'list', current })); } catch { /* нет хранилища */ } };
   function togglePanel(force) {
     panel.hidden = force === undefined ? !panel.hidden : !force;
+    saveUi();
     if (!panel.hidden) {
       // в игре с захватом мыши (Отель) сначала отпускаем курсор
       if (document.pointerLockElement) document.exitPointerLock();
@@ -601,7 +606,7 @@ window.FreasyChat = (opts = {}) => {
     const t = e.target;
     const a = t.closest('[data-a]')?.dataset.a;
     if (a === 'close') { togglePanel(false); return; }
-    if (a === 'back') { view = 'list'; lastHtml = ''; render(); return; }
+    if (a === 'back') { view = 'list'; lastHtml = ''; render(); saveUi(); return; }
     if (a === 'who') { const r = t.closest('[data-a]').getBoundingClientRect(); whoMenu(r.left - 120, r.bottom + 6); return; }
     if (a === 'login') { openLogin(); return; }
     if (a === 'dm') { view = 'dmForm'; lastHtml = ''; render(); setTimeout(() => q('.fc-field')?.focus(), 0); return; }
@@ -637,6 +642,15 @@ window.FreasyChat = (opts = {}) => {
   // Подключаемся сразу: видно, кто онлайн, и приходят личные сообщения, даже когда окно закрыто.
   connect();
   render();
+  // был открыт на прошлой странице — открываем снова там же
+  try {
+    const ui = JSON.parse(sessionStorage.getItem(UI_KEY) || 'null');
+    if (ui && ui.open) {
+      if (ui.view === 'room' && ui.current) { current = ui.current; if (!convs.has(current) && current.startsWith('dm:')) convs.set(current, { room: current, title: 'Личные', kind: 'dm' }); if (!convs.has(current)) current = GENERAL; view = 'room'; }
+      const show = () => { togglePanel(true); if (view === 'room') openRoom(current); };
+      if (document.body && btn.isConnected) show(); else addEventListener('DOMContentLoaded', show, { once: true });
+    }
+  } catch { /* нет хранилища */ }
   window.__freasyChat = { open: () => togglePanel(true), close: () => togglePanel(false), isOpen: () => !panel.hidden, dm: startDm };
   return window.__freasyChat;
 };

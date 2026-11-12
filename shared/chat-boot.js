@@ -9,8 +9,8 @@
   const inGame = me ? me.dataset.catalog === undefined : true;
   const load = (src) => new Promise((ok) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = ok; document.head.appendChild(s); });
   const start = async () => {
-    if (!window.FreasyAccount) await load(base + 'account.js?v=5');
-    if (!window.FreasyChat) await load(base + 'chat.js?v=5');
+    if (!window.FreasyAccount) await load(base + 'account.js?v=6');
+    if (!window.FreasyChat) await load(base + 'chat.js?v=6');
     if (window.FreasyChat) window.FreasyChat({ inGame });
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();

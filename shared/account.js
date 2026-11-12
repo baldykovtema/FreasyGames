@@ -85,7 +85,7 @@ window.FreasyAccount = (opts) => {
       <input id="fa-pass" type="password" placeholder="Пароль" autocomplete="current-password">
       <button type="button" data-k="login">Войти</button><button type="button" class="alt" data-k="signup">Создать аккаунт</button>
       <div class="fa-msg"></div>
-      <div class="fa-note">Один аккаунт для всех игр FreasyGames. Он нужен, чтобы публиковать свои работы.</div></div></div>
+      <div class="fa-note">${opts.note || 'Один аккаунт для всех игр FreasyGames 2D и 3D: с ним играешь, попадаешь в таблицы лидеров и общаешься в чате.'}</div></div></div>
     <div class="fa-in"><div style="display:flex;flex-direction:column;gap:10px">
       <div class="fa-hello" style="font-size:16px;font-weight:800"></div>
       <button type="button" class="alt" data-k="logout">Выйти из аккаунта</button></div></div>
