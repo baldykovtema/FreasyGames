@@ -365,13 +365,17 @@ window.FreasyChat = (opts = {}) => {
   const style = document.createElement('style');
   style.textContent = `
   .fa-modal { z-index: 100010 !important; }
-  .fc-btn { position: fixed; z-index: 100001; width: ${ingame ? 46 : 58}px; height: ${ingame ? 46 : 58}px; border-radius: 50%; border: 1px solid #ffffff3a; padding: 0;
-    background: linear-gradient(135deg, #bca0ff, #6fe3ff); color: #171225; font-size: ${ingame ? 21 : 26}px; cursor: pointer; box-shadow: 0 10px 26px #0009; display: grid; place-items: center;
-    touch-action: none; user-select: none; -webkit-user-select: none; opacity: ${ingame ? '.88' : '1'}; }
-  .fc-btn:hover { opacity: 1; }
-  .fc-btn b { position: absolute; top: -4px; right: -4px; min-width: 20px; height: 20px; border-radius: 10px; background: #ff5f7e; color: #fff; font: 800 11px Manrope, system-ui, sans-serif; display: grid; place-items: center; padding: 0 5px; }
+  /* Кнопка не должна наследовать стили игры (например, «button { min-width: 240px }»): сбрасываем всё и задаём заново. */
+  .fc-btn, .fc-btn b { all: initial; box-sizing: border-box; }
+  .fc-btn { position: fixed !important; z-index: 100001 !important; width: ${ingame ? 46 : 58}px !important; height: ${ingame ? 46 : 58}px !important;
+    min-width: 0 !important; max-width: none !important; min-height: 0 !important; padding: 0 !important; margin: 0 !important; transform: none !important; filter: none !important;
+    border-radius: 50% !important; border: 1px solid #ffffff3a !important; background: linear-gradient(135deg, #bca0ff, #6fe3ff) !important; color: #171225 !important;
+    font: ${ingame ? 21 : 26}px/1 system-ui, 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif !important; text-align: center; cursor: pointer; box-shadow: 0 10px 26px #0009 !important;
+    display: grid !important; place-items: center; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; opacity: ${ingame ? '.88' : '1'}; }
+  .fc-btn:hover, .fc-btn:active { opacity: 1; transform: none !important; box-shadow: 0 10px 26px #0009 !important; }
+  .fc-btn b { position: absolute; top: -4px; right: -4px; min-width: 20px; height: 20px; border-radius: 10px; background: #ff5f7e; color: #fff; font: 800 11px/20px Manrope, system-ui, sans-serif; text-align: center; padding: 0 5px; display: block; }
   .fc-btn b[hidden] { display: none; }
-  .fc-btn.talk { box-shadow: 0 0 0 4px #5df2a5aa, 0 10px 26px #0009; }
+  .fc-btn.talk { box-shadow: 0 0 0 4px #5df2a5aa, 0 10px 26px #0009 !important; }
   .fc-panel { position: fixed; z-index: 100002; width: min(390px, calc(100vw - 20px)); height: min(600px, calc(100vh - 24px)); display: flex; flex-direction: column;
     background: #17182b; border: 1px solid #b79aff66; border-radius: 22px; box-shadow: 0 30px 80px #000c; font-family: Manrope, system-ui, sans-serif; color: #f8f7ff; overflow: hidden;
     user-select: text; -webkit-user-select: text; touch-action: auto; text-align: left; line-height: 1.4; }
@@ -543,12 +547,13 @@ window.FreasyChat = (opts = {}) => {
         : '<label>Название группы<input class="fc-field" name="name" maxlength="30" autocomplete="off" required></label><label>Ники участников через запятую<input class="fc-field" name="nicks" maxlength="400" autocomplete="off" placeholder="Masha, Petya_2015"></label><button class="fc-b vio" type="submit">Создать группу</button>'}
       <div class="fc-note" style="padding:0">Писать можно только тем, у кого есть аккаунт FreasyGames.</div></form>`;
   }
-  let lastHtml = '';
+  let lastHtml = '', pressing = false, pendingRender = false;
   function render() {
     const unread = totalUnread(), b = btn.querySelector('b');
     if (b) { b.hidden = !unread; b.textContent = unread > 9 ? '9+' : unread; }
     btn.classList.toggle('talk', voice.on);
     if (panel.hidden) return;
+    if (pressing) { pendingRender = true; return; }
     const keepInput = q('.fc-input') ? q('.fc-input').value : '', hadFocus = document.activeElement && document.activeElement.classList.contains('fc-input');
     const list = q('.fc-list'), atBottom = !list || list.scrollHeight - list.scrollTop - list.clientHeight < 40;
     if (document.activeElement && document.activeElement.classList.contains('fc-field')) return; // не мешаем печатать в форме
@@ -589,7 +594,9 @@ window.FreasyChat = (opts = {}) => {
     });
   }
 
-  panel.addEventListener('pointerdown', () => { if (voice.ctx && voice.ctx.state !== 'running') voice.ctx.resume().catch(() => {}); });
+  panel.addEventListener('pointerdown', () => { pressing = true; if (voice.ctx && voice.ctx.state !== 'running') voice.ctx.resume().catch(() => {}); });
+  const release = () => setTimeout(() => { pressing = false; if (pendingRender) { pendingRender = false; render(); } }, 120);
+  for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) panel.addEventListener(ev, release);
   panel.addEventListener('click', (e) => {
     const t = e.target;
     const a = t.closest('[data-a]')?.dataset.a;
