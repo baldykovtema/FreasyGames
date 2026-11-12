@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Лабиринт — FreasyGames</title>
+<meta name="description" content="Лабиринт на FreasyGames: каждый раз новый лабиринт, успей к выходу, собирай звёзды и часы, проходи как можно больше уровней.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">🧭 Новая игра</div>
+    <h1><span>Лабиринт</span></h1>
+    <p>Каждый раз — новый лабиринт. Доведи светлячка до двери-выхода, пока не кончилось время.</p>
+    <p>Звёзды дают очки, зелёные часики — лишние секунды. С каждым уровнем лабиринт больше.</p>
+    <p>Рекорд: <b id="bestStart">0</b> ур. · больше всего звёзд: <b id="starsStart">0</b></p>
+    <button class="play" id="go" type="button">Начать ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Стрелки или WASD · на телефоне — свайп в нужную сторону</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow">Время вышло</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">уровней</p>
+    <p>Звёзд собрано: <b id="starsOver">0</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> ур. · больше всего звёзд: <b id="bestStarsOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script>
+(() => {
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  const $ = (id) => document.getElementById(id);
+  let W = 0, H = 0, DPR = 1;
+
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  let best = Number(store.get('labirint-best', 0)) || 0, bestStars = Number(store.get('labirint-best-stars', 0)) || 0;
+  const runs = (() => { try { return JSON.parse(store.get('labirint-runs', '{}')) || {}; } catch { return {}; } })();
+  let muted = store.get('labirint-muted', '0') === '1';
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const levelsWord = (n) => plural(n, 'уровень', 'уровня', 'уровней');
+  const starsWord = (n) => plural(n, 'звезда', 'звезды', 'звёзд');
+
+  // Maze: cells with walls on four sides (bit 1 = top, 2 = right, 4 = bottom, 8 = left), carved by a depth-first search.
+  const DIRS = [[0, -1, 1, 4], [1, 0, 2, 8], [0, 1, 4, 1], [-1, 0, 8, 2]];
+  let state = 'start', level, cols, rows, walls, hero, exit, pickups, sparks, popups, timeLeft, stars, played, lastT = 0, flash = 0, wait = 0;
+  let heldDir = null, queued = null;
+
+  function makeMaze(c, r) {
+    const g = new Array(c * r).fill(15), seen = new Uint8Array(c * r), stack = [0];
+    seen[0] = 1;
+    while (stack.length) {
+      const cur = stack[stack.length - 1], x = cur % c, y = Math.floor(cur / c);
+      const next = DIRS.map((d, i) => [x + d[0], y + d[1], i]).filter(([nx, ny]) => nx >= 0 && ny >= 0 && nx < c && ny < r && !seen[ny * c + nx]);
+      if (!next.length) { stack.pop(); continue; }
+      const [nx, ny, i] = next[Math.floor(Math.random() * next.length)], n = ny * c + nx;
+      g[cur] &= ~DIRS[i][2]; g[n] &= ~DIRS[i][3]; seen[n] = 1; stack.push(n);
+    }
+    // A few extra openings make loops, so there is more than one way and the maze is less of a dead-end hunt.
+    for (let k = 0; k < Math.floor(c * r * 0.06); k++) {
+      const x = 1 + Math.floor(Math.random() * (c - 2)), y = 1 + Math.floor(Math.random() * (r - 2)), i = Math.floor(Math.random() * 4), d = DIRS[i];
+      g[y * c + x] &= ~d[2]; g[(y + d[1]) * c + x + d[0]] &= ~d[3];
+    }
+    return g;
+  }
+  // Distance from the start to every cell, to place the exit far away and pickups along the way.
+  function distances(c, r, g, from) {
+    const dist = new Int32Array(c * r).fill(-1), q = [from]; dist[from] = 0;
+    for (let h = 0; h < q.length; h++) {
+      const cur = q[h], x = cur % c, y = Math.floor(cur / c);
+      DIRS.forEach((d, i) => { if (g[cur] & d[2]) return; const n = (y + d[1]) * c + x + d[0]; if (dist[n] < 0) { dist[n] = dist[cur] + 1; q.push(n); } });
+    }
+    return dist;
+  }
+
+  function newLevel() {
+    level += 1;
+    const portrait = H > W;
+    const base = 6 + Math.min(level, 14);
+    cols = portrait ? Math.max(5, Math.round(base * 0.7)) : base + 3;
+    rows = portrait ? base + 2 : Math.max(5, Math.round(base * 0.7));
+    walls = makeMaze(cols, rows);
+    const dist = distances(cols, rows, walls, 0);
+    let far = 0; for (let i = 0; i < dist.length; i++) if (dist[i] > dist[far]) far = i;
+    exit = { x: far % cols, y: Math.floor(far / cols) };
+    hero = { x: 0, y: 0, px: 0, py: 0, trail: [] };
+    pickups = [];
+    const free = [...dist.keys()].filter((i) => i !== 0 && i !== far && dist[i] > 2).sort(() => Math.random() - 0.5);
+    const starCount = 3 + Math.min(4, Math.floor(level / 2));
+    for (let k = 0; k < starCount && free.length; k++) { const i = free.pop(); pickups.push({ x: i % cols, y: Math.floor(i / cols), kind: 'star' }); }
+    // A clock on bigger mazes, so a slow level can still be saved.
+    if (level >= 3 && free.length) { const i = free.pop(); pickups.push({ x: i % cols, y: Math.floor(i / cols), kind: 'clock' }); }
+    // Time for this level grows with the length of the shortest way out, but there is less of it per cell
+    // on later levels, so the spare seconds cannot pile up forever.
+    timeLeft += Math.round(dist[far] * Math.max(0.16, 0.42 - level * 0.025) + 3);
+    wait = 0.6;
+  }
+
+  function reset() { level = 0; timeLeft = 0; stars = 0; played = 0; sparks = []; popups = []; heldDir = queued = null; newLevel(); }
+  function start() {
+    reset(); state = 'play';
+    $('start').hidden = true; $('over').hidden = true;
+    unlockAudio();
+  }
+  function gameOver() {
+    state = 'over';
+    const passed = level - 1, record = passed > best;
+    const run = { new_levels: passed, new_stars: stars, new_time: Math.floor(played) };
+    if (record) { best = passed; store.set('labirint-best', best); runs.levels = run; }
+    if (stars > bestStars) { bestStars = stars; store.set('labirint-best-stars', bestStars); runs.stars = run; }
+    store.set('labirint-runs', JSON.stringify(runs));
+    lb.submit(run);
+    sound('over');
+    setTimeout(() => {
+      if (state !== 'over') return;
+      $('final').textContent = passed;
+      $('overText').innerHTML = (record && passed > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + levelsWord(passed);
+      $('starsOver').textContent = stars;
+      showBests();
+      $('over').hidden = false;
+    }, 700);
+  }
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('starsStart').textContent = $('bestStarsOver').textContent = bestStars;
+  }
+
+  function canGo(x, y, i) { return !(walls[y * cols + x] & DIRS[i][2]); }
+  // One step per move; held keys and swipes keep the light running down a corridor until a turn.
+  function tryMove(i) {
+    if (state !== 'play' || wait > 0) return false;
+    if (hero.x !== hero.px || hero.y !== hero.py) { queued = i; return false; }
+    if (!canGo(hero.x, hero.y, i)) return false;
+    hero.trail.push({ x: hero.x, y: hero.y, life: 1 });
+    hero.x += DIRS[i][0]; hero.y += DIRS[i][1];
+    sound('step');
+    return true;
+  }
+  // Swipe: run along the corridor until a crossing or a wall.
+  let slide = null;
+  function runSlide(i) { slide = i; }
+
+  function arrive() {
+    const k = pickups.findIndex((p) => p.x === hero.x && p.y === hero.y);
+    if (k >= 0) {
+      const p = pickups.splice(k, 1)[0];
+      if (p.kind === 'star') { stars += 1; popups.push({ x: p.x, y: p.y, text: '+⭐', c: '#ffd23f', life: 1 }); sound('star'); }
+      else { timeLeft += 8; popups.push({ x: p.x, y: p.y, text: '+8 с', c: '#5df2a5', life: 1 }); sound('clock'); }
+      burst(p.x, p.y, p.kind === 'star' ? '#ffd23f' : '#5df2a5');
+    }
+    if (hero.x === exit.x && hero.y === exit.y) {
+      burst(exit.x, exit.y, '#bca0ff'); sound('exit'); flash = 0.5;
+      popups.push({ x: exit.x, y: exit.y, text: `Уровень ${level}!`, c: '#bca0ff', life: 1.2 });
+      slide = null; heldDir = null; queued = null;
+      setTimeout(() => { if (state === 'play') newLevel(); }, 350);
+      wait = 0.5;
+    }
+  }
+  function burst(cx, cy, c) { for (let i = 0; i < 18; i++) { const a = Math.random() * 7, v = 40 + Math.random() * 140; sparks.push({ x: cx, y: cy, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, c }); } }
+
+  function step(dt) {
+    played += dt;
+    if (wait > 0) { wait -= dt; return; }
+    timeLeft -= dt;
+    if (timeLeft <= 0) { timeLeft = 0; gameOver(); return; }
+    // Smooth slide between cells: 10 cells per second.
+    const speed = 10 * dt;
+    const moving = hero.x !== hero.px || hero.y !== hero.py;
+    if (moving) {
+      hero.px += Math.sign(hero.x - hero.px) * Math.min(speed, Math.abs(hero.x - hero.px));
+      hero.py += Math.sign(hero.y - hero.py) * Math.min(speed, Math.abs(hero.y - hero.py));
+      if (hero.px === hero.x && hero.py === hero.y) {
+        arrive();
+        if (wait > 0) return;
+        if (queued !== null) { const q = queued; queued = null; if (tryMove(q)) { slide = null; return; } }
+        if (slide !== null) {
+          // Keep sliding straight while the corridor has no side turns.
+          const open = DIRS.map((_, i) => canGo(hero.x, hero.y, i)).filter(Boolean).length;
+          if (open <= 2 && canGo(hero.x, hero.y, slide)) tryMove(slide); else slide = null;
+        }
+      }
+    } else if (heldDir !== null) tryMove(heldDir);
+    else if (slide !== null) { if (!tryMove(slide)) slide = null; }
+  }
+
+  // ---------- sound ----------
+  let ac = null;
+  function unlockAudio() { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (ac && ac.state === 'suspended') ac.resume(); }
+  function tone(f, dur, type, vol, slideK = 1, delay = 0) {
+    if (!ac || muted) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t);
+    if (slideK !== 1) o.frequency.exponentialRampToValueAtTime(f * slideK, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function sound(kind) {
+    if (kind === 'step') tone(320 + Math.random() * 40, 0.04, 'triangle', 0.025);
+    else if (kind === 'star') { tone(880, 0.1, 'square', 0.05); tone(1320, 0.14, 'triangle', 0.06, 1, 0.05); }
+    else if (kind === 'clock') { tone(660, 0.08, 'sine', 0.08); tone(990, 0.08, 'sine', 0.08, 1, 0.09); }
+    else if (kind === 'exit') [0, 4, 7, 12].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.16, 'square', 0.05, 1, i * 0.07));
+    else if (kind === 'over') { tone(300, 0.5, 'sawtooth', 0.08, 0.4); }
+    else if (kind === 'tick') tone(1200, 0.03, 'square', 0.03);
+  }
+
+  // ---------- drawing ----------
+  function layout() {
+    const top = 150, pad = 16;
+    const cell = Math.floor(Math.min((W - pad * 2) / cols, (H - top - pad) / rows));
+    return { cell, ox: Math.floor((W - cell * cols) / 2), oy: Math.floor(top + (H - top - pad - cell * rows) / 2) };
+  }
+  function drawStar(x, y, r, now) {
+    ctx.save(); ctx.translate(x, y); ctx.rotate(Math.sin(now / 600) * 0.15);
+    ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = r;
+    ctx.fillStyle = '#ffd23f'; ctx.beginPath();
+    for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + (i * Math.PI) / 5, rr = i % 2 ? r * 0.45 : r; ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
+    ctx.closePath(); ctx.fill(); ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fff6c8'; ctx.beginPath(); ctx.arc(-r * 0.15, -r * 0.2, r * 0.14, 0, 7); ctx.fill();
+    ctx.restore();
+  }
+  function drawClock(x, y, r, now) {
+    ctx.save(); ctx.translate(x, y);
+    ctx.shadowColor = '#5df2a5'; ctx.shadowBlur = r;
+    ctx.fillStyle = '#5df2a5'; ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
+    ctx.fillStyle = '#e9fff4'; ctx.beginPath(); ctx.arc(0, 0, r * 0.78, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#1d6b49'; ctx.lineWidth = Math.max(1.5, r * 0.14); ctx.lineCap = 'round';
+    const a = now / 400;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(a) * r * 0.55, Math.sin(a) * r * 0.55); ctx.moveTo(0, 0); ctx.lineTo(0, -r * 0.4); ctx.stroke();
+    ctx.restore();
+  }
+  function drawDoor(x, y, r) {
+    ctx.save(); ctx.translate(x, y);
+    ctx.fillStyle = '#7a4a2a'; ctx.beginPath(); ctx.roundRect(-r * 0.8, -r * 1.1, r * 1.6, r * 2.2, [r * 0.8, r * 0.8, r * 0.15, r * 0.15]); ctx.fill();
+    ctx.strokeStyle = '#4a2a14'; ctx.lineWidth = Math.max(1.5, r * 0.12); ctx.stroke();
+    ctx.fillStyle = '#ffd23f'; ctx.beginPath(); ctx.arc(r * 0.42, r * 0.15, r * 0.13, 0, 7); ctx.fill();
+    ctx.restore();
+  }
+
+  let lastTick = 0;
+  function draw(now) {
+    const g = ctx.createRadialGradient(W / 2, -H * 0.12, 0, W / 2, -H * 0.12, H * 1.05);
+    g.addColorStop(0, '#3d326a'); g.addColorStop(0.31, '#181a30'); g.addColorStop(0.63, '#111321');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    if (!walls) return;
+    const { cell, ox, oy } = layout();
+    const cx = (x) => ox + (x + 0.5) * cell, cy = (y) => oy + (y + 0.5) * cell;
+
+    // floor
+    ctx.fillStyle = '#1a1b30'; ctx.fillRect(ox, oy, cell * cols, cell * rows);
+    // visited trail
+    for (const t of hero.trail) { ctx.fillStyle = `rgba(188,160,255,${0.08 * t.life})`; ctx.fillRect(ox + t.x * cell, oy + t.y * cell, cell, cell); }
+    // exit
+    const pulse = 0.5 + 0.5 * Math.sin(now / 250);
+    ctx.fillStyle = `rgba(93,242,165,${0.25 + pulse * 0.25})`; ctx.fillRect(ox + exit.x * cell + 2, oy + exit.y * cell + 2, cell - 4, cell - 4);
+    // Door, stars and clocks are drawn as shapes: emoji fonts are missing on some devices.
+    drawDoor(cx(exit.x), cy(exit.y), cell * 0.32);
+    for (const p of pickups) {
+      const bob = Math.sin(now / 300 + p.x + p.y) * cell * 0.05;
+      if (p.kind === 'star') drawStar(cx(p.x), cy(p.y) + bob, cell * 0.28, now);
+      else drawClock(cx(p.x), cy(p.y) + bob, cell * 0.25, now);
+    }
+    // walls
+    ctx.strokeStyle = '#bca0ff'; ctx.lineWidth = Math.max(2, cell * 0.12); ctx.lineCap = 'round';
+    ctx.shadowColor = '#8b6bff'; ctx.shadowBlur = 10;
+    ctx.beginPath();
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+      const w = walls[y * cols + x], X = ox + x * cell, Y = oy + y * cell;
+      if (w & 1) { ctx.moveTo(X, Y); ctx.lineTo(X + cell, Y); }
+      if (w & 8) { ctx.moveTo(X, Y); ctx.lineTo(X, Y + cell); }
+      if (x === cols - 1 && (w & 2)) { ctx.moveTo(X + cell, Y); ctx.lineTo(X + cell, Y + cell); }
+      if (y === rows - 1 && (w & 4)) { ctx.moveTo(X, Y + cell); ctx.lineTo(X + cell, Y + cell); }
+    }
+    ctx.stroke(); ctx.shadowBlur = 0;
+    // inner walls on the right/bottom sides are drawn by the neighbours; the outer frame is drawn above.
+
+    // hero: a glowing firefly
+    const hx = ox + (hero.px + 0.5) * cell, hy = oy + (hero.py + 0.5) * cell, hr = cell * 0.3;
+    const glow = ctx.createRadialGradient(hx, hy, 0, hx, hy, hr * 3);
+    glow.addColorStop(0, '#fff6b0cc'); glow.addColorStop(1, '#fff6b000');
+    ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(hx, hy, hr * 3, 0, 7); ctx.fill();
+    ctx.fillStyle = '#fff3a0'; ctx.beginPath(); ctx.arc(hx, hy, hr, 0, 7); ctx.fill();
+    ctx.fillStyle = '#2b2350'; ctx.beginPath(); ctx.arc(hx - hr * 0.35, hy - hr * 0.1, hr * 0.14, 0, 7); ctx.arc(hx + hr * 0.35, hy - hr * 0.1, hr * 0.14, 0, 7); ctx.fill();
+
+    for (const s of sparks) { ctx.globalAlpha = Math.max(0, s.life); ctx.fillStyle = s.c; ctx.beginPath(); ctx.arc(cx(s.x) + s.vx * (1 - s.life), cy(s.y) + s.vy * (1 - s.life), 2 + s.life * 2, 0, 7); ctx.fill(); }
+    ctx.globalAlpha = 1;
+    for (const p of popups) {
+      ctx.globalAlpha = Math.min(1, p.life * 2); ctx.fillStyle = p.c; ctx.font = '800 18px Manrope'; ctx.textAlign = 'center';
+      ctx.fillText(p.text, cx(p.x), cy(p.y) - cell * 0.6 - (1 - p.life) * 30);
+    }
+    ctx.globalAlpha = 1;
+
+    if (state !== 'start') {
+      ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+      const low = timeLeft < 8;
+      ctx.fillStyle = low ? (Math.floor(now / 250) % 2 ? '#ff7a8a' : '#ffffff') : '#ffffff';
+      ctx.font = '800 52px Manrope'; ctx.fillText(`${Math.ceil(timeLeft)} с`, W / 2, 96);
+      ctx.font = '800 15px Manrope'; ctx.fillStyle = '#bca0ff';
+      ctx.fillText(`УРОВЕНЬ ${level} · ⭐ ${stars}`, W / 2, 124);
+      if (low && state === 'play' && Math.ceil(timeLeft) !== lastTick) { lastTick = Math.ceil(timeLeft); sound('tick'); }
+    }
+    if (flash > 0) { ctx.fillStyle = `rgba(188,160,255,${flash * 0.25})`; ctx.fillRect(0, 0, W, H); }
+  }
+
+  function frame(now) {
+    const dt = Math.min(0.05, (now - lastT) / 1000 || 0); lastT = now;
+    if (state === 'play') step(dt);
+    for (const t of hero.trail) t.life = Math.max(0.25, t.life - dt * 0.3);
+    for (const s of sparks) s.life -= dt * 1.6; sparks = sparks.filter((s) => s.life > 0);
+    for (const p of popups) p.life -= dt * 1.1; popups = popups.filter((p) => p.life > 0);
+    flash = Math.max(0, flash - dt * 2);
+    draw(now);
+    requestAnimationFrame(frame);
+  }
+
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'labirint',
+    boards: [
+      { id: 'levels', title: 'Уровни', column: 'best_levels', order: 'desc', note: 'Больше всего пройденных лабиринтов за одну игру.', format: (v) => `${v} ${levelsWord(v)}` },
+      { id: 'stars', title: 'Звёзды', column: 'best_stars', order: 'desc', note: 'Больше всего звёзд за одну игру.', format: (v) => `${v} ${starsWord(v)}` },
+    ],
+    bests: () => [runs.levels, runs.stars].filter(Boolean),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  const KEYS = { ArrowUp: 0, KeyW: 0, ArrowRight: 1, KeyD: 1, ArrowDown: 2, KeyS: 2, ArrowLeft: 3, KeyA: 3 };
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.target.closest && e.target.closest('.box button, a')) return;
+    if ((e.code === 'Space' || e.code === 'Enter') && state !== 'play' && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); return; }
+    if (e.code in KEYS && state === 'play') { e.preventDefault(); unlockAudio(); heldDir = KEYS[e.code]; slide = null; tryMove(heldDir); }
+  });
+  addEventListener('keyup', (e) => { if (KEYS[e.code] === heldDir) heldDir = null; });
+  // Swipes: the direction of the swipe, then the light runs until a turn.
+  let touch = null;
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); unlockAudio(); touch = { x: e.clientX, y: e.clientY }; });
+  cv.addEventListener('pointermove', (e) => {
+    if (!touch || state !== 'play') return;
+    const dx = e.clientX - touch.x, dy = e.clientY - touch.y;
+    if (Math.hypot(dx, dy) < 24) return;
+    const i = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 1 : 3) : (dy > 0 ? 2 : 0);
+    touch = { x: e.clientX, y: e.clientY };
+    runSlide(i);
+    if (!tryMove(i)) queued = i;
+  });
+  const end = () => { touch = null; };
+  addEventListener('pointerup', end); addEventListener('pointercancel', end);
+  document.addEventListener('visibilitychange', () => { lastT = performance.now(); heldDir = null; });
+
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('labirint-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; });
+
+  // For automated checks only (?test=1): read the maze so a test can walk the shortest way.
+  if (new URLSearchParams(location.search).get('test') === '1') window.__labirint = { get: () => ({ cols, rows, walls, hero, exit, level, state, timeLeft, stars }) };
+
+  addEventListener('resize', resize);
+  resize(); level = 0; timeLeft = 0; stars = 0; played = 0; sparks = []; popups = []; newLevel(); showBests();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
