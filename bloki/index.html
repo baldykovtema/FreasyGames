@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../shared/session.js?v=2"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Блоки — FreasyGames</title>
+<meta name="description" content="Блоки на FreasyGames: ставь фигуры на поле 8×8, собирай целые ряды и столбцы, лови комбо и попади в таблицу лидеров.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ Новая игра</div>
+    <h1><span>Блоки</span></h1>
+    <p>Перетаскивай фигуры на поле 8×8. Собери целый ряд или столбец — он исчезнет и даст очки.</p>
+    <p>Убирай несколько линий сразу и подряд — за комбо очков намного больше. Игра кончается, когда ни одна фигура не помещается.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · линий за игру: <b id="bestLinesStart">0</b></p>
+    <button class="play" id="go" type="button">Начать ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров и вход</button>
+    <div class="hint">Тяни фигуру пальцем или мышью. Фигуры не поворачиваются</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow">Нет места</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">очков</p>
+    <p>Рекорд: <b id="bestOver">0</b> · линий за игру: <b id="bestLinesOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров и вход</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script>
+(() => {
+  'use strict';
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  let best = Number(store.get('bloki-best', 0)) || 0, bestLines = Number(store.get('bloki-best-lines', 0)) || 0;
+  let muted = store.get('bloki-muted', '0') === '1';
+
+  const N = 8;
+  const COLORS = ['#bca0ff', '#5df2a5', '#ffd23f', '#ff7aa8', '#6fc8ff', '#ff9f4a', '#9d8cff'];
+  // Shapes as lists of [col, row]; w is how often each one shows up.
+  const SHAPES = [
+    { c: [[0, 0]], w: 2 },
+    { c: [[0, 0], [1, 0]], w: 3 }, { c: [[0, 0], [0, 1]], w: 3 },
+    { c: [[0, 0], [1, 0], [2, 0]], w: 3 }, { c: [[0, 0], [0, 1], [0, 2]], w: 3 },
+    { c: [[0, 0], [1, 0], [2, 0], [3, 0]], w: 2 }, { c: [[0, 0], [0, 1], [0, 2], [0, 3]], w: 2 },
+    { c: [[0, 0], [1, 0], [2, 0], [3, 0], [4, 0]], w: 1 }, { c: [[0, 0], [0, 1], [0, 2], [0, 3], [0, 4]], w: 1 },
+    { c: [[0, 0], [1, 0], [0, 1], [1, 1]], w: 4 },
+    { c: [[0, 0], [1, 0], [2, 0], [0, 1], [1, 1], [2, 1], [0, 2], [1, 2], [2, 2]], w: 1 },
+    { c: [[0, 0], [1, 0], [0, 1]], w: 2 }, { c: [[0, 0], [1, 0], [1, 1]], w: 2 }, { c: [[0, 0], [0, 1], [1, 1]], w: 2 }, { c: [[1, 0], [0, 1], [1, 1]], w: 2 },
+    { c: [[0, 0], [0, 1], [0, 2], [1, 2]], w: 1 }, { c: [[1, 0], [1, 1], [1, 2], [0, 2]], w: 1 }, { c: [[0, 0], [1, 0], [2, 0], [0, 1]], w: 1 }, { c: [[0, 0], [1, 0], [2, 0], [2, 1]], w: 1 },
+    { c: [[0, 0], [1, 0], [0, 1], [0, 2]], w: 1 }, { c: [[0, 0], [1, 0], [1, 1], [1, 2]], w: 1 }, { c: [[0, 1], [1, 1], [2, 1], [0, 0]], w: 1 }, { c: [[0, 1], [1, 1], [2, 1], [2, 0]], w: 1 },
+    { c: [[0, 0], [1, 0], [2, 0], [1, 1]], w: 1 }, { c: [[1, 0], [0, 1], [1, 1], [2, 1]], w: 1 }, { c: [[0, 0], [0, 1], [0, 2], [1, 1]], w: 1 }, { c: [[1, 0], [1, 1], [1, 2], [0, 1]], w: 1 },
+    { c: [[0, 0], [1, 0], [1, 1], [2, 1]], w: 1 }, { c: [[1, 0], [2, 0], [0, 1], [1, 1]], w: 1 }, { c: [[0, 0], [0, 1], [1, 1], [1, 2]], w: 1 }, { c: [[1, 0], [1, 1], [0, 1], [0, 2]], w: 1 },
+    { c: [[0, 0], [1, 0], [2, 0], [0, 1], [0, 2]], w: 1 }, { c: [[0, 0], [1, 0], [2, 0], [2, 1], [2, 2]], w: 1 }, { c: [[0, 2], [1, 2], [2, 2], [0, 0], [0, 1]], w: 1 }, { c: [[0, 2], [1, 2], [2, 2], [2, 0], [2, 1]], w: 1 },
+  ];
+  const TOTAL_W = SHAPES.reduce((s, x) => s + x.w, 0);
+  for (const s of SHAPES) { s.cols = Math.max(...s.c.map((p) => p[0])) + 1; s.rows = Math.max(...s.c.map((p) => p[1])) + 1; }
+
+  let W = 0, H = 0, DPR = 1, cell = 40, bx = 0, by = 0, trayY = 0;
+  let state = 'start', time = 0, lastT = 0, grid, tray, score, shown, lines, combo, moves, parts, pops, flashes, drag = null, shake = 0, overAt = 0;
+
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    // HUD and score on top, then the board, then the tray of three pieces.
+    const top = 120, bottom = 12;
+    cell = Math.floor(Math.min((W - 28) / N, (H - top - bottom) / (N + 3.8), 64));
+    bx = Math.round((W - cell * N) / 2);
+    const total = cell * (N + 3.8);
+    by = Math.round(top + Math.max(0, (H - top - bottom - total) / 2));
+    trayY = by + cell * N + cell * 0.4;
+  }
+
+  function pickShape() {
+    let r = Math.random() * TOTAL_W;
+    for (const s of SHAPES) { r -= s.w; if (r <= 0) return s; }
+    return SHAPES[0];
+  }
+  const fits = (s, gx, gy) => s.c.every(([x, y]) => gx + x >= 0 && gy + y >= 0 && gx + x < N && gy + y < N && !grid[gy + y][gx + x]);
+  function fitsAnywhere(s) { for (let y = 0; y <= N - s.rows; y++) for (let x = 0; x <= N - s.cols; x++) if (fits(s, x, y)) return true; return false; }
+
+  // A new set of three. The first piece always fits somewhere if any piece can, so the game never ends unfairly at once.
+  function deal() {
+    tray = [0, 1, 2].map(() => ({ s: pickShape(), col: COLORS[Math.floor(Math.random() * COLORS.length)], used: false, pop: 0.25 }));
+    if (!tray.some((t) => fitsAnywhere(t.s))) {
+      for (let i = 0; i < 40; i++) { const s = pickShape(); if (fitsAnywhere(s)) { tray[0].s = s; break; } }
+    }
+  }
+
+  function reset() {
+    grid = Array.from({ length: N }, () => Array(N).fill(null));
+    score = 0; shown = 0; lines = 0; combo = 0; moves = 0; parts = []; pops = []; flashes = []; drag = null; shake = 0;
+    deal();
+  }
+
+  function place(t, gx, gy) {
+    for (const [x, y] of t.s.c) grid[gy + y][gx + x] = t.col;
+    t.used = true; moves++;
+    let gain = t.s.c.length;
+    // Find full rows and columns, then clear them together.
+    const rows = [], cols = [];
+    for (let i = 0; i < N; i++) { if (grid[i].every(Boolean)) rows.push(i); if (grid.every((r) => r[i])) cols.push(i); }
+    const n = rows.length + cols.length;
+    if (n) {
+      combo++;
+      const bonus = 10 * n * n + (combo > 1 ? 10 * (combo - 1) * n : 0);
+      gain += bonus; lines += n;
+      const gone = new Set();
+      for (const r of rows) for (let x = 0; x < N; x++) gone.add(r * N + x);
+      for (const c of cols) for (let y = 0; y < N; y++) gone.add(y * N + c);
+      for (const id of gone) {
+        const x = id % N, y = Math.floor(id / N), col = grid[y][x];
+        flashes.push({ x, y, col, life: 1 });
+        for (let i = 0; i < 3; i++) { const a = Math.random() * 7, v = 60 + Math.random() * 160; parts.push({ x: bx + (x + 0.5) * cell, y: by + (y + 0.5) * cell, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, life: 1, col }); }
+        grid[y][x] = null;
+      }
+      const cx = bx + (gx + t.s.cols / 2) * cell, cy = by + (gy + t.s.rows / 2) * cell;
+      pops.push({ x: cx, y: cy, text: (n > 1 ? `${n} линии! ` : '') + (combo > 1 ? `Комбо ×${combo} ` : '') + '+' + bonus, life: 1, big: n > 1 || combo > 1 });
+      shake = Math.min(0.35, 0.1 * n);
+      sound('clear', n + combo);
+    } else {
+      combo = 0;
+      sound('place');
+    }
+    score += gain;
+    if (tray.every((x) => x.used)) deal();
+    // Out of room for every piece left — the game is over.
+    if (!tray.some((x) => !x.used && fitsAnywhere(x.s))) { state = 'ending'; overAt = time + 1.1; sound('over'); }
+  }
+
+  function start() {
+    unlockAudio(); reset(); state = 'play';
+    $('start').hidden = true; $('over').hidden = true;
+  }
+  function gameOver() {
+    state = 'over';
+    const record = score > best;
+    if (record) { best = score; store.set('bloki-best', best); }
+    if (lines > bestLines) { bestLines = lines; store.set('bloki-best-lines', bestLines); }
+    if (score > 0) lb.submit({ new_score: score, new_lines: lines });
+    $('final').textContent = score;
+    $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + `очков · линий: ${lines}`;
+    showBests(); $('over').hidden = false;
+  }
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('bestLinesStart').textContent = $('bestLinesOver').textContent = bestLines;
+  }
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (ac && ac.state === 'suspended') ac.resume(); }
+  function tone(f, dur, type, vol, slide = 1, delay = 0) {
+    if (!ac || muted) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t);
+    if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function sound(kind, n = 0) {
+    if (kind === 'pick') tone(520, 0.06, 'sine', 0.06, 1.3);
+    else if (kind === 'place') { tone(180, 0.09, 'triangle', 0.16, 0.7); }
+    else if (kind === 'clear') { for (let i = 0; i < Math.min(5, n + 1); i++) tone(440 * Math.pow(2, i * 4 / 12), 0.2, 'triangle', 0.12, 1, i * 0.06); }
+    else if (kind === 'back') tone(300, 0.08, 'sine', 0.06, 0.6);
+    else if (kind === 'over') { tone(300, 0.6, 'sawtooth', 0.08, 0.3); tone(90, 0.6, 'sine', 0.2, 0.5); }
+  }
+
+  // ——— Drawing ———
+  function block(x, y, s, col, alpha = 1) {
+    const r = Math.max(3, s * 0.18), pad = Math.max(1, s * 0.05);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = col; ctx.beginPath(); ctx.roundRect(x + pad, y + pad, s - pad * 2, s - pad * 2, r); ctx.fill();
+    ctx.fillStyle = '#ffffff40'; ctx.beginPath(); ctx.roundRect(x + pad + s * 0.12, y + pad + s * 0.1, s - pad * 2 - s * 0.24, s * 0.16, s * 0.08); ctx.fill();
+    ctx.fillStyle = '#00000030'; ctx.fillRect(x + pad + s * 0.1, y + s - pad - s * 0.14, s - pad * 2 - s * 0.2, s * 0.07);
+    ctx.globalAlpha = 1;
+  }
+  // Where a tray piece sits and how small it is drawn there.
+  function slot(i) {
+    const t = tray[i], mini = cell * 0.5;
+    const cx = bx + (i + 0.5) * (cell * N / 3);
+    const cy = trayY + cell * 1.6;
+    return { cx, cy, mini, x: cx - t.s.cols * mini / 2, y: cy - t.s.rows * mini / 2 };
+  }
+  function dragCell() {
+    // The piece floats above the finger so it can be seen; snap to the nearest cell.
+    const s = drag.t.s;
+    const gx = Math.round((drag.px - s.cols * cell / 2 - bx) / cell), gy = Math.round((drag.py - drag.lift - s.rows * cell / 2 - by) / cell);
+    return { gx, gy, ok: fits(s, gx, gy) };
+  }
+  function draw() {
+    const bg = ctx.createRadialGradient(W / 2, H * 0.3, 0, W / 2, H * 0.3, Math.max(W, H));
+    bg.addColorStop(0, '#272148'); bg.addColorStop(0.6, '#141629'); bg.addColorStop(1, '#0d0f1c');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    ctx.save();
+    if (shake > 0) ctx.translate((Math.random() - 0.5) * 16 * shake, (Math.random() - 0.5) * 16 * shake);
+
+    // score
+    shown += (score - shown) * Math.min(1, 0.2);
+    if (Math.abs(score - shown) < 0.5) shown = score;
+    ctx.textAlign = 'center'; ctx.fillStyle = '#f8f7ff'; ctx.font = `800 ${Math.round(Math.min(46, cell * 0.95))}px Manrope`;
+    ctx.fillText(Math.round(shown), W / 2, by - 22);
+    ctx.fillStyle = '#89879e'; ctx.font = '800 12px Manrope';
+    ctx.fillText(`РЕКОРД ${Math.max(best, score)}`, W / 2, by - 6 - Math.min(46, cell * 0.95) - 12);
+
+    // board
+    ctx.fillStyle = '#1d1e31'; ctx.strokeStyle = '#b79aff55'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect(bx - 6, by - 6, cell * N + 12, cell * N + 12, 16); ctx.fill(); ctx.stroke();
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      ctx.fillStyle = (x + y) % 2 ? '#24253c' : '#212238';
+      ctx.beginPath(); ctx.roundRect(bx + x * cell + 2, by + y * cell + 2, cell - 4, cell - 4, cell * 0.16); ctx.fill();
+    }
+    // ghost and the lines it would complete
+    let ghost = null, hot = null;
+    if (drag) {
+      ghost = dragCell();
+      if (ghost.ok) {
+        const g2 = grid.map((r) => r.slice());
+        for (const [x, y] of drag.t.s.c) g2[ghost.gy + y][ghost.gx + x] = 1;
+        hot = new Set();
+        for (let i = 0; i < N; i++) {
+          if (g2[i].every(Boolean)) for (let x = 0; x < N; x++) hot.add(i * N + x);
+          if (g2.every((r) => r[i])) for (let y = 0; y < N; y++) hot.add(y * N + i);
+        }
+      }
+    }
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const c = grid[y][x]; if (!c) continue;
+      block(bx + x * cell, by + y * cell, cell, hot && hot.has(y * N + x) ? drag.t.col : c);
+      if (hot && hot.has(y * N + x)) { ctx.fillStyle = `rgba(255,255,255,${0.15 + 0.1 * Math.sin(time * 12)})`; ctx.fillRect(bx + x * cell + 2, by + y * cell + 2, cell - 4, cell - 4); }
+    }
+    if (ghost && ghost.ok) for (const [x, y] of drag.t.s.c) block(bx + (ghost.gx + x) * cell, by + (ghost.gy + y) * cell, cell, drag.t.col, 0.35);
+    for (const f of flashes) {
+      const s = cell * (0.4 + 0.6 * f.life), x = bx + (f.x + 0.5) * cell - s / 2, y = by + (f.y + 0.5) * cell - s / 2;
+      block(x, y, s, f.col, f.life);
+    }
+    if (state === 'ending') {
+      ctx.fillStyle = `rgba(11,12,24,${Math.min(0.55, (1.1 - (overAt - time)) * 0.6)})`; ctx.beginPath(); ctx.roundRect(bx - 6, by - 6, cell * N + 12, cell * N + 12, 16); ctx.fill();
+      ctx.fillStyle = '#ff7aa8'; ctx.font = `800 ${Math.round(cell * 0.7)}px Manrope`; ctx.fillText('Нет места!', W / 2, by + cell * N / 2 + cell * 0.25);
+    }
+
+    // tray
+    for (let i = 0; i < 3; i++) {
+      const t = tray[i]; if (t.used || (drag && drag.i === i)) continue;
+      const p = slot(i), canFit = state !== 'play' || fitsAnywhere(t.s), sc = 1 - t.pop;
+      for (const [x, y] of t.s.c) {
+        const s = p.mini * sc;
+        block(p.cx + (x - t.s.cols / 2) * s, p.cy + (y - t.s.rows / 2) * s, s, canFit ? t.col : '#55536b', canFit ? 1 : 0.7);
+      }
+    }
+    if (drag) {
+      const s = drag.t.s, x0 = drag.px - s.cols * cell / 2, y0 = drag.py - drag.lift - s.rows * cell / 2;
+      ctx.shadowColor = '#0008'; ctx.shadowBlur = 18;
+      for (const [x, y] of s.c) block(x0 + x * cell, y0 + y * cell, cell, drag.t.col, 0.95);
+      ctx.shadowBlur = 0;
+    }
+    for (const q of parts) { ctx.globalAlpha = Math.max(0, q.life); ctx.fillStyle = q.col; ctx.fillRect(q.x - 3, q.y - 3, 6, 6); }
+    ctx.globalAlpha = 1;
+    for (const q of pops) {
+      ctx.globalAlpha = Math.max(0, Math.min(1, q.life * 2)); ctx.fillStyle = q.big ? '#ffd23f' : '#5df2a5';
+      ctx.font = `800 ${q.big ? 24 : 20}px Manrope`; ctx.fillText(q.text, Math.max(110, Math.min(W - 110, q.x)), q.y - (1 - q.life) * 60);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  function frame(now) {
+    const dt = Math.min(0.05, (now - lastT) / 1000 || 0); lastT = now; time += dt;
+    for (const t of tray) t.pop = Math.max(0, t.pop - dt * 1.6);
+    for (const q of parts) { q.x += q.vx * dt; q.y += q.vy * dt; q.vy += 500 * dt; q.life -= dt * 1.6; }
+    for (const q of pops) q.life -= dt * 0.8;
+    for (const f of flashes) f.life -= dt * 3;
+    parts = parts.filter((q) => q.life > 0); pops = pops.filter((q) => q.life > 0); flashes = flashes.filter((f) => f.life > 0);
+    shake = Math.max(0, shake - dt);
+    if (state === 'ending' && time >= overAt) gameOver();
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'bloki',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за одну игру.', format: (v) => v + ' очк.' },
+      { id: 'lines', title: 'Линии', column: 'best_lines', order: 'desc', note: 'Больше всего убранных линий за одну игру.', format: (v) => v + ' лин.' },
+    ],
+    bests: () => (best > 0 ? { new_score: best, new_lines: bestLines } : null),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  // ——— Dragging ———
+  cv.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); unlockAudio();
+    if (state !== 'play' || drag) return;
+    let pick = -1, bestD = Infinity;
+    for (let i = 0; i < 3; i++) {
+      if (tray[i].used) continue;
+      const p = slot(i), d = Math.hypot(e.clientX - p.cx, e.clientY - p.cy);
+      if (d < bestD && d < Math.max(cell * 1.9, 60) && e.clientY > trayY - cell * 0.3) { bestD = d; pick = i; }
+    }
+    if (pick < 0) return;
+    drag = { i: pick, t: tray[pick], px: e.clientX, py: e.clientY, lift: e.pointerType === 'mouse' ? 0 : cell * 1.6, id: e.pointerId };
+    try { cv.setPointerCapture(e.pointerId); } catch {}
+    sound('pick');
+  });
+  cv.addEventListener('pointermove', (e) => { if (drag && e.pointerId === drag.id) { drag.px = e.clientX; drag.py = e.clientY; } });
+  cv.addEventListener('pointerup', (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    drag.px = e.clientX; drag.py = e.clientY;
+    const g = dragCell(), t = drag.t; drag = null;
+    if (state === 'play' && g.ok) place(t, g.gx, g.gy); else { t.pop = 0.25; sound('back'); }
+  });
+  cv.addEventListener('pointercancel', () => { if (drag) { drag.t.pop = 0.25; drag = null; } });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) return;
+    if (e.code !== 'Space' && e.code !== 'Enter') return;
+    e.preventDefault(); if (e.repeat) return;
+    if (state !== 'play' && state !== 'ending' && (!$('start').hidden || !$('over').hidden)) start();
+  });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('bloki-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; });
+  addEventListener('resize', resize);
+  resize(); reset(); showBests();
+  if (best > 0 && lb.signedIn()) lb.submit({ new_score: best, new_lines: bestLines });
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

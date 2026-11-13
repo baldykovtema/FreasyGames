@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../../shared/session.js?v=2"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0d0f1c">
+<title>Звёздная башня 3D — FreasyGames 3D</title>
+<meta name="description" content="Звёздная башня 3D на FreasyGames 3D: ставь объёмные плиты одну на другую, всё лишнее отваливается, рекорды общие с 2D-версией.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>
+  .score { position: fixed; top: 70px; left: 0; right: 0; text-align: center; pointer-events: none; }
+  .score b { display: block; font-size: 72px; font-weight: 800; letter-spacing: -.05em; line-height: 1; text-shadow: 0 6px 30px #0008; }
+  .score span { color: #bca0ff; font-size: 13px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+  .score[hidden] { display: none; }
+  .perfect { position: fixed; left: 0; right: 0; top: 32%; text-align: center; pointer-events: none; color: #5df2a5; font-size: 26px; font-weight: 800; text-shadow: 0 4px 20px #000b; transition: none; }
+  @media (max-height: 520px) and (orientation: landscape) { .score { top: 56px; } .score b { font-size: 52px; } }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames 3D</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+<div class="score" id="scoreBox" hidden><b id="score">0</b><span id="combo">&nbsp;</span></div>
+<div class="perfect" id="perfect"></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ 3D</div>
+    <h1>Звёздная <span>башня 3D</span></h1>
+    <p>Плита ездит то вперёд-назад, то влево-вправо. Нажми, чтобы поставить её на башню, — всё, что свисает, отвалится.</p>
+    <p>Ставь ровно: три «Идеально!» подряд снова расширяют плиту. Не тяни: после двух проездов плита падает сама.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · дольше всего: <b id="bestTimeStart">00:00</b></p>
+    <button class="play" id="go" type="button">Строить ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров и вход</button>
+    <div class="hint">Тап по экрану, клик или пробел · рекорды общие со «Звёздной башней» 2D</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow">Башня упала</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">этажей</p>
+    <p>Время: <b id="timeOver">00:00</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · дольше всего: <b id="bestTimeOver">00:00</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров и вход</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<script>
+(() => {
+  'use strict';
+  const cv = document.getElementById('c');
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  // Records are shared with the 2D tower.
+  let best = Number(store.get('bashnya-best', 0)) || 0;
+  let bestTime = Number(store.get('bashnya-best-time', 0)) || 0;
+  let muted = store.get('bashnya-muted', '0') === '1';
+  const clock = (t) => `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+  const floors = (n) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? 'этаж' : a >= 2 && a <= 4 && (b < 12 || b > 14) ? 'этажа' : 'этажей'; };
+
+  // The same rules as the 2D tower, in two directions: even floors ride along x, odd ones along z.
+  const FLOOR = 0.16, PERFECT = 0.018, GROW = 0.06, MAX = 1, TRAVEL = 1.25;
+  let state = 'start', stack, moving, pieces, sparks, combo, score, playTime = 0, time = 0, lastT = 0, shake = 0, camY = 0;
+
+  // ——— 3D scene ———
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); } catch (e) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="screen"><div class="box"><h1><span>3D</span> не запускается</h1><p>Браузер не поддерживает WebGL.</p><a class="play" style="display:block;text-decoration:none" href="../../bashnya/">Звёздная башня 2D ↗</a></div></div>');
+    throw e;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  const scene = new THREE.Scene();
+  const skyLow = new THREE.Color('#2c2350'), skyHigh = new THREE.Color('#0b0c18');
+  scene.background = skyLow.clone();
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
+  scene.add(new THREE.HemisphereLight('#e6dcff', '#3a2f55', 0.95));
+  const sun = new THREE.DirectionalLight('#ffffff', 1.0); sun.position.set(3, 6, 2); scene.add(sun); scene.add(sun.target);
+  const fill = new THREE.DirectionalLight('#9fd8ff', 0.25); fill.position.set(-4, 2, 5); scene.add(fill);
+
+  const stars = (() => {
+    const n = 700, pos = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) pos.set([(Math.random() - 0.5) * 30, Math.random() * 40 - 4, -6 - Math.random() * 12], i * 3);
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const m = new THREE.PointsMaterial({ color: '#e7dcff', size: 2, sizeAttenuation: false, transparent: true, opacity: 0.2 });
+    const p = new THREE.Points(g, m); scene.add(p); return p;
+  })();
+  // The ground under the tower.
+  const ground = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.65, 0.4, 64), new THREE.MeshStandardMaterial({ color: '#1d1e31', roughness: 0.9 }));
+  ground.position.y = -4 * FLOOR - 0.2; scene.add(ground);
+  const groundRing = new THREE.Mesh(new THREE.TorusGeometry(1.52, 0.012, 8, 96), new THREE.MeshBasicMaterial({ color: '#b79aff' }));
+  groundRing.rotation.x = Math.PI / 2; groundRing.position.y = -4 * FLOOR; scene.add(groundRing);
+
+  const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+  const hue = (i) => (265 + i * 9) % 360;
+  const matCache = new Map();
+  function mat(i) {
+    const h = ((hue(i) % 360) + 360) % 360;
+    if (!matCache.has(h)) matCache.set(h, new THREE.MeshStandardMaterial({ color: new THREE.Color(`hsl(${h}, 85%, 66%)`), roughness: 0.4, metalness: 0.05, emissive: new THREE.Color(`hsl(${h}, 90%, 40%)`), emissiveIntensity: 0.35 }));
+    return matCache.get(h);
+  }
+  function slabMesh(s, opacity = 1) {
+    const m = new THREE.Mesh(boxGeo, opacity < 1 ? new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity, depthWrite: false }) : mat(s.i));
+    place(m, s); scene.add(m); return m;
+  }
+  function place(m, s) { m.scale.set(s.w, FLOOR, s.d); m.position.set(s.x, s.i * FLOOR + FLOOR / 2, s.z); }
+  const ghost = slabMesh({ x: 0, z: 0, w: 1, d: 1, i: 1 }, 0.08); ghost.visible = false;
+
+  const sparkGeo = new THREE.OctahedronGeometry(0.03);
+  const sparkMat = new THREE.MeshBasicMaterial({ color: '#fff1a8', transparent: true });
+
+  function reset() {
+    for (const s of stack || []) scene.remove(s.mesh);
+    for (const p of pieces || []) scene.remove(p.mesh);
+    for (const s of sparks || []) scene.remove(s.mesh);
+    if (moving) scene.remove(moving.mesh);
+    stack = [];
+    for (let i = -3; i <= 0; i++) { const s = { x: 0, z: 0, w: MAX, d: MAX, i }; s.mesh = slabMesh(s); stack.push(s); }
+    pieces = []; sparks = []; combo = 0; score = 0; shake = 0; moving = null;
+    spawn();
+    $('score').textContent = '0'; $('combo').innerHTML = '&nbsp;';
+  }
+  const top = () => stack[stack.length - 1];
+
+  function spawn() {
+    const t = top(), axis = score % 2 ? 'z' : 'x', from = Math.floor(score / 2) % 2 ? 1 : -1;
+    const speed = Math.min(1.9, 0.75 + score * 0.035);
+    const m = { x: t.x, z: t.z, w: t.w, d: t.d, i: t.i + 1, axis, dir: -from, speed, bounces: 0 };
+    m[axis] = t[axis] + from * TRAVEL;
+    m.mesh = slabMesh(m);
+    moving = m;
+  }
+
+  // Moves the slab to where it is at `now`, so a tap between frames lands exactly where the slab was.
+  let lastMove = 0;
+  function move(now) {
+    const dt = Math.max(0, (now - lastMove) / 1000); lastMove = now;
+    if (state !== 'play' || !moving) return;
+    const m = moving, a = m.axis, c = top()[a];
+    playTime += Math.min(dt, 1);
+    m[a] += m.dir * m.speed * dt;
+    while (Math.abs(m[a] - c) > TRAVEL) {
+      if (++m.bounces >= 4) { m[a] = c + Math.sign(m[a] - c) * TRAVEL; place(m.mesh, m); return drop(true); }
+      m[a] = c + Math.sign(m[a] - c) * 2 * TRAVEL - (m[a] - c); m.dir = -m.dir;
+    }
+    place(m.mesh, m);
+  }
+  document.addEventListener('visibilitychange', () => { lastMove = performance.now(); });
+
+  function fall(s, vx, vz) {
+    const mesh = slabMesh(s);
+    pieces.push({ mesh, vy: 0, vx, vz, rx: vz * 6, rz: -vx * 6 });
+  }
+
+  function drop(auto = false) {
+    if (state !== 'play' || !moving) return;
+    if (!auto) move(performance.now());
+    const t = top(), m = moving, a = m.axis, size = a === 'x' ? 'w' : 'd', diff = m[a] - t[a];
+    scene.remove(m.mesh); moving = null;
+    if (Math.abs(diff) >= t[size]) {
+      fall({ ...m }, a === 'x' ? m.dir * 0.3 : 0, a === 'z' ? m.dir * 0.3 : 0);
+      sound('fail'); shake = 0.4; return gameOver();
+    }
+    const s = { x: m.x, z: m.z, w: m.w, d: m.d, i: m.i };
+    if (Math.abs(diff) <= PERFECT) {
+      combo++;
+      s[a] = t[a];
+      if (combo >= 3) s[size] = Math.min(MAX, s[size] + GROW);
+      sound('perfect', combo);
+      burst(s);
+      flash(combo >= 3 ? `Идеально ×${combo}! Шире!` : combo > 1 ? `Идеально ×${combo}!` : 'Идеально!');
+    } else {
+      combo = 0;
+      const lo = Math.max(m[a] - m[size] / 2, t[a] - t[size] / 2), hi = Math.min(m[a] + m[size] / 2, t[a] + t[size] / 2);
+      s[size] = hi - lo; s[a] = (lo + hi) / 2;
+      const cut = { x: m.x, z: m.z, w: m.w, d: m.d, i: m.i }, cw = m[size] - s[size];
+      cut[size] = cw; cut[a] = diff > 0 ? hi + cw / 2 : lo - cw / 2;
+      const push = Math.sign(diff) * 0.35;
+      fall(cut, a === 'x' ? push : 0, a === 'z' ? push : 0);
+      sound('place');
+    }
+    s.mesh = slabMesh(s);
+    stack.push(s);
+    if (stack.length > 70) scene.remove(stack.shift().mesh);
+    score++;
+    $('score').textContent = score;
+    $('combo').textContent = combo > 1 ? `комбо ×${combo}` : ' ';
+    spawn();
+  }
+
+  function burst(s) {
+    for (let k = 0; k < 22; k++) {
+      const mesh = new THREE.Mesh(sparkGeo, sparkMat), ang = Math.random() * 7;
+      mesh.position.set(s.x + Math.cos(ang) * s.w * 0.6, (s.i + 1) * FLOOR, s.z + Math.sin(ang) * s.d * 0.6); scene.add(mesh);
+      sparks.push({ mesh, vx: Math.cos(ang) * 0.6, vy: Math.random() * 0.9 + 0.3, vz: Math.sin(ang) * 0.6, life: 1 });
+    }
+  }
+  let flashT = 0;
+  function flash(text) { $('perfect').textContent = text; flashT = 1; }
+
+  function gameOver() {
+    state = 'over';
+    const record = score > best, seconds = Math.floor(playTime);
+    if (record) { best = score; store.set('bashnya-best', best); }
+    if (seconds > bestTime) { bestTime = seconds; store.set('bashnya-best-time', bestTime); }
+    if (score > 0) lb.submit({ new_floors: score, new_time: seconds });
+    setTimeout(() => {
+      if (state !== 'over') return;
+      $('final').textContent = score;
+      $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + floors(score);
+      $('timeOver').textContent = clock(seconds);
+      showBests();
+      $('over').hidden = false;
+    }, 900);
+  }
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('bestTimeStart').textContent = $('bestTimeOver').textContent = clock(bestTime);
+  }
+
+  function start() {
+    reset(); state = 'play'; playTime = 0; lastMove = performance.now();
+    $('start').hidden = true; $('over').hidden = true; $('scoreBox').hidden = false;
+    unlockAudio();
+  }
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (ac && ac.state === 'suspended') ac.resume(); }
+  function tone(f, dur, type, vol, slide = 1, delay = 0) {
+    if (!ac || muted) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t);
+    if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function sound(kind, n = 0) {
+    if (kind === 'place') { tone(220 + Math.min(score, 40) * 6, 0.12, 'triangle', 0.18); tone(90, 0.1, 'sine', 0.2, 0.5); }
+    else if (kind === 'perfect') { const base = 523 * Math.pow(2, Math.min(n - 1, 12) / 12); tone(base, 0.18, 'triangle', 0.16); tone(base * 1.5, 0.22, 'sine', 0.1, 1, 0.06); }
+    else if (kind === 'fail') { tone(300, 0.5, 'sawtooth', 0.12, 0.3); tone(80, 0.4, 'sine', 0.25, 0.5); }
+  }
+
+  // ——— Frame ———
+  let W = 0, H = 0;
+  function resize() {
+    W = innerWidth; H = innerHeight;
+    renderer.setSize(W, H, false);
+    // Show about 5 units of height on tall screens, and enough width on narrow ones.
+    const aspect = W / H, viewH = Math.max(5, 3.6 / aspect);
+    camera.left = -viewH * aspect / 2; camera.right = viewH * aspect / 2; camera.top = viewH / 2; camera.bottom = -viewH / 2;
+    camera.updateProjectionMatrix();
+  }
+
+  function frame(now) {
+    const dt = Math.min(0.05, (now - lastT) / 1000 || 0); lastT = now; time += dt;
+    move(performance.now());
+    // Keep the top of the tower a little below the middle of the screen.
+    const target = Math.max(0, (top().i + 1) * FLOOR - 0.5);
+    camY += (target - camY) * Math.min(1, dt * 4);
+    const sx = shake ? (Math.random() - 0.5) * 0.08 * shake : 0, sy = shake ? (Math.random() - 0.5) * 0.08 * shake : 0;
+    camera.position.set(4 + sx, camY + 3.4 + sy, 4);
+    camera.lookAt(0, camY, 0);
+    sun.position.set(3, camY + 6, 2); sun.target.position.set(0, camY, 0);
+    stars.position.y = -camY * 0.6;
+    const k = Math.min(1, camY / 6);
+    scene.background.copy(skyLow).lerp(skyHigh, k);
+    stars.material.opacity = 0.2 + k * 0.7;
+
+    // The faint ghost shows where the slab would land.
+    ghost.visible = state === 'play' && !!moving;
+    if (ghost.visible) { const t = top(); place(ghost, { x: t.x, z: t.z, w: t.w, d: t.d, i: t.i + 1 }); ghost.scale.y = FLOOR * 0.98; }
+
+    for (const p of pieces) {
+      p.vy -= 3.2 * dt; p.mesh.position.y += p.vy * dt; p.mesh.position.x += p.vx * dt; p.mesh.position.z += p.vz * dt;
+      p.mesh.rotation.x += p.rx * dt * 0.3; p.mesh.rotation.z += p.rz * dt * 0.3;
+      if (p.mesh.position.y < camY - 6) { scene.remove(p.mesh); p.dead = true; }
+    }
+    pieces = pieces.filter((p) => !p.dead);
+    for (const s of sparks) {
+      s.vy -= 1.2 * dt; s.mesh.position.x += s.vx * dt; s.mesh.position.y += s.vy * dt; s.mesh.position.z += s.vz * dt;
+      s.life -= dt * 1.4; s.mesh.scale.setScalar(Math.max(0.01, s.life)); s.mesh.rotation.y += dt * 6;
+      if (s.life <= 0) scene.remove(s.mesh);
+    }
+    sparks = sparks.filter((s) => s.life > 0);
+    shake = Math.max(0, shake - dt);
+    if (flashT > 0) { flashT = Math.max(0, flashT - dt * 0.9); const el = $('perfect'); el.style.opacity = Math.min(1, flashT * 2); el.style.transform = `translateY(${-(1 - flashT) * 40}px)`; }
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'bashnya',
+    boards: [
+      { id: 'floors', title: 'Рекорд', column: 'best_floors', order: 'desc', note: 'Больше всего этажей за одну игру — общая таблица 2D и 3D.', format: (v) => `${v} ${floors(v)}` },
+      { id: 'time', title: 'Время', column: 'best_time', order: 'desc', note: 'Дольше всех продержались в одной игре.', format: (v) => clock(v) },
+    ],
+    bests: () => (best > 0 ? { new_floors: best, new_time: bestTime } : null),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  function press(e) {
+    if (e.target.closest && e.target.closest('a, button')) return;
+    e.preventDefault(); unlockAudio();
+    if (state === 'play') drop();
+  }
+  cv.addEventListener('pointerdown', press);
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) return;
+    if (e.code !== 'Space' && e.code !== 'Enter') return;
+    e.preventDefault();
+    if (e.repeat) return;
+    if (state === 'play') drop(); else if (!$('start').hidden || !$('over').hidden) start();
+  });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('bashnya-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; });
+  addEventListener('resize', resize);
+  resize(); reset(); showBests();
+  if (best > 0 && lb.signedIn()) lb.submit({ new_floors: best, new_time: bestTime });
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

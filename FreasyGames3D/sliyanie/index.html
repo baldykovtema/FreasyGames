@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../../shared/session.js?v=2"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0d0f1c">
+<title>Слияние звёзд 3D — FreasyGames 3D</title>
+<meta name="description" content="Слияние звёзд 3D на FreasyGames 3D: бросай объёмные звёзды и планеты в стеклянную банку, одинаковые сливаются, рекорды общие с 2D-версией.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>
+  .ladder { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin: 6px 0 10px; font-size: 20px; }
+  .stat { position: fixed; top: 64px; pointer-events: none; font-weight: 800; text-shadow: 0 4px 20px #000a; }
+  .stat[hidden] { display: none; }
+  .stat.left { left: 18px; } .stat.right { right: 18px; text-align: right; }
+  .stat b { display: block; font-size: 40px; letter-spacing: -.05em; line-height: 1; }
+  .stat span { color: #bca0ff; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; }
+  .stat .nx { font-size: 30px; line-height: 1.2; }
+  .pop { position: fixed; z-index: 5; pointer-events: none; font-weight: 800; font-size: 20px; color: #fff; text-shadow: 0 3px 12px #000c; transform: translate(-50%, -50%); white-space: nowrap; }
+  @media (max-height: 520px) and (orientation: landscape) { .stat { top: 58px; } .stat b { font-size: 28px; } }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames 3D</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+<div class="stat left" id="scoreBox" hidden><b id="score">0</b><span>очков</span></div>
+<div class="stat right" id="nextBox" hidden><div class="nx" id="next">⭐</div><span>дальше</span></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ 3D</div>
+    <h1>Слияние <span>звёзд 3D</span></h1>
+    <p>Бросай объёмные звёзды и планеты в стеклянную банку. Две одинаковые, столкнувшись, сливаются в одну побольше и дают очки.</p>
+    <div class="ladder" id="ladder"></div>
+    <p>Не дай банке переполниться выше красной линии. Рекорды общие со «Слиянием звёзд» 2D.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · лучшая звезда: <b id="bestLevelStart">—</b></p>
+    <button class="play" id="go" type="button">Начать ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров и вход</button>
+    <div class="hint">Веди пальцем или мышью и отпусти. Клавиши: ← → и пробел</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow">Банка переполнена</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">очков</p>
+    <p>Рекорд: <b id="bestOver">0</b> · лучшая звезда: <b id="bestLevelOver">—</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров и вход</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<script>
+(() => {
+  'use strict';
+  const cv = document.getElementById('c');
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  // Records are shared with the 2D game.
+  let best = Number(store.get('sliyanie-best', 0)) || 0, bestLevel = Number(store.get('sliyanie-best-level', 0)) || 0;
+  let muted = store.get('sliyanie-muted', '0') === '1';
+
+  const KINDS = [
+    { name: 'Искра', r: 15, c1: '#fff6c9', c2: '#ffcf4a', pts: 1 },
+    { name: 'Звёздочка', r: 20, c1: '#ffe0a8', c2: '#ff9f4a', pts: 3 },
+    { name: 'Луна', r: 26, c1: '#f1f0ff', c2: '#a9a6c9', pts: 6 },
+    { name: 'Комета', r: 32, c1: '#c9f4ff', c2: '#4ac3ff', pts: 10 },
+    { name: 'Марс', r: 39, c1: '#ffc2a8', c2: '#e2553a', pts: 15 },
+    { name: 'Земля', r: 47, c1: '#b8ffd8', c2: '#2f8fd8', pts: 21 },
+    { name: 'Нептун', r: 56, c1: '#c9d4ff', c2: '#4a5cff', pts: 28 },
+    { name: 'Сатурн', r: 66, c1: '#fff0c2', c2: '#d8a040', pts: 36 },
+    { name: 'Солнце', r: 77, c1: '#fff8b0', c2: '#ff8a1a', pts: 45 },
+    { name: 'Туманность', r: 89, c1: '#ffd0f4', c2: '#b04ad8', pts: 55 },
+    { name: 'Галактика', r: 102, c1: '#e6dcff', c2: '#6a4bd8', pts: 66 },
+  ];
+  const ICONS = ['✨', '⭐', '🌙', '☄️', '🔴', '🌍', '🔵', '🪐', '☀️', '🌸', '🌌'];
+  // The same jar and physics as in 2D: 400 x 600 units, y grows downwards.
+  const JW = 400, JH = 600, DANGER = 95, G = 1500;
+  let state = 'start', time = 0, lastT = 0, clock = 0, balls, parts, score, maxLevel, aimX, cur, next, cool, danger, dropped, keysDown = {};
+
+  const randKind = () => Math.floor(Math.pow(Math.random(), 1.6) * 5);
+  function reset() {
+    for (const b of balls || []) scene.remove(b.mesh);
+    for (const q of parts || []) scene.remove(q.mesh);
+    balls = []; parts = []; score = 0; clock = 0; maxLevel = 0; aimX = JW / 2; cool = 0; danger = 0; dropped = 0;
+    cur = randKind(); next = randKind();
+    updateHud();
+  }
+  function updateHud() { $('score').textContent = score; $('next').textContent = ICONS[next]; }
+
+  function addBall(x, y, vx, vy, lv, born, grow = 0) {
+    const b = { x, y, vx, vy, lv, r: KINDS[lv].r, born, over: 0, id: dropped++, grow, spin: Math.random() * 6, mesh: makeBall(lv) };
+    scene.add(b.mesh); balls.push(b);
+    return b;
+  }
+  function drop() {
+    if (state !== 'play' || cool > 0) return;
+    const r = KINDS[cur].r, x = Math.max(r, Math.min(JW - r, aimX));
+    addBall(x, -r - 10, 0, 160, cur, clock);
+    cur = next; next = randKind(); cool = 0.45;
+    updateHud(); sound('drop');
+  }
+
+  function step(dt) {
+    cool -= dt; clock += dt;
+    for (const b of balls) { b.vy += G * dt; b.x += b.vx * dt; b.y += b.vy * dt; b.vx *= 0.995; }
+    for (let it = 0; it < 4; it++) {
+      for (let i = 0; i < balls.length; i++) {
+        const a = balls[i]; if (a.dead) continue;
+        for (let j = i + 1; j < balls.length; j++) {
+          const b = balls[j]; if (b.dead) continue;
+          const dx = b.x - a.x, dy = b.y - a.y, rr = a.r + b.r, d2 = dx * dx + dy * dy;
+          if (d2 >= rr * rr) continue;
+          const d = Math.sqrt(d2) || 0.01, nx = dx / d, ny = dy / d;
+          if (a.lv === b.lv && a.lv < KINDS.length - 1) { merge(a, b); break; }
+          const overlap = rr - d, ma = a.r * a.r, mb = b.r * b.r, sa = mb / (ma + mb), sb = ma / (ma + mb);
+          a.x -= nx * overlap * sa; a.y -= ny * overlap * sa; b.x += nx * overlap * sb; b.y += ny * overlap * sb;
+          const rv = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+          if (rv < 0) { const imp = rv * 1.15; a.vx += nx * imp * sa; a.vy += ny * imp * sa; b.vx -= nx * imp * sb; b.vy -= ny * imp * sb; }
+        }
+      }
+      for (const b of balls) {
+        if (b.x < b.r) { b.x = b.r; if (b.vx < 0) b.vx *= -0.2; }
+        if (b.x > JW - b.r) { b.x = JW - b.r; if (b.vx > 0) b.vx *= -0.2; }
+        if (b.y > JH - b.r) { b.y = JH - b.r; if (b.vy > 0) b.vy *= -0.15; b.vx *= 0.98; }
+      }
+      for (const b of balls) if (b.dead) scene.remove(b.mesh);
+      balls = balls.filter((b) => !b.dead);
+    }
+    let worst = 0;
+    for (const b of balls) {
+      if (clock - b.born > 1.2 && b.y - b.r < DANGER) b.over += dt; else b.over = Math.max(0, b.over - dt * 2);
+      worst = Math.max(worst, b.over);
+    }
+    danger = worst;
+    if (worst > 2) gameOver();
+  }
+
+  function merge(a, b) {
+    a.dead = b.dead = true;
+    const lv = a.lv + 1, kind = KINDS[lv];
+    const n = addBall((a.x + b.x) / 2, (a.y + b.y) / 2, (a.vx + b.vx) / 2, Math.min(a.vy, b.vy) / 2 - 80, lv, clock - 1, 0.3);
+    score += kind.pts; if (lv > maxLevel) maxLevel = lv;
+    updateHud();
+    pop(n.x, n.y, '+' + kind.pts);
+    for (let i = 0; i < 16; i++) {
+      const ang = Math.random() * 7, v = 80 + Math.random() * 220;
+      const m = new THREE.Mesh(sparkGeo, sparkMat(lv)); m.position.copy(P(n.x, n.y, (Math.random() - 0.5) * 60)); scene.add(m);
+      parts.push({ mesh: m, vx: Math.cos(ang) * v, vy: Math.sin(ang) * v, vz: (Math.random() - 0.5) * 200, life: 1 });
+    }
+    sound('merge', lv);
+  }
+
+  function start() {
+    unlockAudio(); reset(); state = 'play';
+    $('start').hidden = true; $('over').hidden = true; $('scoreBox').hidden = false; $('nextBox').hidden = false;
+  }
+  function gameOver() {
+    if (state !== 'play') return;
+    state = 'over'; sound('over');
+    const record = score > best;
+    if (record) { best = score; store.set('sliyanie-best', best); }
+    if (maxLevel > bestLevel) { bestLevel = maxLevel; store.set('sliyanie-best-level', bestLevel); }
+    lb.submit({ new_score: score, new_level: maxLevel + 1 });
+    setTimeout(() => {
+      if (state !== 'over') return;
+      $('final').textContent = score;
+      $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + 'очков · лучшая: ' + ICONS[maxLevel] + ' ' + KINDS[maxLevel].name;
+      showBests(); $('over').hidden = false; $('scoreBox').hidden = true; $('nextBox').hidden = true;
+    }, 900);
+  }
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('bestLevelStart').textContent = $('bestLevelOver').textContent = best > 0 ? ICONS[bestLevel] + ' ' + KINDS[bestLevel].name : '—';
+  }
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (ac && ac.state === 'suspended') ac.resume(); }
+  function tone(f, dur, type, vol, slide = 1, delay = 0) {
+    if (!ac || muted) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t);
+    if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function sound(kind, lv = 0) {
+    if (kind === 'drop') tone(260, 0.1, 'sine', 0.1, 0.7);
+    else if (kind === 'merge') { const f = 330 * Math.pow(2, lv / 6); tone(f, 0.18, 'triangle', 0.14); tone(f * 1.5, 0.16, 'sine', 0.06, 1, 0.05); }
+    else if (kind === 'over') { tone(300, 0.6, 'sawtooth', 0.1, 0.3); tone(80, 0.6, 'sine', 0.25, 0.5); }
+  }
+
+  // ——— 3D ———
+  // 100 jar units are one 3D unit; the jar stands on y = 0 and is centred on x = 0.
+  const S = 0.01, P = (x, y, z = 0) => new THREE.Vector3((x - JW / 2) * S, (JH - y) * S, z * S);
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); } catch (e) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="screen"><div class="box"><h1><span>3D</span> не запускается</h1><p>Браузер не поддерживает WebGL.</p><a class="play" style="display:block;text-decoration:none" href="../../sliyanie/">Слияние звёзд 2D ↗</a></div></div>');
+    throw e;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color('#0f1022');
+  const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 200);
+  scene.add(new THREE.HemisphereLight('#b8a8ff', '#141629', 0.75));
+  const key = new THREE.DirectionalLight('#ffffff', 0.85); key.position.set(3, 8, 7); scene.add(key);
+  const rim = new THREE.DirectionalLight('#6fc8ff', 0.35); rim.position.set(-6, 2, -4); scene.add(rim);
+
+  // Stars all around.
+  {
+    const n = 900, pos = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const v = new THREE.Vector3().randomDirection ? new THREE.Vector3().randomDirection() : new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+      v.multiplyScalar(40 + Math.random() * 40); pos.set([v.x, v.y + 3, v.z], i * 3);
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: '#e7dcff', size: 0.18, sizeAttenuation: true, transparent: true, opacity: 0.8 })));
+  }
+
+  // The glass jar: a tank as deep as the biggest planet, with glowing edges and a red line.
+  const DEPTH = 2.2, jarW = JW * S, jarH = JH * S;
+  {
+    const glass = new THREE.MeshPhongMaterial({ color: '#b79aff', transparent: true, opacity: 0.08, shininess: 90, side: THREE.DoubleSide, depthWrite: false });
+    const back = new THREE.Mesh(new THREE.PlaneGeometry(jarW, jarH + 0.2), glass); back.position.set(0, (jarH + 0.2) / 2, -DEPTH / 2); scene.add(back);
+    for (const sx of [-1, 1]) { const side = new THREE.Mesh(new THREE.PlaneGeometry(DEPTH, jarH + 0.2), glass); side.rotation.y = Math.PI / 2; side.position.set(sx * jarW / 2, (jarH + 0.2) / 2, 0); scene.add(side); }
+    const front = new THREE.Mesh(new THREE.PlaneGeometry(jarW, jarH + 0.2), new THREE.MeshPhongMaterial({ color: '#ffffff', transparent: true, opacity: 0.05, shininess: 120, depthWrite: false })); front.position.set(0, (jarH + 0.2) / 2, DEPTH / 2); front.renderOrder = 10; scene.add(front);
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(jarW, jarH + 0.2, DEPTH)), new THREE.LineBasicMaterial({ color: '#b79aff', transparent: true, opacity: 0.7 }));
+    edges.position.set(0, (jarH + 0.2) / 2, 0); scene.add(edges);
+    const floor = new THREE.Mesh(new THREE.BoxGeometry(jarW + 0.3, 0.16, DEPTH + 0.3), new THREE.MeshStandardMaterial({ color: '#2a2350', roughness: 0.6, metalness: 0.2 }));
+    floor.position.y = -0.08; scene.add(floor);
+    const stand = new THREE.Mesh(new THREE.BoxGeometry(jarW + 0.7, 0.3, DEPTH + 0.7), new THREE.MeshStandardMaterial({ color: '#1d1e31', roughness: 0.9 }));
+    stand.position.y = -0.31; scene.add(stand);
+  }
+  const dangerLine = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(-jarW / 2, 0, DEPTH / 2), new THREE.Vector3(jarW / 2, 0, DEPTH / 2), new THREE.Vector3(jarW / 2, 0, -DEPTH / 2), new THREE.Vector3(-jarW / 2, 0, -DEPTH / 2)]),
+    new THREE.LineBasicMaterial({ color: '#ff5f7e', transparent: true, opacity: 0.6 }));
+  dangerLine.position.y = (JH - DANGER) * S; scene.add(dangerLine);
+  const dangerBand = new THREE.Mesh(new THREE.BoxGeometry(jarW, 0.035, DEPTH), new THREE.MeshBasicMaterial({ color: '#ff5f7e', transparent: true, opacity: 0.22, depthWrite: false }));
+  dangerBand.position.y = dangerLine.position.y; scene.add(dangerBand);
+  const guide = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, -jarH, 0)]), new THREE.LineDashedMaterial({ color: '#ffffff', dashSize: 0.12, gapSize: 0.1, transparent: true, opacity: 0.3 }));
+  guide.computeLineDistances(); scene.add(guide);
+
+  // Each kind gets a painted texture: bands, craters or continents, and a sleepy face looking at the camera.
+  const sphereGeo = new THREE.SphereGeometry(1, 40, 28);
+  const textures = KINDS.map((kind, lv) => {
+    const c = document.createElement('canvas'); c.width = 512; c.height = 256; const g = c.getContext('2d');
+    const grad = g.createLinearGradient(0, 0, 0, 256); grad.addColorStop(0, kind.c1); grad.addColorStop(0.5, kind.c2); grad.addColorStop(1, kind.c1);
+    g.fillStyle = grad; g.fillRect(0, 0, 512, 256);
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    if (lv === 2 || lv === 4) { g.fillStyle = '#00000022'; for (let i = 0; i < 18; i++) { g.beginPath(); g.arc(rnd(0, 512), rnd(30, 226), rnd(6, 20), 0, 7); g.fill(); } }
+    if (lv === 5) { g.fillStyle = '#3fbf6a'; for (let i = 0; i < 9; i++) { g.beginPath(); g.ellipse(rnd(0, 512), rnd(50, 206), rnd(20, 60), rnd(14, 34), rnd(0, 3), 0, 7); g.fill(); } }
+    if (lv === 6 || lv === 7 || lv === 3) { for (let i = 0; i < 9; i++) { g.fillStyle = i % 2 ? '#ffffff22' : '#00000018'; g.fillRect(0, 20 + i * 25 + rnd(-4, 4), 512, rnd(8, 16)); } }
+    if (lv >= 8) { for (let i = 0; i < 160; i++) { g.fillStyle = `rgba(255,255,255,${rnd(0.1, 0.4)})`; g.beginPath(); g.arc(rnd(0, 512), rnd(0, 256), rnd(1, 4), 0, 7); g.fill(); } }
+    if (lv === 10 || lv === 9) { g.strokeStyle = '#ffffff40'; g.lineWidth = 6; for (let i = 0; i < 4; i++) { g.beginPath(); g.ellipse(rnd(0, 512), 128, rnd(40, 120), rnd(20, 50), rnd(0, 3), 0, 5); g.stroke(); } }
+    // The face sits at u = 0.25, which points to +z — towards the camera.
+    const fx = 128, fy = 128;
+    g.fillStyle = '#1b163799';
+    g.beginPath(); g.ellipse(fx - 26, fy - 4, 7, 9, 0, 0, 7); g.ellipse(fx + 26, fy - 4, 7, 9, 0, 0, 7); g.fill();
+    g.strokeStyle = '#1b163799'; g.lineWidth = 5; g.lineCap = 'round'; g.beginPath(); g.arc(fx, fy + 12, 13, 0.25, Math.PI - 0.25); g.stroke();
+    g.fillStyle = '#ff7aa833'; g.beginPath(); g.ellipse(fx - 42, fy + 14, 10, 6, 0, 0, 7); g.ellipse(fx + 42, fy + 14, 10, 6, 0, 0, 7); g.fill();
+    const t = new THREE.CanvasTexture(c); t.anisotropy = 4;
+    return t;
+  });
+  const materials = KINDS.map((kind, lv) => new THREE.MeshStandardMaterial({
+    map: textures[lv], roughness: lv === 2 || lv === 4 ? 0.9 : 0.5, metalness: 0.05,
+    emissive: new THREE.Color(kind.c2), emissiveIntensity: lv === 8 ? 0.75 : lv >= 9 ? 0.45 : lv <= 1 ? 0.5 : 0.12, emissiveMap: textures[lv],
+  }));
+  const ringMat = new THREE.MeshStandardMaterial({ color: '#fff0c2', transparent: true, opacity: 0.75, side: THREE.DoubleSide, roughness: 0.6 });
+  const haloMat = (c) => new THREE.SpriteMaterial({ map: haloTex, color: new THREE.Color(c), transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending });
+  const haloTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'); const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64); gr.addColorStop(0, '#ffffffff'); gr.addColorStop(0.35, '#ffffff66'); gr.addColorStop(1, '#ffffff00'); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); return new THREE.CanvasTexture(c); })();
+  const halos = KINDS.map((k) => haloMat(k.c2));
+  function makeBall(lv) {
+    const group = new THREE.Group(), r = KINDS[lv].r * S;
+    const body = new THREE.Mesh(sphereGeo, materials[lv]); body.scale.setScalar(r); group.add(body);
+    if (lv === 7 || lv === 10) {
+      const ring = new THREE.Mesh(new THREE.RingGeometry(r * 1.3, r * (lv === 10 ? 1.9 : 1.75), 48), lv === 10 ? new THREE.MeshBasicMaterial({ color: '#c9b8ff', transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false }) : ringMat);
+      ring.rotation.x = Math.PI / 2 - 0.35; ring.rotation.y = -0.3; group.add(ring);
+    }
+    if (lv <= 1 || lv >= 8) { const h = new THREE.Sprite(halos[lv]); h.scale.setScalar(r * (lv >= 8 ? 3.2 : 3.6)); group.add(h); }
+    return group;
+  }
+  const sparkGeo = new THREE.SphereGeometry(0.035, 6, 4);
+  const sparkMats = KINDS.map((k) => new THREE.MeshBasicMaterial({ color: k.c1, transparent: true }));
+  const sparkMat = (lv) => sparkMats[lv];
+  // The ball waiting to be dropped.
+  let aimMesh = null, aimLv = -1;
+
+  // Floating "+points" in the DOM, placed over the 3D point.
+  const pops = [];
+  function pop(x, y, text) {
+    const el = document.createElement('div'); el.className = 'pop'; el.textContent = text; document.body.appendChild(el);
+    pops.push({ el, p: P(x, y, KINDS[0].r), life: 1 });
+  }
+
+  let W = 0, H = 0;
+  function resize() {
+    W = innerWidth; H = innerHeight;
+    renderer.setSize(W, H, false); camera.aspect = W / H;
+    // Fit the jar (and the ball above it) whatever the screen shape.
+    const needH = jarH + 1.9, needW = jarW + 1.6, t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    camDist = Math.max(needH / 2 / t, needW / 2 / (t * camera.aspect)) + DEPTH / 2;
+    camera.updateProjectionMatrix();
+  }
+  let camDist = 10, camX = 0;
+
+  function render(dt) {
+    // camera: a little from above, sways after the aim
+    const ax = (aimX - JW / 2) * S;
+    camX += (ax * 0.18 - camX) * Math.min(1, dt * 3);
+    const cy = jarH / 2 + 0.75, tilt = 0.16;
+    camera.position.set(camX + Math.sin(time * 0.2) * 0.15, cy + camDist * Math.sin(tilt), camDist * Math.cos(tilt));
+    camera.lookAt(camX * 0.5, cy - 0.15, 0);
+
+    for (const b of balls) {
+      if (b.grow) b.grow = Math.max(0, b.grow - dt * 2);
+      b.mesh.position.copy(P(b.x, b.y));
+      b.mesh.scale.setScalar(1 - (b.grow || 0));
+      b.spin += dt * 0.4;
+      b.mesh.children[0].rotation.set(Math.sin(b.spin) * 0.15, Math.sin(b.spin * 0.7) * 0.25, 0);
+    }
+    const playing = state === 'play';
+    if (playing && aimLv !== cur) { if (aimMesh) scene.remove(aimMesh); aimMesh = makeBall(cur); scene.add(aimMesh); aimLv = cur; }
+    if (aimMesh) {
+      aimMesh.visible = playing;
+      const r = KINDS[cur].r, x = Math.max(r, Math.min(JW - r, aimX));
+      aimMesh.position.copy(P(x, -r - 30)); aimMesh.position.y += Math.sin(time * 3) * 0.03;
+      aimMesh.children[0].material.opacity = 1;
+      aimMesh.scale.setScalar(cool > 0 ? 0.75 : 1);
+      guide.visible = playing; guide.position.copy(P(x, -r - 10));
+    } else guide.visible = false;
+    const pulse = danger > 0 ? 0.5 + 0.5 * Math.sin(time * 14) : 0;
+    dangerLine.material.opacity = danger > 0 ? 0.5 + pulse * 0.5 : 0.45;
+    dangerLine.material.color.set(danger > 0 ? '#ff2a55' : '#ff5f7e');
+    dangerBand.material.opacity = danger > 0 ? 0.25 + pulse * 0.4 : 0.22;
+
+    for (const q of parts) {
+      q.mesh.position.x += q.vx * S * dt; q.mesh.position.y -= q.vy * S * dt; q.mesh.position.z += q.vz * S * dt;
+      q.vx *= 0.95; q.vy *= 0.95; q.vz *= 0.95; q.life -= dt * 1.5; q.mesh.scale.setScalar(Math.max(0.01, q.life));
+      if (q.life <= 0) scene.remove(q.mesh);
+    }
+    parts = parts.filter((q) => q.life > 0);
+    for (const q of pops) {
+      q.life -= dt * 1.2;
+      const v = q.p.clone(); v.y += (1 - q.life) * 0.5; v.project(camera);
+      q.el.style.left = ((v.x + 1) / 2 * W) + 'px'; q.el.style.top = ((1 - v.y) / 2 * H) + 'px'; q.el.style.opacity = Math.max(0, q.life);
+      if (q.life <= 0) q.el.remove();
+    }
+    for (let i = pops.length - 1; i >= 0; i--) if (pops[i].life <= 0) pops.splice(i, 1);
+    renderer.render(scene, camera);
+  }
+
+  function frame(now) {
+    const dt = Math.min(0.05, (now - lastT) / 1000 || 0); lastT = now; time += dt;
+    if (state === 'play' && !lb.isOpen()) {
+      const dir = (keysDown.ArrowRight || keysDown.KeyD ? 1 : 0) - (keysDown.ArrowLeft || keysDown.KeyA ? 1 : 0);
+      if (dir) aimX = Math.max(0, Math.min(JW, aimX + dir * 420 * dt));
+      const n = Math.max(1, Math.ceil(dt / (1 / 120)));
+      for (let i = 0; i < n && state === 'play'; i++) step(dt / n);
+    }
+    render(dt);
+    requestAnimationFrame(frame);
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'sliyanie',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за одну банку — общая таблица 2D и 3D.', format: (v) => v + ' очк.' },
+      { id: 'level', title: 'Лучшая звезда', column: 'best_level', order: 'desc', note: 'Кто дошёл до самой большой звезды.', format: (v) => ICONS[v - 1] + ' ' + KINDS[v - 1].name },
+    ],
+    bests: () => (best > 0 ? { new_score: best, new_level: bestLevel + 1 } : null),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  // Aim: the pointer is projected onto the jar's middle plane.
+  const ray = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), hit = new THREE.Vector3();
+  function toX(e) {
+    ray.setFromCamera({ x: e.clientX / W * 2 - 1, y: -(e.clientY / H) * 2 + 1 }, camera);
+    if (!ray.ray.intersectPlane(plane, hit)) return aimX;
+    return Math.max(0, Math.min(JW, hit.x / S + JW / 2));
+  }
+  let aiming = false;
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); unlockAudio(); if (state !== 'play') return; aiming = true; aimX = toX(e); try { cv.setPointerCapture(e.pointerId); } catch {} });
+  cv.addEventListener('pointermove', (e) => { if (state === 'play' && (aiming || e.pointerType === 'mouse')) aimX = toX(e); });
+  cv.addEventListener('pointerup', (e) => { if (!aiming) return; aiming = false; aimX = toX(e); drop(); });
+  cv.addEventListener('pointercancel', () => { aiming = false; });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) return;
+    keysDown[e.code] = true;
+    if (e.code.startsWith('Arrow')) e.preventDefault();
+    if (e.code !== 'Space' && e.code !== 'Enter') return;
+    e.preventDefault(); if (e.repeat) return;
+    if (state === 'play') drop(); else if (!$('start').hidden || !$('over').hidden) start();
+  });
+  addEventListener('keyup', (e) => { keysDown[e.code] = false; });
+  addEventListener('blur', () => { keysDown = {}; aiming = false; });
+  $('ladder').textContent = ICONS.join(' ');
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('sliyanie-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; });
+  addEventListener('resize', resize);
+  resize(); reset(); showBests();
+  // A few planets already in the jar behind the start card, so the scene is not empty.
+  [[60, 560, 5], [150, 570, 3], [250, 555, 6], [340, 570, 2], [110, 500, 1], [300, 480, 0]].forEach(([x, y, lv]) => addBall(x, y, 0, 0, lv, 0));
+  if (best > 0 && lb.signedIn()) lb.submit({ new_score: best, new_level: bestLevel + 1 });
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

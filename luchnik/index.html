@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../shared/session.js?v=2"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Лучник — FreasyGames</title>
+<meta name="description" content="Лучник на FreasyGames: натягивай тетиву, учитывай ветер и попадай в мишени всё дальше. Яблочко возвращает стрелу. Таблица лидеров.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>
+  .score { position: fixed; top: 64px; left: 0; right: 0; text-align: center; pointer-events: none; }
+  .score b { display: block; font-size: 52px; font-weight: 800; letter-spacing: -.05em; line-height: 1; text-shadow: 0 6px 30px #0008; }
+  .score span { color: #bca0ff; font-size: 13px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+  .score[hidden] { display: none; }
+  @media (max-height: 520px) and (orientation: landscape) { .score { top: 12px; } .score b { font-size: 36px; } }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+<div class="score" id="scoreBox" hidden><b id="score">0</b><span id="info">мишень 1</span></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ Новая игра</div>
+    <h1><span>Лучник</span></h1>
+    <p>Зажми палец или мышь где угодно и потяни назад — как тетиву. Отпусти, и стрела полетит.</p>
+    <p>Следи за ветром 🚩. Каждая мишень дальше прошлой, а потом они начинают двигаться. Промах — минус стрела, яблочко — стрела обратно.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · в яблочко: <b id="bestBullsStart">0</b></p>
+    <button class="play" id="go" type="button">Стрелять ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров и вход</button>
+    <div class="hint">Клавиши: ↑ ↓ — прицел, зажми пробел — натянуть, отпусти — выстрел</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow">Стрелы кончились</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">очков</p>
+    <p>Рекорд: <b id="bestOver">0</b> · в яблочко: <b id="bestBullsOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров и вход</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script>
+(() => {
+  'use strict';
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  let best = Number(store.get('luchnik-best', 0)) || 0, bestBulls = Number(store.get('luchnik-best-bulls', 0)) || 0;
+  let muted = store.get('luchnik-muted', '0') === '1';
+
+  // World units, y up from the ground. The archer stands at x = 0.
+  const G = 520, MAX_V = 1000, BOW_Y = 62, R = 38, MAX_ARROWS = 3, PULL_PX = 150;
+  // Rings from the centre out: half-height and points.
+  const RINGS = [[5, 10, '#ffd23f'], [13, 8, '#ff5f7e'], [22, 6, '#6fc8ff'], [30, 4, '#1d1e31'], [R, 2, '#f1f0ff']];
+  let W = 0, H = 0, DPR = 1, k = 1, groundY = 0, viewD = 500;
+  let advance = false, state = 'start', time = 0, lastT = 0, score, bulls, streak, arrows, level, target, wind, arrow, stuck, parts, pops, aim, pull, next, shake;
+  const keys = {};
+
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  // The view fits the archer and the target, whatever the distance.
+  function fit() {
+    k = Math.min(W / (viewD + 230), (H - 130) / 380);
+    // On tall phone screens the ground moves up, so the flight has room above it.
+    groundY = Math.min(H - Math.max(36, H * 0.1), H * 0.45 + 300 * k);
+  }
+  const SX = (x) => Math.max(20, (W - (viewD + 230) * k) / 2 + 20 * k) + (x + 80) * k;
+  const SY = (y) => groundY - y * k;
+
+  function newTarget() {
+    const lv = level;
+    const d = Math.min(900, 320 + lv * 45 + Math.random() * 60);
+    const h = Math.min(280, 50 + Math.random() * (60 + lv * 12));
+    // From the sixth target on they bob up and down, faster and farther each time.
+    const amp = lv >= 5 ? Math.min(90, 20 + (lv - 5) * 8) : 0;
+    target = { x: d, base: Math.max(R + 6 + amp, h), amp, speed: 0.8 + Math.min(1.6, (lv - 5) * 0.12), phase: Math.random() * 7, y: 0 };
+    target.y = target.base;
+    wind = lv === 0 ? 0 : Math.round((Math.random() * 2 - 1) * Math.min(5, 1 + lv * 0.5)) ;
+    stuck = []; arrow = null;
+  }
+
+  function reset() {
+    score = 0; bulls = 0; streak = 0; arrows = MAX_ARROWS; level = 0; parts = []; pops = []; pull = null; next = 0; shake = 0;
+    aim = { ang: 0.35, pow: 0 };
+    newTarget(); viewD = target.x;
+    updateHud();
+  }
+  function updateHud() {
+    $('score').textContent = score;
+    $('info').textContent = `мишень ${level + 1} · ${'🏹'.repeat(arrows)}${streak > 1 ? ` · серия ×${streak}` : ''}`;
+  }
+
+  function shoot() {
+    if (state !== 'play' || arrow || next || aim.pow < 0.12) { aim.pow = 0; return; }
+    const v = aim.pow * MAX_V;
+    arrow = { x: 18, y: BOW_Y, vx: Math.cos(aim.ang) * v, vy: Math.sin(aim.ang) * v, t: 0 };
+    aim.pow = 0;
+    sound('shoot');
+  }
+
+  function result(ring, x, y) {
+    if (ring >= 0) {
+      const pts = RINGS[ring][1];
+      let gain = pts;
+      if (ring === 0) { bulls++; streak++; gain += (streak - 1) * 5; if (arrows < MAX_ARROWS) arrows++; }
+      else streak = 0;
+      score += gain;
+      pops.push({ x, y: y + 30, text: (ring === 0 ? (streak > 1 ? `Яблочко ×${streak}! ` : 'Яблочко! ') : '') + '+' + gain, life: 1, col: ring === 0 ? '#ffd23f' : '#5df2a5' });
+      for (let i = 0; i < (ring === 0 ? 26 : 10); i++) { const a = Math.random() * 7, v = 60 + Math.random() * 180; parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, col: RINGS[ring][2] === '#1d1e31' ? '#bca0ff' : RINGS[ring][2] }); }
+      sound(ring === 0 ? 'bull' : 'hit', streak);
+      level++; advance = true;
+      next = time + 1.1;
+    } else {
+      arrows--; streak = 0;
+      pops.push({ x, y: Math.max(40, y) + 30, text: 'Мимо', life: 1, col: '#ff7aa8' });
+      sound('miss'); shake = 0.25; advance = false;
+      next = time + 1.0;
+    }
+    updateHud();
+  }
+
+  function step(dt) {
+    if (target.amp) target.y = target.base + Math.sin(time * target.speed + target.phase) * target.amp;
+    const a = arrow; if (!a) return;
+    const px = a.x, py = a.y;
+    a.vx += wind * 22 * dt; a.vy -= G * dt;
+    a.x += a.vx * dt; a.y += a.vy * dt; a.t += dt;
+    // Crossed the face of the target this step?
+    if (px < target.x && a.x >= target.x) {
+      const f = (target.x - px) / (a.x - px), yy = py + (a.y - py) * f, dy = Math.abs(yy - target.y);
+      if (dy <= R) {
+        const ring = RINGS.findIndex((r) => dy <= r[0]);
+        stuck.push({ dy: yy - target.y, ang: Math.atan2(a.vy, a.vx) });
+        arrow = null; return result(ring, target.x, yy);
+      }
+      // The stand under the target stops arrows too.
+      if (yy < target.y - R) { stuck.push({ ground: true, x: target.x - 2, y: yy, ang: Math.atan2(a.vy, a.vx) }); arrow = null; return result(-1, target.x, yy); }
+    }
+    if (a.y <= 0) { stuck.push({ ground: true, x: a.x, y: 0, ang: Math.atan2(a.vy, a.vx) }); arrow = null; return result(-1, a.x, 0); }
+    if (a.x > target.x + 900 || a.x < -400 || a.t > 8) { arrow = null; return result(-1, Math.min(a.x, target.x + 100), 200); }
+  }
+
+  function start() {
+    unlockAudio(); reset(); state = 'play';
+    $('start').hidden = true; $('over').hidden = true; $('scoreBox').hidden = false;
+  }
+  function gameOver() {
+    state = 'over'; sound('over');
+    const record = score > best;
+    if (record) { best = score; store.set('luchnik-best', best); }
+    if (bulls > bestBulls) { bestBulls = bulls; store.set('luchnik-best-bulls', bestBulls); }
+    if (score > 0) lb.submit({ new_score: score, new_bulls: bulls });
+    $('final').textContent = score;
+    $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + `очков · мишеней: ${level} · в яблочко: ${bulls}`;
+    showBests(); $('over').hidden = false; $('scoreBox').hidden = true;
+  }
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('bestBullsStart').textContent = $('bestBullsOver').textContent = bestBulls;
+  }
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (ac && ac.state === 'suspended') ac.resume(); }
+  function tone(f, dur, type, vol, slide = 1, delay = 0) {
+    if (!ac || muted) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t);
+    if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function sound(kind, n = 0) {
+    if (kind === 'shoot') { tone(900, 0.18, 'sawtooth', 0.05, 0.3); tone(140, 0.08, 'sine', 0.15, 0.6); }
+    else if (kind === 'hit') { tone(160, 0.12, 'square', 0.1, 0.6); tone(420, 0.15, 'triangle', 0.1); }
+    else if (kind === 'bull') { const f = 523 * Math.pow(2, Math.min(n, 8) / 12); tone(160, 0.12, 'square', 0.1, 0.6); tone(f, 0.2, 'triangle', 0.14, 1, 0.05); tone(f * 1.5, 0.3, 'sine', 0.1, 1, 0.12); }
+    else if (kind === 'miss') tone(240, 0.3, 'triangle', 0.1, 0.5);
+    else if (kind === 'over') { tone(300, 0.6, 'sawtooth', 0.08, 0.3); tone(80, 0.6, 'sine', 0.2, 0.5); }
+  }
+
+  // ——— Drawing ———
+  const hills = Array.from({ length: 9 }, (_, i) => ({ x: i / 8, h: 0.2 + Math.random() * 0.25 }));
+  const stars = Array.from({ length: 70 }, (_, i) => ({ x: Math.random(), y: Math.random() * 0.6, s: Math.random() * 1.3 + 0.3, p: i }));
+  function drawArrow(x, y, ang, len = 44) {
+    ctx.save(); ctx.translate(x, y); ctx.rotate(-ang);
+    const L = len * k;
+    ctx.strokeStyle = '#d9b77a'; ctx.lineWidth = Math.max(2, 3 * k); ctx.beginPath(); ctx.moveTo(-L, 0); ctx.lineTo(0, 0); ctx.stroke();
+    ctx.fillStyle = '#e6e3f5'; ctx.beginPath(); ctx.moveTo(4 * k + 3, 0); ctx.lineTo(-6 * k, -4 * k - 1); ctx.lineTo(-6 * k, 4 * k + 1); ctx.fill();
+    ctx.fillStyle = '#ff7aa8'; ctx.beginPath(); ctx.moveTo(-L, 0); ctx.lineTo(-L - 8 * k, -6 * k); ctx.lineTo(-L + 6 * k, 0); ctx.lineTo(-L - 8 * k, 6 * k); ctx.fill();
+    ctx.restore();
+  }
+  function draw() {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#1b1637'); g.addColorStop(0.65, '#3a2a63'); g.addColorStop(1, '#d97a8a');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    for (const s of stars) { ctx.globalAlpha = 0.3 + 0.3 * Math.sin(time * 1.4 + s.p); ctx.fillStyle = '#e7dcff'; ctx.beginPath(); ctx.arc(s.x * W, s.y * H, s.s, 0, 7); ctx.fill(); }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#ffeecb'; ctx.shadowColor = '#ffeecb'; ctx.shadowBlur = 30; ctx.beginPath(); ctx.arc(W * 0.8, H * 0.22, Math.min(40, W * 0.05), 0, 7); ctx.fill(); ctx.shadowBlur = 0;
+    ctx.fillStyle = '#2a2350'; ctx.beginPath(); ctx.moveTo(0, groundY);
+    for (const h of hills) ctx.lineTo(h.x * W, groundY - h.h * H * 0.5);
+    ctx.lineTo(W, groundY); ctx.fill();
+    ctx.save();
+    if (shake > 0) ctx.translate((Math.random() - 0.5) * 12 * shake, (Math.random() - 0.5) * 12 * shake);
+    ctx.fillStyle = '#1d1e31'; ctx.fillRect(0, groundY, W, H - groundY);
+    ctx.fillStyle = '#5df2a560'; ctx.fillRect(0, groundY, W, 3);
+
+    // target on its stand
+    const tx = SX(target.x), ty = SY(target.y);
+    ctx.strokeStyle = '#8a6a45'; ctx.lineWidth = Math.max(3, 6 * k);
+    ctx.beginPath(); ctx.moveTo(tx + 4 * k, ty); ctx.lineTo(tx + 4 * k, groundY); ctx.moveTo(tx + 4 * k, groundY - 10 * k); ctx.lineTo(tx + 30 * k, groundY); ctx.stroke();
+    for (let i = RINGS.length - 1; i >= 0; i--) {
+      ctx.fillStyle = RINGS[i][2];
+      ctx.beginPath(); ctx.ellipse(tx, ty, Math.max(4, 9 * k) * (i === RINGS.length - 1 ? 1 : 0.85), RINGS[i][0] * k, 0, 0, 7); ctx.fill();
+    }
+    ctx.strokeStyle = '#00000055'; ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(tx, ty, Math.max(4, 9 * k), R * k, 0, 0, 7); ctx.stroke();
+    for (const s of stuck) {
+      if (s.ground) drawArrow(SX(s.x), SY(s.y), s.ang);
+      else drawArrow(tx + 8 * k, ty - s.dy * k, s.ang);
+    }
+
+    // archer
+    const ax = SX(0), ay = SY(0);
+    ctx.fillStyle = '#bca0ff';
+    ctx.beginPath(); ctx.roundRect(ax - 9 * k, ay - 52 * k, 18 * k, 34 * k, 8 * k); ctx.fill();
+    ctx.strokeStyle = '#bca0ff'; ctx.lineWidth = 5 * k; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(ax - 4 * k, ay - 20 * k); ctx.lineTo(ax - 8 * k, ay); ctx.moveTo(ax + 4 * k, ay - 20 * k); ctx.lineTo(ax + 8 * k, ay); ctx.stroke();
+    ctx.fillStyle = '#ffd9b8'; ctx.beginPath(); ctx.arc(ax, ay - 62 * k, 10 * k, 0, 7); ctx.fill();
+    ctx.fillStyle = '#5df2a5'; ctx.beginPath(); ctx.moveTo(ax - 11 * k, ay - 64 * k); ctx.lineTo(ax + 12 * k, ay - 66 * k); ctx.lineTo(ax - 4 * k, ay - 80 * k); ctx.fill();
+    // bow and string, turned to the aim
+    const bx = SX(14), byy = SY(BOW_Y), A = aim.ang, drawBack = aim.pow * 22 * k;
+    ctx.save(); ctx.translate(bx, byy); ctx.rotate(-A);
+    ctx.strokeStyle = '#d9b77a'; ctx.lineWidth = 4 * k; ctx.beginPath(); ctx.arc(-6 * k, 0, 26 * k, -1.2, 1.2); ctx.stroke();
+    const ex = -6 * k + Math.cos(1.2) * 26 * k, ey = Math.sin(1.2) * 26 * k;
+    ctx.strokeStyle = '#f1f0ff'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(ex, -ey); ctx.lineTo(ex - drawBack, 0); ctx.lineTo(ex, ey); ctx.stroke();
+    ctx.restore();
+    ctx.strokeStyle = '#bca0ff'; ctx.lineWidth = 4 * k;
+    ctx.beginPath(); ctx.moveTo(ax + 6 * k, ay - 44 * k); ctx.lineTo(bx, byy); ctx.stroke(); ctx.lineCap = 'butt';
+    if (state === 'play' && !arrow && !next) {
+      const L = 44, cx = bx + Math.cos(A) * (20 - aim.pow * 22) * k, cy = byy - Math.sin(A) * (20 - aim.pow * 22) * k;
+      drawArrow(cx, cy, A, L);
+      // the first part of the flight, without the wind
+      if (aim.pow > 0.05) {
+        const v = aim.pow * MAX_V; ctx.fillStyle = '#ffffff';
+        for (let i = 1; i <= 8; i++) {
+          const t = i * 0.04, x = 18 + Math.cos(A) * v * t, y = BOW_Y + Math.sin(A) * v * t - G * t * t / 2;
+          ctx.globalAlpha = 0.9 - i * 0.09; ctx.beginPath(); ctx.arc(SX(x), SY(y), Math.max(3, 4.5 * k) - i * 0.2, 0, 7); ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = '#f8f7ff'; ctx.font = '800 13px Manrope'; ctx.textAlign = 'center';
+        ctx.fillText(Math.round(aim.pow * 100) + '%', ax, ay - 92 * k);
+      }
+    }
+    if (arrow) {
+      const ang = Math.atan2(arrow.vy, arrow.vx), y = SY(arrow.y);
+      if (y < 0) { ctx.fillStyle = '#ffd23f'; ctx.beginPath(); ctx.moveTo(SX(arrow.x), 6); ctx.lineTo(SX(arrow.x) - 7, 18); ctx.lineTo(SX(arrow.x) + 7, 18); ctx.fill(); }
+      else drawArrow(SX(arrow.x), y, ang);
+    }
+    for (const q of parts) { ctx.globalAlpha = Math.max(0, q.life); ctx.fillStyle = q.col; ctx.beginPath(); ctx.arc(SX(q.x), SY(q.y), 3, 0, 7); ctx.fill(); }
+    ctx.globalAlpha = 1; ctx.textAlign = 'center';
+    for (const q of pops) { ctx.globalAlpha = Math.max(0, Math.min(1, q.life * 2)); ctx.fillStyle = q.col; ctx.font = '800 22px Manrope'; ctx.fillText(q.text, Math.max(90, Math.min(W - 90, SX(q.x))), Math.max(150, SY(q.y)) - (1 - q.life) * 40); }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    // wind flag
+    if (state === 'play') {
+      const fx = W / 2, fy = groundY + Math.min(22, (H - groundY) / 2) + 5;
+      ctx.fillStyle = '#d1cde5'; ctx.font = '800 13px Manrope'; ctx.textAlign = 'center';
+      ctx.fillText(wind === 0 ? 'ветра нет' : `ветер ${Math.abs(wind)} ${wind > 0 ? '→' : '←'}`, fx, fy);
+    }
+  }
+
+  function frame(now) {
+    const dt = Math.min(0.05, (now - lastT) / 1000 || 0); lastT = now; time += dt;
+    if (state === 'play' && !lb.isOpen()) {
+      if (keys.ArrowUp || keys.KeyW) aim.ang = Math.min(1.35, aim.ang + dt * 0.9);
+      if (keys.ArrowDown || keys.KeyS) aim.ang = Math.max(-0.4, aim.ang - dt * 0.9);
+      if (keys.Space && !arrow && !next) aim.pow = Math.min(1, aim.pow + dt * 0.8);
+      const n = 4; for (let i = 0; i < n; i++) step(dt / n);
+      if (next && time >= next) {
+        next = 0;
+        if (arrows <= 0) gameOver();
+        else if (advance) newTarget();
+      }
+    }
+    viewD += ((target ? target.x : 500) - viewD) * Math.min(1, dt * 3);
+    fit();
+    for (const q of parts) { q.x += q.vx * dt; q.y += q.vy * dt; q.vy -= 300 * dt; q.life -= dt * 1.3; }
+    for (const q of pops) q.life -= dt * 0.8;
+    parts = parts.filter((q) => q.life > 0); pops = pops.filter((q) => q.life > 0);
+    shake = Math.max(0, shake - dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'luchnik',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за одну игру.', format: (v) => v + ' очк.' },
+      { id: 'bulls', title: 'Яблочко', column: 'best_bulls', order: 'desc', note: 'Больше всего попаданий в яблочко за одну игру.', format: (v) => v + ' 🎯' },
+    ],
+    bests: () => (best > 0 ? { new_score: best, new_bulls: bestBulls } : null),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  // Pull back like a bowstring: the arrow flies the opposite way of the pull.
+  cv.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); unlockAudio();
+    if (state !== 'play' || arrow || next) return;
+    pull = { x: e.clientX, y: e.clientY, id: e.pointerId };
+    try { cv.setPointerCapture(e.pointerId); } catch {}
+  });
+  cv.addEventListener('pointermove', (e) => {
+    if (!pull || e.pointerId !== pull.id) return;
+    const dx = pull.x - e.clientX, dy = e.clientY - pull.y, d = Math.hypot(dx, dy);
+    aim.pow = Math.min(1, d / PULL_PX);
+    if (d > 8) aim.ang = Math.max(-0.4, Math.min(1.35, Math.atan2(dy, Math.max(1, dx))));
+  });
+  cv.addEventListener('pointerup', (e) => { if (!pull || e.pointerId !== pull.id) return; pull = null; shoot(); });
+  cv.addEventListener('pointercancel', () => { pull = null; aim.pow = 0; });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) return;
+    if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
+    if (e.repeat) return;
+    keys[e.code] = true;
+    if ((e.code === 'Space' || e.code === 'Enter') && state !== 'play' && (!$('start').hidden || !$('over').hidden)) { keys.Space = false; start(); }
+  });
+  addEventListener('keyup', (e) => { keys[e.code] = false; if (e.code === 'Space' && state === 'play' && !pull) shoot(); });
+  addEventListener('blur', () => { for (const c in keys) keys[c] = false; pull = null; });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('luchnik-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; });
+  addEventListener('resize', resize);
+  resize(); reset(); fit(); showBests();
+  if (best > 0 && lb.signedIn()) lb.submit({ new_score: best, new_bulls: bestBulls });
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

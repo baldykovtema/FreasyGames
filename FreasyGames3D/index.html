@@ -5,7 +5,7 @@
 <script src="../shared/session.js?v=2" data-catalog></script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0d0f1c">
-  <meta name="description" content="FreasyGames 3D — бесплатные 3D-игры прямо в браузере: RCFCG 3D, Растения против Зомби 3D, Мемный Кот: Прыг 3D, Отель «Полночь», Трасса 3D, Шариковый рекорд 3D и Лиана 3D.">
+  <meta name="description" content="FreasyGames 3D — бесплатные 3D-игры прямо в браузере: RCFCG 3D, Растения против Зомби 3D, Мемный Кот: Прыг 3D, Отель «Полночь», Трасса 3D, Шариковый рекорд 3D, Лиана 3D, Слияние звёзд 3D и Звёздная башня 3D.">
   <title>FreasyGames 3D</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -205,8 +205,29 @@
     .liana3d .swing::after { content: ""; position: absolute; left: -13px; bottom: -14px; width: 28px; height: 28px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #e6dcff, #a382ff 60%, #6a4bd8); }
     @keyframes swing { from { transform: rotate(38deg); } to { transform: rotate(-38deg); } }
     .art .pct.lianap { color: #bca0ff; font-size: 13px; }
-    .art.liana3d::after, .art.balls3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 70px; background: linear-gradient(transparent, #181a2e); pointer-events: none; }
+    .art.liana3d::after, .art.balls3d::after, .art.merge3d::after, .art.tower3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 70px; background: linear-gradient(transparent, #181a2e); pointer-events: none; }
     .liana3d .river { height: 46px; bottom: 30px; } .liana3d .trees { bottom: 70px; }
+    .art.merge3d { background: radial-gradient(ellipse at 50% 45%, #6a4bd833 0, transparent 65%), #0f1022; }
+    .merge3d .jar { position: absolute; left: 50%; top: 14px; width: 104px; height: 90px; margin-left: -52px; border: 2px solid #b79aff99; border-top: 0; border-radius: 0 0 14px 14px;
+      background: linear-gradient(90deg, #ffffff10, #ffffff04 40%, #ffffff12); box-shadow: inset 0 -10px 30px #6a4bd840; }
+    .merge3d .jar::before { content: ""; position: absolute; left: 0; right: 0; top: 16px; border-top: 2px dashed #ff5f7e99; }
+    .merge3d .orb { position: absolute; border-radius: 50%; box-shadow: 0 0 14px var(--c); background: radial-gradient(circle at 34% 30%, #fff 0, var(--c) 45%, var(--d) 100%); }
+    .merge3d .o1 { --c: #4ac3ff; --d: #1d5a9a; width: 28px; height: 28px; left: 6px; bottom: 4px; }
+    .merge3d .o2 { --c: #e2553a; --d: #7a2416; width: 34px; height: 34px; left: 36px; bottom: 3px; }
+    .merge3d .o3 { --c: #ffcf4a; --d: #b07a10; width: 20px; height: 20px; left: 74px; bottom: 5px; }
+    .merge3d .o4 { --c: #a9a6c9; --d: #4f4c70; width: 22px; height: 22px; left: 18px; bottom: 31px; }
+    .merge3d .o5 { --c: #ffcf4a; --d: #b07a10; width: 18px; height: 18px; left: 42px; top: -8px; animation: dropin 2.2s ease-in infinite; }
+    @keyframes dropin { 0%, 15% { transform: translateY(0); opacity: 1; } 70% { transform: translateY(44px); opacity: 1; } 85%, 100% { transform: translateY(44px) scale(1.6); opacity: 0; } }
+    .art .pct.mergep { color: #ffcf4a; font-size: 13px; }
+    .art.tower3d { background: linear-gradient(180deg, #0b0c18 0, #2c2350 100%); }
+    .tower3d .tw { position: absolute; left: 50%; top: 8px; width: 0; height: 0; transform-style: preserve-3d; }
+    .tower3d .sl { position: absolute; left: -27px; width: 54px; height: 54px; transform: rotateX(60deg) rotateZ(45deg); border-radius: 3px;
+      background: hsl(var(--h) 85% 66%); box-shadow: 0 0 0 1px #00000030, 5px 5px 0 hsl(var(--h) 70% 42%); }
+    .tower3d .sl:nth-child(1) { --h: 265; top: 52px; } .tower3d .sl:nth-child(2) { --h: 274; top: 43px; } .tower3d .sl:nth-child(3) { --h: 283; top: 34px; }
+    .tower3d .sl:nth-child(4) { --h: 292; top: 25px; width: 46px; } .tower3d .sl:nth-child(5) { --h: 301; top: 16px; width: 46px; height: 44px; }
+    .tower3d .sl.mv { --h: 310; top: -1px; width: 46px; height: 44px; animation: slide3d 1.8s ease-in-out infinite alternate; }
+    @keyframes slide3d { from { transform: translate(-34px, -8px) rotateX(60deg) rotateZ(45deg); } to { transform: translate(34px, 8px) rotateX(60deg) rotateZ(45deg); } }
+    .art .pct.towerp { color: #5df2a5; font-size: 13px; }
     .slot h3 { margin: 0 0 6px; font-size: 20px; letter-spacing: -.03em; }
     .slot p { margin: 0; color: #8f8ca6; font-size: 14px; line-height: 1.55; }
 
@@ -245,7 +266,7 @@
     <section class="wrap hero">
       <span class="eyebrow">Только 3D</span>
       <h1>Freasy<span class="three">Games 3D</span></h1>
-      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже семь игр, и будут ещё.</p>
+      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже девять игр, и будут ещё.</p>
       <a class="hero-action" href="#games">Смотреть игры ↓</a>
       <div class="hint">Двигай мышкой или пальцем — сцена повернётся</div>
     </section>
@@ -281,6 +302,12 @@
         <div class="slot game" data-game="3d-liana" data-tags="Аркада, Таблица лидеров"><a class="slot-link" href="liana/" aria-label="Играть: Лиана 3D"></a><div class="art liana3d" aria-hidden="true">
           <span class="moon"></span><div class="trees"></div><div class="river"></div><span class="hook h1"></span><span class="hook h2"></span><span class="swing"></span><span class="pct lianap">164 м</span></div>
           <span class="tag live">Играть</span><h3>Лиана 3D</h3><p>Раскачивайся над ночной рекой в объёмных джунглях — камера летит прямо за героем. Рекорды общие с Лианой 2D.</p></div>
+        <div class="slot game" data-game="3d-sliyanie" data-tags="Головоломка, Таблица лидеров"><a class="slot-link" href="sliyanie/" aria-label="Играть: Слияние звёзд 3D"></a><div class="art merge3d" aria-hidden="true">
+          <div class="jar"><span class="orb o1"></span><span class="orb o2"></span><span class="orb o3"></span><span class="orb o4"></span><span class="orb o5"></span></div><span class="pct mergep">🪐 Сатурн</span></div>
+          <span class="tag live">Играть</span><h3>Слияние звёзд 3D</h3><p>Объёмные звёзды и планеты с рожицами падают в стеклянную банку и сливаются в большие. Рекорды общие со Слиянием звёзд 2D.</p></div>
+        <div class="slot game" data-game="3d-bashnya" data-tags="Аркада, На точность, Таблица лидеров"><a class="slot-link" href="bashnya/" aria-label="Играть: Звёздная башня 3D"></a><div class="art tower3d" aria-hidden="true">
+          <div class="tw"><span class="sl"></span><span class="sl"></span><span class="sl"></span><span class="sl"></span><span class="sl"></span><span class="sl mv"></span></div><span class="pct towerp">Идеально ×3!</span></div>
+          <span class="tag live">Играть</span><h3>Звёздная башня 3D</h3><p>Плиты ездят то вдоль, то поперёк — ставь их ровно, и башня растёт к звёздам. Рекорды общие со Звёздной башней 2D.</p></div>
       </div>
     </section>
 
