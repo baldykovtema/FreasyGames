@@ -73,11 +73,19 @@
 
   // ——— 3D scene ———
   let renderer;
-  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); } catch (e) {
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true, stencil: false, powerPreference: 'high-performance' }); } catch (e) {
     document.body.insertAdjacentHTML('beforeend', '<div class="screen"><div class="box"><h1><span>3D</span> не запускается</h1><p>Браузер не поддерживает WebGL.</p><a class="play" style="display:block;text-decoration:none" href="../../bashnya/">Звёздная башня 2D ↗</a></div></div>');
     throw e;
   }
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  // Sharpness follows the device: full on fast ones, a little lower only if frames get slow.
+  const MAX_PR = Math.min(window.devicePixelRatio || 1, 1.75);
+  let pixelRatio = MAX_PR, slowFrames = 0, fastFrames = 0;
+  renderer.setPixelRatio(pixelRatio);
+  function adaptResolution(dt) {
+    if (dt > 0.024) { slowFrames++; fastFrames = 0; } else if (dt < 0.014) { fastFrames++; slowFrames = Math.max(0, slowFrames - 1); }
+    if (slowFrames > 90 && pixelRatio > 1) { pixelRatio = Math.max(1, pixelRatio - 0.25); slowFrames = 0; renderer.setPixelRatio(pixelRatio); resize(); }
+    else if (fastFrames > 600 && pixelRatio < MAX_PR) { pixelRatio = Math.min(MAX_PR, pixelRatio + 0.25); fastFrames = 0; renderer.setPixelRatio(pixelRatio); resize(); }
+  }
   const scene = new THREE.Scene();
   const skyLow = new THREE.Color('#2c2350'), skyHigh = new THREE.Color('#0b0c18');
   scene.background = skyLow.clone();
@@ -116,15 +124,19 @@
 
   const sparkGeo = new THREE.OctahedronGeometry(0.03);
   const sparkMat = new THREE.MeshBasicMaterial({ color: '#fff1a8', transparent: true });
+  // All sparks are one instanced mesh, so a burst of «Идеально!» is a single draw call.
+  const MAX_SPARKS = 160, sparkMesh = new THREE.InstancedMesh(sparkGeo, sparkMat, MAX_SPARKS), dummy = new THREE.Object3D();
+  sparkMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); sparkMesh.count = 0; sparkMesh.frustumCulled = false; scene.add(sparkMesh);
+  // Floors that are already standing never move, so their matrices are worked out once.
+  function freeze(m) { m.matrixAutoUpdate = false; m.updateMatrix(); return m; }
 
   function reset() {
     for (const s of stack || []) scene.remove(s.mesh);
     for (const p of pieces || []) scene.remove(p.mesh);
-    for (const s of sparks || []) scene.remove(s.mesh);
     if (moving) scene.remove(moving.mesh);
     stack = [];
-    for (let i = -3; i <= 0; i++) { const s = { x: 0, z: 0, w: MAX, d: MAX, i }; s.mesh = slabMesh(s); stack.push(s); }
-    pieces = []; sparks = []; combo = 0; score = 0; shake = 0; moving = null;
+    for (let i = -3; i <= 0; i++) { const s = { x: 0, z: 0, w: MAX, d: MAX, i }; s.mesh = freeze(slabMesh(s)); stack.push(s); }
+    pieces = []; sparks = []; combo = 0; score = 0; shake = 0; moving = null; redraw = true;
     spawn();
     $('score').textContent = '0'; $('combo').innerHTML = '&nbsp;';
   }
@@ -187,7 +199,7 @@
       fall(cut, a === 'x' ? push : 0, a === 'z' ? push : 0);
       sound('place');
     }
-    s.mesh = slabMesh(s);
+    s.mesh = freeze(slabMesh(s));
     stack.push(s);
     if (stack.length > 70) scene.remove(stack.shift().mesh);
     score++;
@@ -198,9 +210,9 @@
 
   function burst(s) {
     for (let k = 0; k < 22; k++) {
-      const mesh = new THREE.Mesh(sparkGeo, sparkMat), ang = Math.random() * 7;
-      mesh.position.set(s.x + Math.cos(ang) * s.w * 0.6, (s.i + 1) * FLOOR, s.z + Math.sin(ang) * s.d * 0.6); scene.add(mesh);
-      sparks.push({ mesh, vx: Math.cos(ang) * 0.6, vy: Math.random() * 0.9 + 0.3, vz: Math.sin(ang) * 0.6, life: 1 });
+      const ang = Math.random() * 7;
+      if (sparks.length >= MAX_SPARKS) sparks.shift();
+      sparks.push({ x: s.x + Math.cos(ang) * s.w * 0.6, y: (s.i + 1) * FLOOR, z: s.z + Math.sin(ang) * s.d * 0.6, ry: 0, vx: Math.cos(ang) * 0.6, vy: Math.random() * 0.9 + 0.3, vz: Math.sin(ang) * 0.6, life: 1 });
     }
   }
   let flashT = 0;
@@ -250,9 +262,9 @@
   }
 
   // ——— Frame ———
-  let W = 0, H = 0;
+  let W = 0, H = 0, redraw = true;
   function resize() {
-    W = innerWidth; H = innerHeight;
+    W = innerWidth; H = innerHeight; redraw = true;
     renderer.setSize(W, H, false);
     // Show about 5 units of height on tall screens, and enough width on narrow ones.
     const aspect = W / H, viewH = Math.max(5, 3.6 / aspect);
@@ -277,7 +289,7 @@
 
     // The faint ghost shows where the slab would land.
     ghost.visible = state === 'play' && !!moving;
-    if (ghost.visible) { const t = top(); place(ghost, { x: t.x, z: t.z, w: t.w, d: t.d, i: t.i + 1 }); ghost.scale.y = FLOOR * 0.98; }
+    if (ghost.visible) { const t = top(); ghost.scale.set(t.w, FLOOR * 0.98, t.d); ghost.position.set(t.x, (t.i + 1) * FLOOR + FLOOR / 2, t.z); }
 
     for (const p of pieces) {
       p.vy -= 3.2 * dt; p.mesh.position.y += p.vy * dt; p.mesh.position.x += p.vx * dt; p.mesh.position.z += p.vz * dt;
@@ -285,15 +297,21 @@
       if (p.mesh.position.y < camY - 6) { scene.remove(p.mesh); p.dead = true; }
     }
     pieces = pieces.filter((p) => !p.dead);
+    let live = 0;
     for (const s of sparks) {
-      s.vy -= 1.2 * dt; s.mesh.position.x += s.vx * dt; s.mesh.position.y += s.vy * dt; s.mesh.position.z += s.vz * dt;
-      s.life -= dt * 1.4; s.mesh.scale.setScalar(Math.max(0.01, s.life)); s.mesh.rotation.y += dt * 6;
-      if (s.life <= 0) scene.remove(s.mesh);
+      s.vy -= 1.2 * dt; s.x += s.vx * dt; s.y += s.vy * dt; s.z += s.vz * dt;
+      s.life -= dt * 1.4; s.ry += dt * 6;
+      if (s.life <= 0) continue;
+      dummy.position.set(s.x, s.y, s.z); dummy.rotation.set(0, s.ry, 0); dummy.scale.setScalar(Math.max(0.01, s.life)); dummy.updateMatrix();
+      sparkMesh.setMatrixAt(live++, dummy.matrix);
     }
-    sparks = sparks.filter((s) => s.life > 0);
+    if (live || sparkMesh.count) { sparkMesh.count = live; sparkMesh.instanceMatrix.needsUpdate = true; }
+    if (sparks.length && sparks[0].life <= 0) sparks = sparks.filter((s) => s.life > 0);
     shake = Math.max(0, shake - dt);
     if (flashT > 0) { flashT = Math.max(0, flashT - dt * 0.9); const el = $('perfect'); el.style.opacity = Math.min(1, flashT * 2); el.style.transform = `translateY(${-(1 - flashT) * 40}px)`; }
-    renderer.render(scene, camera);
+    // Behind the start and game over cards nothing moves once the camera has settled — skip those frames.
+    const busy = redraw || state === 'play' || pieces.length || live || shake > 0 || Math.abs(target - camY) > 0.0005;
+    if (busy) { redraw = false; adaptResolution(dt); renderer.render(scene, camera); }
     requestAnimationFrame(frame);
   }
 

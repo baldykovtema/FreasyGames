@@ -64,7 +64,7 @@
   // Rings from the centre out: half-height and points.
   const RINGS = [[5, 10, '#ffd23f'], [13, 8, '#ff5f7e'], [22, 6, '#6fc8ff'], [30, 4, '#1d1e31'], [R, 2, '#f1f0ff']];
   let W = 0, H = 0, DPR = 1, k = 1, groundY = 0, viewD = 500;
-  let advance = false, state = 'start', time = 0, lastT = 0, score, bulls, streak, arrows, level, target, wind, arrow, stuck, parts, pops, aim, pull, next, shake;
+  let frameNo = 0, advance = false, state = 'start', time = 0, lastT = 0, score, bulls, streak, arrows, level, target, wind, arrow, stuck, parts, pops, aim, pull, next, shake;
   const keys = {};
 
   function resize() {
@@ -72,6 +72,7 @@
     W = innerWidth; H = innerHeight;
     cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    layersFor = '';
   }
   // The view fits the archer and the target, whatever the distance.
   function fit() {
@@ -204,16 +205,32 @@
     ctx.fillStyle = '#ff7aa8'; ctx.beginPath(); ctx.moveTo(-L, 0); ctx.lineTo(-L - 8 * k, -6 * k); ctx.lineTo(-L + 6 * k, 0); ctx.lineTo(-L - 8 * k, 6 * k); ctx.fill();
     ctx.restore();
   }
+  // The sky, and the glowing moon with the hills in front of the stars, are painted once
+  // into two pictures and only repainted when the screen size or the ground line changes.
+  const skyLayer = document.createElement('canvas'), frontLayer = document.createElement('canvas');
+  let layersFor = '';
+  function buildLayers() {
+    const key = W + 'x' + H + '@' + DPR + ':' + groundY.toFixed(1);
+    if (key === layersFor) return;
+    layersFor = key;
+    for (const c of [skyLayer, frontLayer]) { c.width = cv.width; c.height = cv.height; }
+    let g = skyLayer.getContext('2d'); g.setTransform(DPR, 0, 0, DPR, 0, 0);
+    const grad = g.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, '#1b1637'); grad.addColorStop(0.65, '#3a2a63'); grad.addColorStop(1, '#d97a8a');
+    g.fillStyle = grad; g.fillRect(0, 0, W, H);
+    g = frontLayer.getContext('2d'); g.setTransform(DPR, 0, 0, DPR, 0, 0); g.clearRect(0, 0, W, H);
+    g.fillStyle = '#ffeecb'; g.shadowColor = '#ffeecb'; g.shadowBlur = 30; g.beginPath(); g.arc(W * 0.8, H * 0.22, Math.min(40, W * 0.05), 0, 7); g.fill(); g.shadowBlur = 0;
+    g.fillStyle = '#2a2350'; g.beginPath(); g.moveTo(0, groundY);
+    for (const h of hills) g.lineTo(h.x * W, groundY - h.h * H * 0.5);
+    g.lineTo(W, groundY); g.fill();
+  }
   function draw() {
-    const g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, '#1b1637'); g.addColorStop(0.65, '#3a2a63'); g.addColorStop(1, '#d97a8a');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-    for (const s of stars) { ctx.globalAlpha = 0.3 + 0.3 * Math.sin(time * 1.4 + s.p); ctx.fillStyle = '#e7dcff'; ctx.beginPath(); ctx.arc(s.x * W, s.y * H, s.s, 0, 7); ctx.fill(); }
+    buildLayers();
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(skyLayer, 0, 0); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.fillStyle = '#e7dcff';
+    for (const s of stars) { ctx.globalAlpha = 0.3 + 0.3 * Math.sin(time * 1.4 + s.p); ctx.beginPath(); ctx.arc(s.x * W, s.y * H, s.s, 0, 7); ctx.fill(); }
     ctx.globalAlpha = 1;
-    ctx.fillStyle = '#ffeecb'; ctx.shadowColor = '#ffeecb'; ctx.shadowBlur = 30; ctx.beginPath(); ctx.arc(W * 0.8, H * 0.22, Math.min(40, W * 0.05), 0, 7); ctx.fill(); ctx.shadowBlur = 0;
-    ctx.fillStyle = '#2a2350'; ctx.beginPath(); ctx.moveTo(0, groundY);
-    for (const h of hills) ctx.lineTo(h.x * W, groundY - h.h * H * 0.5);
-    ctx.lineTo(W, groundY); ctx.fill();
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(frontLayer, 0, 0); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     ctx.save();
     if (shake > 0) ctx.translate((Math.random() - 0.5) * 12 * shake, (Math.random() - 0.5) * 12 * shake);
     ctx.fillStyle = '#1d1e31'; ctx.fillRect(0, groundY, W, H - groundY);
@@ -303,7 +320,8 @@
     for (const q of pops) q.life -= dt * 0.8;
     parts = parts.filter((q) => q.life > 0); pops = pops.filter((q) => q.life > 0);
     shake = Math.max(0, shake - dt);
-    draw();
+    // Behind the start and game over cards half the frames are enough.
+    if (state === 'play' || (frameNo++ & 1) === 0) draw();
     requestAnimationFrame(frame);
   }
 

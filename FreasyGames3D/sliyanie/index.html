@@ -82,13 +82,12 @@
   ];
   const ICONS = ['✨', '⭐', '🌙', '☄️', '🔴', '🌍', '🔵', '🪐', '☀️', '🌸', '🌌'];
   // The same jar and physics as in 2D: 400 x 600 units, y grows downwards.
-  const JW = 400, JH = 600, DANGER = 95, G = 1500;
-  let state = 'start', time = 0, lastT = 0, clock = 0, balls, parts, score, maxLevel, aimX, cur, next, cool, danger, dropped, keysDown = {};
+  const JW = 400, JH = 600, DANGER = 95, G = 1500, MAX_R = 102, byX = (a, b) => a.x - b.x;
+  let frameNo = 0, state = 'start', time = 0, lastT = 0, clock = 0, balls, parts, score, maxLevel, aimX, cur, next, cool, danger, dropped, keysDown = {};
 
   const randKind = () => Math.floor(Math.pow(Math.random(), 1.6) * 5);
   function reset() {
     for (const b of balls || []) scene.remove(b.mesh);
-    for (const q of parts || []) scene.remove(q.mesh);
     balls = []; parts = []; score = 0; clock = 0; maxLevel = 0; aimX = JW / 2; cool = 0; danger = 0; dropped = 0;
     cur = randKind(); next = randKind();
     updateHud();
@@ -112,10 +111,14 @@
     cool -= dt; clock += dt;
     for (const b of balls) { b.vy += G * dt; b.x += b.vx * dt; b.y += b.vy * dt; b.vx *= 0.995; }
     for (let it = 0; it < 4; it++) {
-      for (let i = 0; i < balls.length; i++) {
+      // Sorted by x, so each ball only checks the neighbours that can reach it.
+      balls.sort(byX);
+      const n0 = balls.length;
+      for (let i = 0; i < n0; i++) {
         const a = balls[i]; if (a.dead) continue;
-        for (let j = i + 1; j < balls.length; j++) {
-          const b = balls[j]; if (b.dead) continue;
+        const reach = a.x + a.r + MAX_R;
+        for (let j = i + 1; j < n0; j++) {
+          const b = balls[j]; if (b.x > reach) break; if (b.dead) continue;
           const dx = b.x - a.x, dy = b.y - a.y, rr = a.r + b.r, d2 = dx * dx + dy * dy;
           if (d2 >= rr * rr) continue;
           const d = Math.sqrt(d2) || 0.01, nx = dx / d, ny = dy / d;
@@ -131,8 +134,10 @@
         if (b.x > JW - b.r) { b.x = JW - b.r; if (b.vx > 0) b.vx *= -0.2; }
         if (b.y > JH - b.r) { b.y = JH - b.r; if (b.vy > 0) b.vy *= -0.15; b.vx *= 0.98; }
       }
-      for (const b of balls) if (b.dead) scene.remove(b.mesh);
-      balls = balls.filter((b) => !b.dead);
+      if (balls.length !== n0 || balls.some((b) => b.dead)) {
+        for (const b of balls) if (b.dead) scene.remove(b.mesh);
+        balls = balls.filter((b) => !b.dead);
+      }
     }
     let worst = 0;
     for (const b of balls) {
@@ -152,8 +157,8 @@
     pop(n.x, n.y, '+' + kind.pts);
     for (let i = 0; i < 16; i++) {
       const ang = Math.random() * 7, v = 80 + Math.random() * 220;
-      const m = new THREE.Mesh(sparkGeo, sparkMat(lv)); m.position.copy(P(n.x, n.y, (Math.random() - 0.5) * 60)); scene.add(m);
-      parts.push({ mesh: m, vx: Math.cos(ang) * v, vy: Math.sin(ang) * v, vz: (Math.random() - 0.5) * 200, life: 1 });
+      if (parts.length >= MAX_SPARKS) parts.shift();
+      parts.push({ x: (n.x - JW / 2) * S, y: (JH - n.y) * S, z: (Math.random() - 0.5) * 60 * S, vx: Math.cos(ang) * v, vy: Math.sin(ang) * v, vz: (Math.random() - 0.5) * 200, life: 1, col: sparkColors[lv] });
     }
     sound('merge', lv);
   }
@@ -202,11 +207,19 @@
   // 100 jar units are one 3D unit; the jar stands on y = 0 and is centred on x = 0.
   const S = 0.01, P = (x, y, z = 0) => new THREE.Vector3((x - JW / 2) * S, (JH - y) * S, z * S);
   let renderer;
-  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); } catch (e) {
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true, stencil: false, powerPreference: 'high-performance' }); } catch (e) {
     document.body.insertAdjacentHTML('beforeend', '<div class="screen"><div class="box"><h1><span>3D</span> не запускается</h1><p>Браузер не поддерживает WebGL.</p><a class="play" style="display:block;text-decoration:none" href="../../sliyanie/">Слияние звёзд 2D ↗</a></div></div>');
     throw e;
   }
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  // Sharpness follows the device: full on fast ones, a little lower only if frames get slow.
+  const MAX_PR = Math.min(window.devicePixelRatio || 1, 1.75);
+  let pixelRatio = MAX_PR, slowFrames = 0, fastFrames = 0;
+  renderer.setPixelRatio(pixelRatio);
+  function adaptResolution(dt) {
+    if (dt > 0.024) { slowFrames++; fastFrames = 0; } else if (dt < 0.014) { fastFrames++; slowFrames = Math.max(0, slowFrames - 1); }
+    if (slowFrames > 90 && pixelRatio > 1) { pixelRatio = Math.max(1, pixelRatio - 0.25); slowFrames = 0; renderer.setPixelRatio(pixelRatio); resize(); }
+    else if (fastFrames > 600 && pixelRatio < MAX_PR) { pixelRatio = Math.min(MAX_PR, pixelRatio + 0.25); fastFrames = 0; renderer.setPixelRatio(pixelRatio); resize(); }
+  }
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#0f1022');
   const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 200);
@@ -277,19 +290,27 @@
   const haloMat = (c) => new THREE.SpriteMaterial({ map: haloTex, color: new THREE.Color(c), transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending });
   const haloTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'); const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64); gr.addColorStop(0, '#ffffffff'); gr.addColorStop(0.35, '#ffffff66'); gr.addColorStop(1, '#ffffff00'); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); return new THREE.CanvasTexture(c); })();
   const halos = KINDS.map((k) => haloMat(k.c2));
+  const ringGeos = [], galaxyRingMat = new THREE.MeshBasicMaterial({ color: '#c9b8ff', transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false });
   function makeBall(lv) {
     const group = new THREE.Group(), r = KINDS[lv].r * S;
     const body = new THREE.Mesh(sphereGeo, materials[lv]); body.scale.setScalar(r); group.add(body);
     if (lv === 7 || lv === 10) {
-      const ring = new THREE.Mesh(new THREE.RingGeometry(r * 1.3, r * (lv === 10 ? 1.9 : 1.75), 48), lv === 10 ? new THREE.MeshBasicMaterial({ color: '#c9b8ff', transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false }) : ringMat);
+      if (!ringGeos[lv]) ringGeos[lv] = new THREE.RingGeometry(r * 1.3, r * (lv === 10 ? 1.9 : 1.75), 48);
+      const ring = new THREE.Mesh(ringGeos[lv], lv === 10 ? galaxyRingMat : ringMat);
       ring.rotation.x = Math.PI / 2 - 0.35; ring.rotation.y = -0.3; group.add(ring);
     }
     if (lv <= 1 || lv >= 8) { const h = new THREE.Sprite(halos[lv]); h.scale.setScalar(r * (lv >= 8 ? 3.2 : 3.6)); group.add(h); }
     return group;
   }
   const sparkGeo = new THREE.SphereGeometry(0.035, 6, 4);
-  const sparkMats = KINDS.map((k) => new THREE.MeshBasicMaterial({ color: k.c1, transparent: true }));
-  const sparkMat = (lv) => sparkMats[lv];
+  // All sparks are one instanced mesh: one draw call however many merges happen at once.
+  const MAX_SPARKS = 320, sparkColors = KINDS.map((k) => new THREE.Color(k.c1));
+  const sparks = new THREE.InstancedMesh(sparkGeo, new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true }), MAX_SPARKS);
+  // The colour buffer is sized by the count when first touched, so fill it before hiding the sparks.
+  for (let i = 0; i < MAX_SPARKS; i++) sparks.setColorAt(i, sparkColors[0]);
+  sparks.instanceMatrix.setUsage(THREE.DynamicDrawUsage); sparks.count = 0; sparks.frustumCulled = false;
+  scene.add(sparks);
+  const tmpM = new THREE.Matrix4(), tmpV = new THREE.Vector3();
   // The ball waiting to be dropped.
   let aimMesh = null, aimLv = -1;
 
@@ -309,7 +330,7 @@
     camDist = Math.max(needH / 2 / t, needW / 2 / (t * camera.aspect)) + DEPTH / 2;
     camera.updateProjectionMatrix();
   }
-  let camDist = 10, camX = 0;
+  let camDist = 10, camX = 0, dangerOn = false;
 
   function render(dt) {
     // camera: a little from above, sways after the aim
@@ -321,7 +342,7 @@
 
     for (const b of balls) {
       if (b.grow) b.grow = Math.max(0, b.grow - dt * 2);
-      b.mesh.position.copy(P(b.x, b.y));
+      b.mesh.position.set((b.x - JW / 2) * S, (JH - b.y) * S, 0);
       b.mesh.scale.setScalar(1 - (b.grow || 0));
       b.spin += dt * 0.4;
       b.mesh.children[0].rotation.set(Math.sin(b.spin) * 0.15, Math.sin(b.spin * 0.7) * 0.25, 0);
@@ -331,25 +352,30 @@
     if (aimMesh) {
       aimMesh.visible = playing;
       const r = KINDS[cur].r, x = Math.max(r, Math.min(JW - r, aimX));
-      aimMesh.position.copy(P(x, -r - 30)); aimMesh.position.y += Math.sin(time * 3) * 0.03;
+      aimMesh.position.set((x - JW / 2) * S, (JH + r + 30) * S + Math.sin(time * 3) * 0.03, 0);
       aimMesh.children[0].material.opacity = 1;
       aimMesh.scale.setScalar(cool > 0 ? 0.75 : 1);
-      guide.visible = playing; guide.position.copy(P(x, -r - 10));
+      guide.visible = playing; guide.position.set((x - JW / 2) * S, (JH + r + 10) * S, 0);
     } else guide.visible = false;
     const pulse = danger > 0 ? 0.5 + 0.5 * Math.sin(time * 14) : 0;
     dangerLine.material.opacity = danger > 0 ? 0.5 + pulse * 0.5 : 0.45;
-    dangerLine.material.color.set(danger > 0 ? '#ff2a55' : '#ff5f7e');
+    if ((danger > 0) !== dangerOn) { dangerOn = danger > 0; dangerLine.material.color.set(dangerOn ? '#ff2a55' : '#ff5f7e'); }
     dangerBand.material.opacity = danger > 0 ? 0.25 + pulse * 0.4 : 0.22;
 
+    let live = 0;
     for (const q of parts) {
-      q.mesh.position.x += q.vx * S * dt; q.mesh.position.y -= q.vy * S * dt; q.mesh.position.z += q.vz * S * dt;
-      q.vx *= 0.95; q.vy *= 0.95; q.vz *= 0.95; q.life -= dt * 1.5; q.mesh.scale.setScalar(Math.max(0.01, q.life));
-      if (q.life <= 0) scene.remove(q.mesh);
+      q.x += q.vx * S * dt; q.y -= q.vy * S * dt; q.z += q.vz * S * dt;
+      q.vx *= 0.95; q.vy *= 0.95; q.vz *= 0.95; q.life -= dt * 1.5;
+      if (q.life <= 0) continue;
+      const sc = Math.max(0.01, q.life);
+      tmpM.makeScale(sc, sc, sc); tmpM.setPosition(q.x, q.y, q.z);
+      sparks.setMatrixAt(live, tmpM); sparks.setColorAt(live, q.col); live++;
     }
-    parts = parts.filter((q) => q.life > 0);
+    if (live || sparks.count) { sparks.count = live; sparks.instanceMatrix.needsUpdate = true; if (sparks.instanceColor) sparks.instanceColor.needsUpdate = true; }
+    if (parts.length && parts[0].life <= 0) parts = parts.filter((q) => q.life > 0);
     for (const q of pops) {
       q.life -= dt * 1.2;
-      const v = q.p.clone(); v.y += (1 - q.life) * 0.5; v.project(camera);
+      const v = tmpV.copy(q.p); v.y += (1 - q.life) * 0.5; v.project(camera);
       q.el.style.left = ((v.x + 1) / 2 * W) + 'px'; q.el.style.top = ((1 - v.y) / 2 * H) + 'px'; q.el.style.opacity = Math.max(0, q.life);
       if (q.life <= 0) q.el.remove();
     }
@@ -365,7 +391,9 @@
       const n = Math.max(1, Math.ceil(dt / (1 / 120)));
       for (let i = 0; i < n && state === 'play'; i++) step(dt / n);
     }
-    render(dt);
+    adaptResolution(dt);
+    // Behind the start and game over cards the scene only sways, so half the frames are enough.
+    if (state === 'play' || (frameNo++ & 1) === 0) render(state === 'play' ? dt : dt * 2);
     requestAnimationFrame(frame);
   }
 

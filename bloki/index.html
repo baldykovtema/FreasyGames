@@ -73,7 +73,7 @@
   for (const s of SHAPES) { s.cols = Math.max(...s.c.map((p) => p[0])) + 1; s.rows = Math.max(...s.c.map((p) => p[1])) + 1; }
 
   let W = 0, H = 0, DPR = 1, cell = 40, bx = 0, by = 0, trayY = 0;
-  let state = 'start', time = 0, lastT = 0, grid, tray, score, shown, lines, combo, moves, parts, pops, flashes, drag = null, shake = 0, overAt = 0;
+  let dirty = true, state = 'start', time = 0, lastT = 0, grid, tray, score, shown, lines, combo, moves, parts, pops, flashes, drag = null, shake = 0, overAt = 0;
 
   function resize() {
     DPR = Math.min(2, window.devicePixelRatio || 1);
@@ -87,6 +87,7 @@
     const total = cell * (N + 3.8);
     by = Math.round(top + Math.max(0, (H - top - bottom - total) / 2));
     trayY = by + cell * N + cell * 0.4;
+    buildLayers(); sprites.clear(); dirty = true;
   }
 
   function pickShape() {
@@ -103,7 +104,10 @@
     if (!tray.some((t) => fitsAnywhere(t.s))) {
       for (let i = 0; i < 40; i++) { const s = pickShape(); if (fitsAnywhere(s)) { tray[0].s = s; break; } }
     }
+    refit();
   }
+  // Whether each tray piece still fits somewhere; only changes when the board does.
+  function refit() { for (const t of tray) t.fit = !t.used && fitsAnywhere(t.s); dirty = true; }
 
   function reset() {
     grid = Array.from({ length: N }, () => Array(N).fill(null));
@@ -141,17 +145,17 @@
       sound('place');
     }
     score += gain;
-    if (tray.every((x) => x.used)) deal();
+    if (tray.every((x) => x.used)) deal(); else refit();
     // Out of room for every piece left — the game is over.
-    if (!tray.some((x) => !x.used && fitsAnywhere(x.s))) { state = 'ending'; overAt = time + 1.1; sound('over'); }
+    if (!tray.some((x) => x.fit)) { state = 'ending'; overAt = time + 1.1; sound('over'); }
   }
 
   function start() {
-    unlockAudio(); reset(); state = 'play';
+    unlockAudio(); reset(); state = 'play'; dirty = true;
     $('start').hidden = true; $('over').hidden = true;
   }
   function gameOver() {
-    state = 'over';
+    state = 'over'; dirty = true;
     const record = score > best;
     if (record) { best = score; store.set('bloki-best', best); }
     if (lines > bestLines) { bestLines = lines; store.set('bloki-best-lines', bestLines); }
@@ -185,13 +189,55 @@
   }
 
   // ——— Drawing ———
-  function block(x, y, s, col, alpha = 1) {
+  // Everything that does not change between frames is painted once: the background, the empty board,
+  // and one picture per block colour and size. A frame is only drawn when something on screen moves.
+  const layer = () => document.createElement('canvas');
+  const bgLayer = layer(), boardLayer = layer(), sprites = new Map();
+  function paintBlock(c, x, y, s, col) {
     const r = Math.max(3, s * 0.18), pad = Math.max(1, s * 0.05);
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = col; ctx.beginPath(); ctx.roundRect(x + pad, y + pad, s - pad * 2, s - pad * 2, r); ctx.fill();
-    ctx.fillStyle = '#ffffff40'; ctx.beginPath(); ctx.roundRect(x + pad + s * 0.12, y + pad + s * 0.1, s - pad * 2 - s * 0.24, s * 0.16, s * 0.08); ctx.fill();
-    ctx.fillStyle = '#00000030'; ctx.fillRect(x + pad + s * 0.1, y + s - pad - s * 0.14, s - pad * 2 - s * 0.2, s * 0.07);
-    ctx.globalAlpha = 1;
+    c.fillStyle = col; c.beginPath(); c.roundRect(x + pad, y + pad, s - pad * 2, s - pad * 2, r); c.fill();
+    c.fillStyle = '#ffffff40'; c.beginPath(); c.roundRect(x + pad + s * 0.12, y + pad + s * 0.1, s - pad * 2 - s * 0.24, s * 0.16, s * 0.08); c.fill();
+    c.fillStyle = '#00000030'; c.fillRect(x + pad + s * 0.1, y + s - pad - s * 0.14, s - pad * 2 - s * 0.2, s * 0.07);
+  }
+  function sprite(col, s) {
+    const key = col + '|' + s;
+    let c = sprites.get(key);
+    if (!c) {
+      c = layer(); c.width = c.height = Math.ceil(s * DPR);
+      const g = c.getContext('2d'); g.scale(DPR, DPR); paintBlock(g, 0, 0, s, col);
+      sprites.set(key, c);
+    }
+    return c;
+  }
+  function buildLayers() {
+    bgLayer.width = cv.width; bgLayer.height = cv.height;
+    let g = bgLayer.getContext('2d'); g.setTransform(DPR, 0, 0, DPR, 0, 0);
+    const bg = g.createRadialGradient(W / 2, H * 0.3, 0, W / 2, H * 0.3, Math.max(W, H));
+    bg.addColorStop(0, '#272148'); bg.addColorStop(0.6, '#141629'); bg.addColorStop(1, '#0d0f1c');
+    g.fillStyle = bg; g.fillRect(0, 0, W, H);
+    const size = cell * N + 16;
+    boardLayer.width = boardLayer.height = Math.ceil(size * DPR);
+    g = boardLayer.getContext('2d'); g.setTransform(DPR, 0, 0, DPR, 0, 0); g.translate(8 - bx, 8 - by);
+    g.fillStyle = '#1d1e31'; g.strokeStyle = '#b79aff55'; g.lineWidth = 2;
+    g.beginPath(); g.roundRect(bx - 6, by - 6, cell * N + 12, cell * N + 12, 16); g.fill(); g.stroke();
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      g.fillStyle = (x + y) % 2 ? '#24253c' : '#212238';
+      g.beginPath(); g.roundRect(bx + x * cell + 2, by + y * cell + 2, cell - 4, cell - 4, cell * 0.16); g.fill();
+    }
+  }
+  // Exact sizes use their own picture; growing and shrinking blocks scale the board-sized one.
+  function block(x, y, s, col, alpha = 1) {
+    const img = s === cell || s === cell * 0.5 ? sprite(col, s) : sprite(col, cell);
+    ctx.globalAlpha = alpha; ctx.drawImage(img, x, y, s, s); ctx.globalAlpha = 1;
+  }
+  // The piece in the hand, with its soft shadow, painted once when it is picked up.
+  function liftedPicture(t) {
+    const m = 24, c = layer(), w = t.s.cols * cell + m * 2, h = t.s.rows * cell + m * 2;
+    c.width = Math.ceil(w * DPR); c.height = Math.ceil(h * DPR);
+    const g = c.getContext('2d'); g.scale(DPR, DPR);
+    g.shadowColor = '#0008'; g.shadowBlur = 18;
+    for (const [x, y] of t.s.c) paintBlock(g, m + x * cell, m + y * cell, cell, t.col);
+    return { c, m, w, h };
   }
   // Where a tray piece sits and how small it is drawn there.
   function slot(i) {
@@ -206,10 +252,24 @@
     const gx = Math.round((drag.px - s.cols * cell / 2 - bx) / cell), gy = Math.round((drag.py - drag.lift - s.rows * cell / 2 - by) / cell);
     return { gx, gy, ok: fits(s, gx, gy) };
   }
+  // The ghost and the lines it would complete, worked out only when the target cell changes.
+  function updateGhost() {
+    const g = dragCell();
+    if (drag.g && drag.g.gx === g.gx && drag.g.gy === g.gy) return;
+    drag.g = g; drag.hot = null;
+    if (!g.ok) return;
+    const mine = new Set(drag.t.s.c.map(([x, y]) => (g.gy + y) * N + g.gx + x)), full = (x, y) => grid[y][x] || mine.has(y * N + x);
+    const hot = new Set();
+    for (let i = 0; i < N; i++) {
+      let row = true, col = true;
+      for (let j = 0; j < N; j++) { if (!full(j, i)) row = false; if (!full(i, j)) col = false; }
+      if (row) for (let x = 0; x < N; x++) hot.add(i * N + x);
+      if (col) for (let y = 0; y < N; y++) hot.add(y * N + i);
+    }
+    drag.hot = hot;
+  }
   function draw() {
-    const bg = ctx.createRadialGradient(W / 2, H * 0.3, 0, W / 2, H * 0.3, Math.max(W, H));
-    bg.addColorStop(0, '#272148'); bg.addColorStop(0.6, '#141629'); bg.addColorStop(1, '#0d0f1c');
-    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(bgLayer, 0, 0); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     ctx.save();
     if (shake > 0) ctx.translate((Math.random() - 0.5) * 16 * shake, (Math.random() - 0.5) * 16 * shake);
 
@@ -222,30 +282,13 @@
     ctx.fillText(`РЕКОРД ${Math.max(best, score)}`, W / 2, by - 6 - Math.min(46, cell * 0.95) - 12);
 
     // board
-    ctx.fillStyle = '#1d1e31'; ctx.strokeStyle = '#b79aff55'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.roundRect(bx - 6, by - 6, cell * N + 12, cell * N + 12, 16); ctx.fill(); ctx.stroke();
-    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
-      ctx.fillStyle = (x + y) % 2 ? '#24253c' : '#212238';
-      ctx.beginPath(); ctx.roundRect(bx + x * cell + 2, by + y * cell + 2, cell - 4, cell - 4, cell * 0.16); ctx.fill();
-    }
-    // ghost and the lines it would complete
-    let ghost = null, hot = null;
-    if (drag) {
-      ghost = dragCell();
-      if (ghost.ok) {
-        const g2 = grid.map((r) => r.slice());
-        for (const [x, y] of drag.t.s.c) g2[ghost.gy + y][ghost.gx + x] = 1;
-        hot = new Set();
-        for (let i = 0; i < N; i++) {
-          if (g2[i].every(Boolean)) for (let x = 0; x < N; x++) hot.add(i * N + x);
-          if (g2.every((r) => r[i])) for (let y = 0; y < N; y++) hot.add(y * N + i);
-        }
-      }
-    }
+    ctx.drawImage(boardLayer, bx - 8, by - 8, cell * N + 16, cell * N + 16);
+    const ghost = drag && drag.g, hot = drag && drag.hot;
     for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
       const c = grid[y][x]; if (!c) continue;
-      block(bx + x * cell, by + y * cell, cell, hot && hot.has(y * N + x) ? drag.t.col : c);
-      if (hot && hot.has(y * N + x)) { ctx.fillStyle = `rgba(255,255,255,${0.15 + 0.1 * Math.sin(time * 12)})`; ctx.fillRect(bx + x * cell + 2, by + y * cell + 2, cell - 4, cell - 4); }
+      const lit = hot && hot.has(y * N + x);
+      block(bx + x * cell, by + y * cell, cell, lit ? drag.t.col : c);
+      if (lit) { ctx.fillStyle = `rgba(255,255,255,${0.15 + 0.1 * Math.sin(time * 12)})`; ctx.fillRect(bx + x * cell + 2, by + y * cell + 2, cell - 4, cell - 4); }
     }
     if (ghost && ghost.ok) for (const [x, y] of drag.t.s.c) block(bx + (ghost.gx + x) * cell, by + (ghost.gy + y) * cell, cell, drag.t.col, 0.35);
     for (const f of flashes) {
@@ -260,17 +303,15 @@
     // tray
     for (let i = 0; i < 3; i++) {
       const t = tray[i]; if (t.used || (drag && drag.i === i)) continue;
-      const p = slot(i), canFit = state !== 'play' || fitsAnywhere(t.s), sc = 1 - t.pop;
+      const p = slot(i), canFit = state !== 'play' || t.fit, sc = 1 - t.pop;
       for (const [x, y] of t.s.c) {
         const s = p.mini * sc;
         block(p.cx + (x - t.s.cols / 2) * s, p.cy + (y - t.s.rows / 2) * s, s, canFit ? t.col : '#55536b', canFit ? 1 : 0.7);
       }
     }
     if (drag) {
-      const s = drag.t.s, x0 = drag.px - s.cols * cell / 2, y0 = drag.py - drag.lift - s.rows * cell / 2;
-      ctx.shadowColor = '#0008'; ctx.shadowBlur = 18;
-      for (const [x, y] of s.c) block(x0 + x * cell, y0 + y * cell, cell, drag.t.col, 0.95);
-      ctx.shadowBlur = 0;
+      const s = drag.t.s, x0 = drag.px - s.cols * cell / 2, y0 = drag.py - drag.lift - s.rows * cell / 2, L = drag.pic;
+      ctx.globalAlpha = 0.95; ctx.drawImage(L.c, x0 - L.m, y0 - L.m, L.w, L.h); ctx.globalAlpha = 1;
     }
     for (const q of parts) { ctx.globalAlpha = Math.max(0, q.life); ctx.fillStyle = q.col; ctx.fillRect(q.x - 3, q.y - 3, 6, 6); }
     ctx.globalAlpha = 1;
@@ -291,7 +332,8 @@
     parts = parts.filter((q) => q.life > 0); pops = pops.filter((q) => q.life > 0); flashes = flashes.filter((f) => f.life > 0);
     shake = Math.max(0, shake - dt);
     if (state === 'ending' && time >= overAt) gameOver();
-    draw();
+    // Nothing moves — keep the last picture.
+    if (dirty || drag || parts.length || pops.length || flashes.length || shown !== score || shake > 0 || state === 'ending' || tray.some((t) => t.pop > 0)) { dirty = false; draw(); }
     requestAnimationFrame(frame);
   }
 
@@ -316,18 +358,19 @@
       if (d < bestD && d < Math.max(cell * 1.9, 60) && e.clientY > trayY - cell * 0.3) { bestD = d; pick = i; }
     }
     if (pick < 0) return;
-    drag = { i: pick, t: tray[pick], px: e.clientX, py: e.clientY, lift: e.pointerType === 'mouse' ? 0 : cell * 1.6, id: e.pointerId };
+    drag = { i: pick, t: tray[pick], px: e.clientX, py: e.clientY, lift: e.pointerType === 'mouse' ? 0 : cell * 1.6, id: e.pointerId, pic: liftedPicture(tray[pick]) };
+    updateGhost();
     try { cv.setPointerCapture(e.pointerId); } catch {}
     sound('pick');
   });
-  cv.addEventListener('pointermove', (e) => { if (drag && e.pointerId === drag.id) { drag.px = e.clientX; drag.py = e.clientY; } });
+  cv.addEventListener('pointermove', (e) => { if (drag && e.pointerId === drag.id) { drag.px = e.clientX; drag.py = e.clientY; updateGhost(); } });
   cv.addEventListener('pointerup', (e) => {
     if (!drag || e.pointerId !== drag.id) return;
     drag.px = e.clientX; drag.py = e.clientY;
-    const g = dragCell(), t = drag.t; drag = null;
+    const g = dragCell(), t = drag.t; drag = null; dirty = true;
     if (state === 'play' && g.ok) place(t, g.gx, g.gy); else { t.pop = 0.25; sound('back'); }
   });
-  cv.addEventListener('pointercancel', () => { if (drag) { drag.t.pop = 0.25; drag = null; } });
+  cv.addEventListener('pointercancel', () => { if (drag) { drag.t.pop = 0.25; drag = null; dirty = true; } });
   addEventListener('keydown', (e) => {
     if (lb.isOpen()) return;
     if (e.code !== 'Space' && e.code !== 'Enter') return;
