@@ -44,6 +44,7 @@
 </div>
 
 <script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
 <script src="../shared/joystick.js"></script>
 <script src="../shared/multiplayer.js"></script>
 <script>
@@ -208,7 +209,9 @@
       $('overText').innerHTML = record && m > 0 ? '<span class="new">Новый рекорд!</span>' : 'проехано';
       $('coinsOver').textContent = coins; $('speedOver').textContent = Math.round(maxV * 3.6);
       showBests(); $('over').hidden = false;
+      if (!chanceUsed) chance.show();
     }, 1100);
+
   }
 
   // ——— Drawing ———
@@ -318,7 +321,13 @@
     $('bestStart').textContent = fmtM(best); $('bestOver').textContent = fmtM(best);
     $('bestCoinsStart').textContent = bestCoins; $('bestCoinsOver').textContent = bestCoins;
   }
-  function start() { unlockAudio(); reset(); state = 'play'; $('start').hidden = true; $('over').hidden = true; }
+  function start() { unlockAudio(); reset(); state = 'play'; chanceUsed = false; chance.hide(); $('start').hidden = true; $('over').hidden = true; }
+  // Once a run, an ad clears the road ahead, tops up the fuel and the drive goes on from the same distance.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'trassa-continue', label: '🎬 Ехать дальше за рекламу', onReward: () => {
+    chanceUsed = true; traffic = []; fuel = Math.max(fuel, 70); v = MIN_V; spawnT = 1.2; why = ''; shake = 0;
+    state = 'play'; $('over').hidden = true;
+  } });
 
   const lb = FreasyLeaderboard({
     key: 'trassa',

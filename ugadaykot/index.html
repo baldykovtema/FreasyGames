@@ -74,6 +74,7 @@
 
   <section class="bubble" id="screen"></section>
   <div class="row" id="controls"></div>
+  <div id="rewardSlot" style="max-width:360px;margin:0 auto"></div>
   <div class="meter hidden" id="meter"><span id="qnum">Вопрос 1</span><div class="bar"><i id="conf"></i></div><span id="confText">0%</span></div>
   <div class="stats" id="stats"></div>
 
@@ -288,8 +289,8 @@ function think() {
   game.confidence = w[top];
   const q = nextQuestion(w);
   const ready = (w[top] > 0.8 && asked >= 8) || w[top] > 0.93 || asked >= MAX_QUESTIONS || !q;
-  if (ready && game.guesses < MAX_GUESSES && w[top] > 0) return showGuess(top);
-  if (!q || asked >= MAX_QUESTIONS + 5) return showLearn();
+  if (ready && game.guesses < MAX_GUESSES + (game.extra || 0) && w[top] > 0) return showGuess(top);
+  if (!q || asked >= MAX_QUESTIONS + 5 + (game.extra || 0) * 3) return showLearn();
   game.question = q;
   showQuestion();
 }
@@ -331,6 +332,7 @@ function showStart() {
 }
 
 function start(mode) {
+  if (moreAd) moreAd.hide();
   game = { mode, list: candidates(mode), answers: [], rejected: new Set(), guesses: 0, confidence: 0 };
   mood('think');
   screen.innerHTML = `<div class="kicker">${esc(MODES[mode].ask)}</div><h2>Загадал? Тогда начнём!</h2><p>Отвечай честно. Если не уверен — жми «Не знаю».</p>`;
@@ -367,16 +369,25 @@ function win() {
   showStats(); meter(false);
 }
 
+// When the cat gives up, an ad once a game gives it two more guesses and a few more questions.
+let moreAd = null;
 function showLearn() {
   mood('sad'); meter(false);
+  if (!moreAd && window.FreasyRewards) moreAd = FreasyRewards.offer({ host: '#rewardSlot', name: 'ugadaykot-more', label: '🎬 Дать коту ещё попытку за рекламу', onReward: () => {
+    game.extra = 2; moreAd.hide(); think();
+  } });
+  if (moreAd) { if (!game.extra) moreAd.show(); else moreAd.hide(); }
+
   screen.innerHTML = `<div class="kicker">Сдаюсь</div><h2>Ты меня обыграл! Кого ты загадал?</h2><p>Я запомню, и в следующий раз угадаю.</p><input id="learnName" maxlength="60" placeholder="Название ${esc(MODES[game.mode].title === 'игру' ? 'игры' : 'разработчика')}">`;
-  buttons([['Запомнить', learn, 'yes'], ['Не скажу', () => { lose(); showStart(); }, 'alt']]);
+  buttons([['Запомнить', learn, 'yes'], ['Не скажу', () => { if (moreAd) moreAd.hide(); lose(); showStart(); }, 'alt']]);
+
   const input = $('learnName'); input.focus(); input.addEventListener('keydown', (e) => { if (e.key === 'Enter') learn(); });
 }
 
 function learn() {
   const name = $('learnName').value.trim();
   if (!name) { $('learnName').focus(); return; }
+  if (moreAd) moreAd.hide();
   remember(name); lose();
   mood('happy');
   screen.innerHTML = `<div class="kicker">Запомнил!</div><h2>Теперь я знаю «${esc(name)}»</h2><p>Загадай ещё раз — проверим, научился ли я.</p>`;
@@ -401,6 +412,7 @@ function remember(name) {
 $('restartTop').onclick = showStart;
 showStart();
 </script>
+<script src="../shared/rewards.js"></script>
 <script src="../shared/back.js"></script>
 <script src="../shared/chat-boot.js?v=5"></script>
 </body>

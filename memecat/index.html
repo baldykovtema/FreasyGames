@@ -161,6 +161,7 @@
 
 <script src="../shared/multiplayer.js"></script>
 <script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
 <script>
 'use strict';
 
@@ -489,7 +490,7 @@ function startGame(lv, src, extra = {}) {
 }
 
 function restart() {
-  game.run = newRun(); game.run.ev = []; game.attempt++; game.deadT = 0; game.won = false; game.rot = 0; game.camY = 0;
+  game.run = game.checkpoint ? fromCheckpoint(game.checkpoint) : newRun(); game.run.ev = []; game.attempt++; game.deadT = 0; game.won = false; game.rot = 0; game.camY = game.checkpoint ? game.checkpoint.camY : 0;
   acc = 0; particles = []; show(null);
   startMusic(THEMES[game.lv.theme].bass);
 }
@@ -510,14 +511,25 @@ function onWin() {
   $('winTitle').textContent = game.src === 'editor' ? 'Тест пройден!' : 'Уровень пройден!';
   let text = `Попыток: ${game.attempt}`;
   if (game.lv.fishTotal) text += ` · Рыбок: ${fishGot} из ${game.lv.fishTotal}`;
+  if (game.checkpoint) text += ' · с чекпоинтом — тренировка, в рекорды не идёт';
+
   if (game.src === 'editor') { editor.verified = true; text += ' · теперь уровень можно опубликовать'; }
   $('winText').textContent = text;
   $('winQuitBtn').textContent = game.src === 'editor' ? 'В редактор' : game.src === 'online' ? 'К поиску' : 'К уровням';
   show('win');
 }
 
+// In the pause menu an ad sets a checkpoint where the cat stands: after a crash the try starts there.
+// A level passed with a checkpoint is practice and does not count for records or the leaderboard.
+const fromCheckpoint = (c) => ({ ...newRun(), x: c.x, y: c.y, got: new Set(c.got) });
+const checkpointAd = FreasyRewards.offer({ host: '#pause', before: '#restartBtn', name: 'catjump-checkpoint', label: '🎬 Чекпоинт здесь за рекламу', onReward: () => {
+  const r = game && game.run;
+  if (!r || r.dead || r.won) return;
+  game.checkpoint = { x: r.x, y: r.y, got: [...r.got], camY: game.camY };
+  toast('Чекпоинт поставлен — это тренировка, рекорд не засчитается');
+} });
 function saveBest(pct, fishGot) {
-  if (game.src !== 'builtin') return;
+  if (game.src !== 'builtin' || game.checkpoint) return;
   const p = progress[game.idx] || { best: 0, fish: 0 };
   p.best = Math.max(p.best, pct); p.fish = Math.max(p.fish, fishGot);
   progress[game.idx] = p; save('catjump-progress', progress);
@@ -865,7 +877,11 @@ $('lbBtn').onclick = () => lb.open();
 /* ================= Экраны и ввод ================= */
 
 const SCREENS = ['menu', 'levels', 'pause', 'win', 'search', 'account'];
-function show(id) { for (const s of SCREENS) $(s).classList.toggle('on', s === id); }
+function show(id) {
+  for (const s of SCREENS) $(s).classList.toggle('on', s === id);
+  // A checkpoint can only be set while the cat stands on something.
+  if (id === 'pause' && game && game.run.ground && !game.run.dead) checkpointAd.show(); else checkpointAd.hide();
+}
 
 function setMode(m) {
   mode = m;
@@ -917,9 +933,10 @@ function pause(on) {
 }
 $('pauseBtn').onclick = (e) => { e.currentTarget.blur(); pause(true); };
 $('resumeBtn').onclick = () => pause(false);
-$('restartBtn').onclick = () => { game.paused = false; game.attempt = 0; restart(); };
+$('restartBtn').onclick = () => { game.paused = false; game.attempt = 0; game.checkpoint = null; restart(); };
 $('quitBtn').onclick = quitGame;
-$('againBtn').onclick = () => { game.attempt = 0; restart(); };
+$('againBtn').onclick = () => { game.attempt = 0; game.checkpoint = null; restart(); };
+
 $('winQuitBtn').onclick = quitGame;
 
 const JUMP_KEYS = ['Space', 'ArrowUp', 'KeyW'];

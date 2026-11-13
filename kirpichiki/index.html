@@ -43,6 +43,7 @@
 </div>
 
 <script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
 <script>
 (() => {
   'use strict';
@@ -276,7 +277,12 @@
     $('bestStart').textContent = best; $('bestOver').textContent = best;
     $('bestLevelStart').textContent = bestLevel || '—'; $('bestLevelOver').textContent = bestLevel || '—';
   }
-  function start() { unlockAudio(); reset(); state = 'play'; $('start').hidden = true; $('over').hidden = true; }
+  function start() { unlockAudio(); reset(); state = 'play'; chanceUsed = false; chance.hide(); $('start').hidden = true; $('over').hidden = true; }
+  // Once a game, an ad gives one more ball on the same level.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'kirpichiki-life', label: '🎬 +1 жизнь за рекламу', onReward: () => {
+    chanceUsed = true; lives = 1; balls = [newBall(true)]; wideT = 0; slowT = 0; state = 'play'; $('over').hidden = true;
+  } });
   function gameOver() {
     state = 'over';
     const run = { new_score: score, new_level: level, new_time: Math.floor(playTime) }, record = score > best;
@@ -289,7 +295,9 @@
       $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + pointsWord(score);
       $('levelOver').textContent = level; $('bricksOver').textContent = bricksBroken;
       showBests(); $('over').hidden = false;
+      if (!chanceUsed) chance.show();
     }, 700);
+
   }
 
   const lb = FreasyLeaderboard({

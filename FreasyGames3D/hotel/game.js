@@ -919,7 +919,7 @@ function die(cause = 'draft') {
   const [title, color, tip] = DEATHS[cause] || DEATHS.draft;
   $('deadTitle').textContent = title; $('deadTitle').style.color = color;
   $('deadText').textContent = `Ты дошёл до двери ${String(Math.min(ROOMS, S.maxRoom + 1)).padStart(3, '0')} за ${fmt(Math.floor(S.time))}. ${tip}`;
-  setTimeout(() => show('dead'), 700);
+  setTimeout(() => { show('dead'); if (!reviveUsed) revive.show(); }, 700);
   setHud(false);
   lbStatus = 'deadStatus';
   lb.submit({new_door: S.maxRoom, new_time: null});
@@ -953,9 +953,19 @@ function pause(on) {
   if (!on) lockPointer();
 }
 function begin() {
-  audio(); startHum();
+  audio(); startHum(); reviveUsed = false; revive.hide();
   newGame(); show(null); setHud(true); lockPointer();
 }
+// Once a game, an ad brings the player back in the same room, with full health and every monster gone.
+let reviveUsed = false;
+const revive = FreasyRewards.offer({host: '#dead', before: '#againBtn', name: 'hotel-revive', label: '🎬 Очнуться за рекламу', onReward: () => {
+  reviveUsed = true;
+  Object.assign(S, {playing: true, paused: false, dead: false, hp: 100, draft: null, sinceDraft: 0, shade: null, whisper: null, hidden: null});
+  shadeMesh.visible = false; whisperSprite.visible = false; monster.visible = false; monsterLight.intensity = 0;
+  stopWind(); $('wind').style.opacity = 0; $('hideView').classList.remove('on');
+  audio(); startHum(); updateHud(); show(null); setHud(true); lockPointer();
+}});
+
 $('playBtn').onclick = begin;
 $('againBtn').onclick = begin;
 $('winAgainBtn').onclick = begin;

@@ -73,6 +73,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../../shared/rewards.js"></script>
 <script>
 (() => {
 'use strict';
@@ -163,12 +164,18 @@ function showStart() {
   $('loginBox').hidden = inside; $('loggedBox').hidden = !inside; $('loggedName').textContent = username() || '';
   ball = null; running = false; $('startScreen').hidden = false; $('endScreen').hidden = true; updateUI();
 }
-function start(name) { player = name || 'Гость'; score = 0; ball = null; running = false; finished = false; $('startScreen').hidden = true; $('endScreen').hidden = true; updateUI(); loadRecords(); unlockAudio(); }
+// Once a game, an ad lets the ball be dropped again after a «стоп» basket, with the score kept.
+let chanceUsed = false;
+const chance = FreasyRewards.offer({ host: '#endScreen .dialog', before: '#againBtn', name: 'balls3d-continue', label: '🎬 Ещё бросок за рекламу', onReward: () => {
+  chanceUsed = true; finished = false; ball = null; running = false; $('endScreen').hidden = true; updateUI();
+} });
+function start(name) { chanceUsed = false; chance.hide(); player = name || 'Гость'; score = 0; ball = null; running = false; finished = false; $('startScreen').hidden = true; $('endScreen').hidden = true; updateUI(); loadRecords(); unlockAudio(); }
 function drop() {
   if (finished || ball || running || !$('startScreen').hidden) return;
   ball = { x: W / 2 + (Math.random() - 0.5) * 22, y: 45, vx: (Math.random() - 0.5) * 1.5, vy: 0, r: 10 }; running = true; updateUI(); tone(660, 0.08, 'triangle', 0.08, 1.4);
 }
-function end() { running = false; finished = true; updateUI(); $('finalText').textContent = `${player}, твой результат: ${score} очков!`; $('recordText').textContent = ''; setTimeout(() => { $('endScreen').hidden = false; }, 700); submit(); }
+function end() { running = false; finished = true; updateUI(); $('finalText').textContent = `${player}, твой результат: ${score} очков!`; $('recordText').textContent = ''; setTimeout(() => { $('endScreen').hidden = false; if (!chanceUsed) chance.show(); }, 700);
+ submit(); }
 function collideCircle(p) {
   const dx = ball.x - p.x, dy = ball.y - p.y, d = Math.hypot(dx, dy), min = ball.r + p.r;
   if (d < min && d > 0) {

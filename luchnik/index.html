@@ -50,6 +50,7 @@
 </div>
 
 <script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
 <script>
 (() => {
   'use strict';
@@ -157,9 +158,15 @@
   }
 
   function start() {
-    unlockAudio(); reset(); state = 'play';
+    unlockAudio(); reset(); state = 'play'; chanceUsed = false; chance.hide();
     $('start').hidden = true; $('over').hidden = true; $('scoreBox').hidden = false;
   }
+  // Once a game, an ad gives two more arrows at the same target.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'luchnik-arrows', label: '🎬 +2 стрелы за рекламу', onReward: () => {
+    chanceUsed = true; arrows = 2; next = 0; arrow = null; pull = null; aim.pow = 0; state = 'play';
+    $('over').hidden = true; $('scoreBox').hidden = false; updateHud();
+  } });
   function gameOver() {
     state = 'over'; sound('over');
     const record = score > best;
@@ -169,7 +176,9 @@
     $('final').textContent = score;
     $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + `очков · мишеней: ${level} · в яблочко: ${bulls}`;
     showBests(); $('over').hidden = false; $('scoreBox').hidden = true;
+    if (!chanceUsed) chance.show();
   }
+
   function showBests() {
     $('bestStart').textContent = $('bestOver').textContent = best;
     $('bestBullsStart').textContent = $('bestBullsOver').textContent = bestBulls;

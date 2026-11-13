@@ -596,13 +596,42 @@ function updateZombies() {
     }
 }
 
+// Once a game (not online), an ad clears the zombies close to the house and the game goes on.
+let reviveUsed = false;
+function askRevive() {
+    return new Promise(resolve => {
+        const wrap = document.createElement("div");
+        wrap.style.cssText = "position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:#000a;padding:16px";
+        wrap.innerHTML = '<div class="revive-box" style="width:min(380px,100%);background:#1d2a14;color:#fff;border:2px solid #8bd35c;border-radius:20px;padding:22px;text-align:center;font:600 16px system-ui,sans-serif">'
+            + '<div style="font-size:44px">🧟</div><h2 style="margin:6px 0 14px">Зомби добрались до дома</h2>'
+            + '<button type="button" class="play revive-no" style="margin-top:10px;width:100%;padding:13px;border-radius:14px;border:0;font:700 15px system-ui,sans-serif;cursor:pointer">Попробовать ещё раз</button></div>';
+        document.body.appendChild(wrap);
+        const box = wrap.querySelector(".revive-box");
+        const done = (ok) => { wrap.remove(); resolve(ok); };
+        const offer = FreasyRewards.offer({host: box, before: ".revive-no", name: "pvz3d-revive", label: "🎬 Продолжить за рекламу", onReward: () => done(true)});
+        wrap.querySelector(".revive-no").onclick = () => done(false);
+        offer.show();
+    });
+}
 async function loseGame() {
     if (endingGame) return;
     endingGame = true;
     stopGame();
+    if (gameMode !== "online" && !reviveUsed && window.FreasyRewards && FreasyRewards.enabled()) {
+        if (await askRevive()) {
+            reviveUsed = true;
+            for (const z of zombies.filter(z => !z.friendly && z.x < 40)) document.querySelector(`.zombie[data-id="${z.id}"]`)?.remove();
+            zombies = zombies.filter(z => z.friendly || z.x >= 40);
+            spawnGameEffect("poof", 12, 50, "💨");
+            endingGame = false;
+            startGameLoops();
+            return;
+        }
+    }
     clearBackgroundGame();
     if (gameMode === "online") return endOnlineMatch("🧟 Зомби добрались до дома. Поражение!");
-    alert("🧟 Зомби добрались до дома. Попробуй ещё раз!");
+    if (!(window.FreasyRewards && FreasyRewards.enabled() && !reviveUsed)) alert("🧟 Зомби добрались до дома. Попробуй ещё раз!");
+
     if (gameMode === "mini") {
         activeMiniGame = null;
         showMenu();

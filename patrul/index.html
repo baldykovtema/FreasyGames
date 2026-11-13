@@ -55,6 +55,7 @@ h2{margin:0;font-size:32px;color:#7ef9ff}
 <div class="ui" id="pauseUI"><h2>Пауза</h2><button class="btn" id="bResume">Продолжить</button><button class="btn sec" id="bQuit">Выйти в меню</button><div class="muted">Монеты уже сохранены</div></div>
 
 <script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
 <script src="../shared/joystick.js"></script>
 <script>
 "use strict";
@@ -99,7 +100,8 @@ function newRun(fromWave){
   const u=save.ups;
   P={x:W/2,y:H-120,hp:3+u.hp,maxHp:3+u.hp,cool:0,inv:60*(1+u.shield),dbl:0,dead:false};
   bul=[];ebul=[];en=[];drops=[];parts=[];score=0;runCoins=0;wave=fromWave||0;waveQ=[];waveT=60;runStart=wave;runT=0;
-  state='play';showUI(null);nextWave();
+  state='play';showUI(null);nextWave();chanceUsed=false;chance.hide();
+
 }
 function nextWave(){
   wave++;const boss=wave%5===0;waveQ=[];
@@ -132,7 +134,12 @@ function gameOver(){P.dead=true;S.big();boom(P.x,P.y,SHIPS[save.ship].c,80,8);st
     $('#overT').textContent=newBest?'🏆 Новый рекорд!':'Корабль уничтожен';
     $('#overInfo').innerHTML='Очки: <b>'+score+'</b> (рекорд '+save.best+')<br>Волна: '+wave+'<br>Собрано монет: 🪙 '+runCoins+' (всего '+save.coins+')';
     $('#bOverCont').style.display=save.check>0?'':'none';$('#bOverCont').textContent='⟳ С волны '+(save.check+1);
-    showUI('overUI');},1400);}
+    showUI('overUI');if(!chanceUsed)chance.show();},1400);}
+// Once a run, an ad repairs the ship on the same wave, with a moment of shield.
+let chanceUsed=false;
+const chance=FreasyRewards.offer({host:'#overUI',before:'#bOverCont',name:'patrul-revive',label:'🎬 Починить корабль за рекламу',onReward:()=>{
+  chanceUsed=true;P.dead=false;P.hp=P.maxHp;P.inv=180;ebul=[];en=en.filter(e=>e.boss||e.y<H*0.4);
+  state='play';showUI(null);}});
 function update(){
   frameN++;for(const s of stars){s.y+=s.z*(state==='play'?2:0.6);if(s.y>H){s.y=0;s.x=Math.random()*W;}}
   if(state!=='play'&&state!=='dying'){return;}

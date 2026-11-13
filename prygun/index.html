@@ -97,6 +97,7 @@ h2{margin:0;font-size:36px;color:#ffd84d}
 <script src="../shared/multiplayer.js"></script>
 <script src="../shared/account.js"></script>
 <script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
 <script>
 "use strict";
 const $=s=>document.querySelector(s);
@@ -558,7 +559,10 @@ function renderSkins(){$('#skinCoins').textContent='У тебя 🪙 '+save.coin
   document.querySelectorAll('.skin').forEach(d=>d.onclick=()=>{const i=+d.dataset.i,s=SKINS[i];
     if(!save.owned.includes(i)){if(save.coins<s.p){d.animate([{transform:'translateX(-6px)'},{transform:'translateX(6px)'},{transform:'none'}],200);return;}save.coins-=s.p;save.owned.push(i);SFX.coin();}
     save.skin=i;store();renderSkins();buildTools();});
-  showUI('skinsUI');}
+  showUI('skinsUI');coinAd.show();}
+// In the skins shop an ad gives 30 coins.
+const coinAd=FreasyRewards.offer({host:'#skinsUI',before:'[data-back]',name:'prygun-coins',label:'🎬 +30 монет за рекламу',onReward:()=>{save.coins+=30;store();SFX.coin();renderSkins();}});
+
 document.querySelectorAll('[data-back]').forEach(b=>b.onclick=menu);
 $('#bNext').onclick=()=>startLevel(cur.idx+1);
 $('#bRetry').onclick=restart;

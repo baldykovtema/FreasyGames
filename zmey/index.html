@@ -43,6 +43,7 @@
 </div>
 
 <script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
 <script>
 (() => {
   const cv = document.getElementById('c'), ctx = cv.getContext('2d');
@@ -150,10 +151,23 @@
   }
 
   function start() {
-    reset(); state = 'play';
+    reset(); state = 'play'; chanceUsed = false; chance.hide();
     $('start').hidden = true; $('over').hidden = true;
     unlockAudio();
   }
+  // Once a game, an ad turns the snake to the freest way and it crawls on after a short pause.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'zmey-continue', label: '🎬 Продолжить за рекламу', onReward: () => {
+    chanceUsed = true;
+    const head = snake[0], busy = (x, y) => x < 0 || y < 0 || x >= COLS || y >= ROWS || snake.some((s) => s.x === x && s.y === y);
+    let bestD = dir, room = -1;
+    for (const d of Object.values(DIRS)) {
+      let n = 0; while (n < Math.max(COLS, ROWS) && !busy(head.x + d[0] * (n + 1), head.y + d[1] * (n + 1))) n++;
+      if (n > room) { room = n; bestD = d; }
+    }
+    dir = bestD; queue = []; acc = -0.6; prev = snake.map((s) => ({ ...s }));
+    state = 'play'; $('over').hidden = true;
+  } });
 
   function gameOver(why) {
     state = 'over';
@@ -169,7 +183,9 @@
       $('timeOver').textContent = clock(seconds);
       showBests();
       $('over').hidden = false;
+      if (!chanceUsed) chance.show();
     }, 1000);
+
   }
   function showBests() {
     $('bestStart').textContent = $('bestOver').textContent = best;

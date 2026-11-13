@@ -43,6 +43,7 @@
 </div>
 
 <script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
 <script>
 (() => {
   const cv = document.getElementById('c'), ctx = cv.getContext('2d');
@@ -102,10 +103,15 @@
   }
 
   function start() {
-    reset(); state = 'play';
+    reset(); state = 'play'; chanceUsed = false; chance.hide();
     $('start').hidden = true; $('over').hidden = true;
     unlockAudio();
   }
+  // Once a game, an ad gives one more life and the game goes on.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'narezka-life', label: '🎬 +1 жизнь за рекламу', onReward: () => {
+    chanceUsed = true; lives = 1; combo = 0; items = []; spawnIn = 0.8; state = 'play'; $('over').hidden = true;
+  } });
 
   function endSwipe() {
     if (combo >= 3) {
@@ -190,7 +196,9 @@
       $('comboOver').textContent = bestRun >= 2 ? `×${bestRun}` : '—';
       showBests();
       $('over').hidden = false;
+      if (!chanceUsed) chance.show();
     }, 1000);
+
   }
   function showBests() {
     $('bestStart').textContent = $('bestOver').textContent = best;

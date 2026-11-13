@@ -133,6 +133,7 @@ html,body{height:100%;background:#fff;color:#222;font-family:system-ui,-apple-sy
 <div id="toast"></div>
 
 <script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
 <script>
 'use strict';
 /* ---------- числа ---------- */
@@ -376,7 +377,13 @@ function checkWin(){
 document.getElementById('bNextLeague').addEventListener('click',()=>{S.league++;S.bots=makeBots(S.league);const top=S.bots[0].sc;if(top<S.total*3)S.bots.forEach(b=>b.sc*=S.total*3/top);lastRank=99;save();hideAll();toast('Лига '+S.league+'! Новые соперники 💪');});
 
 /* ---------- экраны ---------- */
-function show(id){document.querySelectorAll('.scr').forEach(s=>s.classList.toggle('show',s.id===id));}
+function show(id){document.querySelectorAll('.scr').forEach(s=>s.classList.toggle('show',s.id===id));if(id==='sMenu')bonusAd.show();else bonusAd.hide();}
+// In the menu an ad gives a bonus: three minutes of what the little men earn, or a minute of clicking.
+const bonusAd=FreasyRewards.offer({host:'#sMenu',before:'#bAcc',name:'chelovechki-bonus',label:'🎬 Бонус очков за рекламу',onReward:()=>{
+  const v=Math.ceil(Math.max(100,clickVal()*60,perSec()*180));gain(v);save();updateUI();sWin();toast('Бонус: +'+fmt(v)+' очков! 🎉');}});
+bonusAd.button.style.maxWidth='340px';
+bonusAd.show();
+
 function hideAll(){document.querySelectorAll('.scr').forEach(s=>s.classList.remove('show'));}
 let backTo=null;
 document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',()=>{backTo?show(backTo):hideAll();backTo=null;}));

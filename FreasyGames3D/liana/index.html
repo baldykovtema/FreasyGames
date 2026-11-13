@@ -50,6 +50,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="../shared/leaderboard.js"></script>
+<script src="../../shared/rewards.js"></script>
 <script>
 (() => {
   'use strict';
@@ -89,7 +90,7 @@
     // Start hanging from the first hook with a push forward.
     p = { x: -150, y: 300, px: -150 - 6, py: 300 };
     rope = { hook: hooks[0], len: Math.hypot(150, 160) };
-    maxX = 0; camX = p.x - viewW * 0.3;
+    maxX = 0; camX = p.x - viewW * 0.3; lastGrab = hooks[0];
   }
 
   const metres = () => Math.max(0, Math.floor((maxX - startX) / PER_M));
@@ -133,17 +134,33 @@
     const h = nearestHook();
     if (!h) { whiff = 0.3; sound('miss'); return; }
     rope = { hook: h, len: Math.max(70, Math.hypot(h.x - p.x, h.y - p.y)) };
+    lastGrab = h;
     if (!h.used) { h.used = true; hookCount++; burst(h.x, h.y, '#ffd23f', 10); }
     sound('grab');
   }
 
   function start() {
-    unlockAudio(); reset(); state = 'play';
+    unlockAudio(); reset(); state = 'play'; chanceUsed = false; chance.hide();
     $('start').hidden = true; $('over').hidden = true; $('score').hidden = false;
   }
+  // Once a game, an ad puts the hero back on the last hook with the distance kept.
+  // The world resets behind the game over card, so the run is remembered when the hero falls.
+  let chanceUsed = false, lastGrab = null, saved = null;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'liana3d-continue', label: '🎬 Продолжить с крюка за рекламу', onReward: () => {
+    if (!saved) return;
+    chanceUsed = true;
+    ({ hookCount, maxX, startX, lastHookX } = saved);
+    hooks = saved.hooks.slice();
+    const h = saved.hook;
+    p = { x: h.x - 100, y: h.y + 130, px: h.x - 106, py: h.y + 130 };
+    rope = { hook: h, len: Math.hypot(100, 130) };
+    parts = []; splash = []; whiff = 0; saved = null;
+    state = 'play'; $('over').hidden = true; $('score').hidden = false;
+  } });
 
   function fall() {
     state = 'over'; shake = 0.4; sound('splash');
+    saved = { hooks: hooks.slice(), hookCount, maxX, startX, lastHookX, hook: lastGrab || hooks[0] };
     for (let i = 0; i < 26; i++) splash.push({ x: p.x, y: WATER, vx: (Math.random() - 0.5) * 380, vy: -150 - Math.random() * 320, life: 1 });
     const m = metres(), record = m > best;
     if (record) { best = m; store.set('liana-best', best); }
@@ -154,7 +171,9 @@
       $('final').textContent = m + ' м';
       $('overText').innerHTML = (record && m > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + 'крюков: ' + hookCount;
       showBests(); $('score').hidden = true; $('over').hidden = false;
+      if (!chanceUsed) chance.show();
     }, 900);
+
   }
   function showBests() {
     $('bestStart').textContent = $('bestOver').textContent = best + ' м';

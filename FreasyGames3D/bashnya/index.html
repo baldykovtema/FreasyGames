@@ -54,6 +54,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="../shared/leaderboard.js"></script>
+<script src="../../shared/rewards.js"></script>
 <script>
 (() => {
   'use strict';
@@ -231,7 +232,9 @@
       $('timeOver').textContent = clock(seconds);
       showBests();
       $('over').hidden = false;
+      if (!chanceUsed) chance.show();
     }, 900);
+
   }
   function showBests() {
     $('bestStart').textContent = $('bestOver').textContent = best;
@@ -239,10 +242,17 @@
   }
 
   function start() {
-    reset(); state = 'play'; playTime = 0; lastMove = performance.now();
+    reset(); state = 'play'; playTime = 0; lastMove = performance.now(); chanceUsed = false; chance.hide();
     $('start').hidden = true; $('over').hidden = true; $('scoreBox').hidden = false;
     unlockAudio();
   }
+  // Once a game, an ad brings a new slab onto the tower as it stands, and building goes on.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'bashnya3d-continue', label: '🎬 Продолжить башню за рекламу', onReward: () => {
+    chanceUsed = true; combo = 0; state = 'play'; lastMove = performance.now();
+    $('over').hidden = true; $('combo').innerHTML = '&nbsp;';
+    spawn();
+  } });
 
   // ——— Sound ———
   let ac = null;

@@ -68,6 +68,7 @@
 </div>
 
 <script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
 <script>
 (() => {
   'use strict';
@@ -158,11 +159,26 @@
     $('final').textContent = done;
     $('overText').innerHTML = (record && done > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + plural(done) + ' пройдено · очки: ' + score;
     showBests(); $('over').hidden = false;
+    if (!chanceUsed) chance.show();
   }
+  // Once a game, an ad shows the same sequence again and the round can be repeated.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'pamyat-retry', label: '🎬 Повторить раунд за рекламу', onReward: async () => {
+    chanceUsed = true; state = 'play'; $('over').hidden = true;
+    for (const b of buttons) b.classList.remove('wrong', 'lit');
+    const my = ++token;
+    lock(true); setStatus('Ещё раз — смотри…');
+    await wait(600);
+    const speed = Math.max(260, 620 - round * 18);
+    for (const c of seq) { if (my !== token) return; await flash(c, speed); await wait(Math.max(90, speed * 0.35)); }
+    if (my !== token) return;
+    pos = 0; lock(false); setStatus('Повтори!', 'go');
+  } });
   const plural = (n) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? 'раунд' : a >= 2 && a <= 4 && (b < 12 || b > 14) ? 'раунда' : 'раундов'; };
 
   function start() {
-    unlockAudio(); token++;
+    unlockAudio(); token++; chanceUsed = false; chance.hide();
+
     state = 'play'; seq = []; round = 0; score = 0; count = 4; order = [0, 1, 2, 3]; buttons = [];
     layout(false); $('round').textContent = 0; $('scoreLine').textContent = 'очки: 0';
     $('start').hidden = true; $('over').hidden = true;

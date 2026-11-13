@@ -43,6 +43,7 @@
 </div>
 
 <script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
 <script src="../shared/multiplayer.js"></script>
 <script src="../shared/joystick.js"></script>
 <script>
@@ -151,10 +152,20 @@
   }
 
   function start() {
-    reset(); state = 'play'; run++; input = 0;
+    reset(); state = 'play'; run++; input = 0; chanceUsed = false; chance.hide();
     $('start').hidden = true; $('over').hidden = true;
     unlockAudio();
   }
+  // Once a game, an ad puts a springy rescue cloud under the hero at the bottom of the screen.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'oblaka-continue', label: '🎬 Спасательное облако за рекламу', onReward: () => {
+    chanceUsed = true;
+    const y = camY + 10, x = Math.max(20, Math.min(WORLD - 20, p.x));
+    clouds.push({ x, y, w: 40, kind: 'cloud', v: 0, spring: true });
+    p.x = x; p.y = y + R; p.vy = SPRING; p.vx = 0; input = 0; p.squash = 1;
+    puff({ x, y, w: 40 }, '#ffd23f');
+    state = 'play'; $('over').hidden = true;
+  } });
 
   function gameOver() {
     state = 'over'; sound('fall');
@@ -171,7 +182,9 @@
       $('timeOver').textContent = clock(seconds);
       showBests();
       $('over').hidden = false;
+      if (!chanceUsed) chance.show();
     }, 700);
+
   }
   function showBests() {
     $('bestStart').textContent = $('bestOver').textContent = `${best} м`;

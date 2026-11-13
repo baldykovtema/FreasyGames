@@ -42,6 +42,7 @@
 </div>
 
 <script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
 <script>
 (() => {
   'use strict';
@@ -82,7 +83,9 @@
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     // HUD and score on top, then the board, then the tray of three pieces.
     const top = 120, bottom = 12;
-    cell = Math.floor(Math.min((W - 28) / N, (H - top - bottom) / (N + 3.8), 64));
+    // Never below 8 px, or a tiny window (a hidden frame, a minimised app) would break the drawing.
+    cell = Math.max(8, Math.floor(Math.min((W - 28) / N, (H - top - bottom) / (N + 3.8), 64)));
+
     bx = Math.round((W - cell * N) / 2);
     const total = cell * (N + 3.8);
     by = Math.round(top + Math.max(0, (H - top - bottom - total) / 2));
@@ -151,9 +154,18 @@
   }
 
   function start() {
-    unlockAudio(); reset(); state = 'play'; dirty = true;
+    unlockAudio(); reset(); state = 'play'; dirty = true; chanceUsed = false; chance.hide();
     $('start').hidden = true; $('over').hidden = true;
   }
+  // Once a game, an ad clears the three fullest neighbouring rows and deals fresh pieces.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'bloki-continue', label: '🎬 Расчистить поле за рекламу', onReward: () => {
+    chanceUsed = true;
+    let bestRow = 0, most = -1;
+    for (let y = 0; y <= N - 3; y++) { let n = 0; for (let r = y; r < y + 3; r++) for (let x = 0; x < N; x++) if (grid[r][x]) n++; if (n > most) { most = n; bestRow = y; } }
+    for (let y = bestRow; y < bestRow + 3; y++) for (let x = 0; x < N; x++) { if (grid[y][x]) flashes.push({ x, y, col: grid[y][x], life: 1 }); grid[y][x] = null; }
+    deal(); state = 'play'; dirty = true; $('over').hidden = true; sound('clear', 3);
+  } });
   function gameOver() {
     state = 'over'; dirty = true;
     const record = score > best;
@@ -163,8 +175,10 @@
     $('final').textContent = score;
     $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + `очков · линий: ${lines}`;
     showBests(); $('over').hidden = false;
+    if (!chanceUsed) chance.show();
   }
   function showBests() {
+
     $('bestStart').textContent = $('bestOver').textContent = best;
     $('bestLinesStart').textContent = $('bestLinesOver').textContent = bestLines;
   }

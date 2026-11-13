@@ -43,6 +43,7 @@
 </div>
 
 <script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
 <script>
 (() => {
   const cv = document.getElementById('c'), ctx = cv.getContext('2d');
@@ -114,10 +115,15 @@
 
   function reset() { level = 0; timeLeft = 0; stars = 0; played = 0; sparks = []; popups = []; heldDir = queued = null; newLevel(); }
   function start() {
-    reset(); state = 'play';
+    reset(); state = 'play'; chanceUsed = false; chance.hide();
     $('start').hidden = true; $('over').hidden = true;
     unlockAudio();
   }
+  // Once a game, an ad gives 15 more seconds on the same level.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'labirint-time', label: '🎬 +15 секунд за рекламу', onReward: () => {
+    chanceUsed = true; timeLeft = 15; state = 'play'; $('over').hidden = true;
+  } });
   function gameOver() {
     state = 'over';
     const passed = level - 1, record = passed > best;
@@ -134,7 +140,9 @@
       $('starsOver').textContent = stars;
       showBests();
       $('over').hidden = false;
+      if (!chanceUsed) chance.show();
     }, 700);
+
   }
   function showBests() {
     $('bestStart').textContent = $('bestOver').textContent = best;

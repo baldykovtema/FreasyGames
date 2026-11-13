@@ -46,6 +46,7 @@
 </div>
 
 <script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
 <script>
 (() => {
   'use strict';
@@ -148,9 +149,21 @@
   }
 
   function start() {
-    unlockAudio(); reset(); state = 'play';
+    unlockAudio(); reset(); state = 'play'; chanceUsed = false; chance.hide();
     $('start').hidden = true; $('over').hidden = true;
   }
+  // Once a game, an ad takes everything out of the upper part of the jar and play goes on.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'sliyanie-continue', label: '🎬 Освободить банку за рекламу', onReward: () => {
+    chanceUsed = true;
+    for (const b of balls) if (b.y - b.r < JH * 0.5) {
+      b.dead = true;
+      for (let i = 0; i < 8; i++) { const ang = Math.random() * 7, v = 80 + Math.random() * 160; parts.push({ x: b.x, y: b.y, vx: Math.cos(ang) * v, vy: Math.sin(ang) * v, life: 1, col: KINDS[b.lv].c1 }); }
+    }
+    balls = balls.filter((b) => !b.dead);
+    for (const b of balls) b.over = 0;
+    danger = 0; cool = 0; state = 'play'; $('over').hidden = true;
+  } });
   function gameOver() {
     if (state !== 'play') return;
     state = 'over'; sound('over');
@@ -163,7 +176,9 @@
       $('final').textContent = score;
       $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + 'очков · лучшая: ' + ICONS[maxLevel] + ' ' + KINDS[maxLevel].name;
       showBests(); $('over').hidden = false;
+      if (!chanceUsed) chance.show();
     }, 900);
+
   }
   function showBests() {
     $('bestStart').textContent = $('bestOver').textContent = best;

@@ -43,6 +43,7 @@
 </div>
 
 <script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
 <script src="../shared/multiplayer.js"></script>
 <script>
 (() => {
@@ -118,10 +119,17 @@
   }
 
   function start() {
-    reset(); state = 'play'; run++;
+    reset(); state = 'play'; run++; chanceUsed = false; chance.hide();
     $('start').hidden = true; $('over').hidden = true;
     unlockAudio();
   }
+  // Once a game, an ad clears the rocks just ahead and the flight goes on.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'orbita-continue', label: '🎬 Продолжить полёт за рекламу', onReward: () => {
+    chanceUsed = true;
+    objects = objects.filter((o) => !(o.kind === 'rock' && o.a < ang + 1.6));
+    state = 'play'; $('over').hidden = true;
+  } });
 
   function gameOver() {
     state = 'over';
@@ -136,7 +144,9 @@
       $('timeOver').textContent = clock(seconds);
       showBests();
       $('over').hidden = false;
+      if (!chanceUsed) chance.show();
     }, 1000);
+
   }
   function showBests() {
     $('bestStart').textContent = $('bestOver').textContent = best;

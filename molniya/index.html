@@ -43,6 +43,7 @@
 </div>
 
 <script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
 <script>
 (() => {
   const cv = document.getElementById('c'), ctx = cv.getContext('2d');
@@ -144,10 +145,15 @@
   }
 
   function start() {
-    reset(); state = 'play';
+    reset(); state = 'play'; chanceUsed = false; chance.hide();
     $('start').hidden = true; $('over').hidden = true;
     unlockAudio();
   }
+  // Once a game, an ad gives one more life and the game goes on.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'molniya-life', label: '🎬 +1 жизнь за рекламу', onReward: () => {
+    chanceUsed = true; lives = 1; combo = 0; targets = []; spawnIn = 0.8; state = 'play'; $('over').hidden = true;
+  } });
 
   function gameOver() {
     state = 'over';
@@ -165,7 +171,9 @@
       $('reactionOver').textContent = avg ? ms(avg) : hits ? `${Math.round(reactionSum / hits)} мс (нужно ${MIN_HITS} попаданий)` : '—';
       showBests();
       $('over').hidden = false;
+      if (!chanceUsed) chance.show();
     }, 900);
+
   }
   function showBests() {
     $('bestStart').textContent = $('bestOver').textContent = best;

@@ -49,6 +49,7 @@
 </div>
 
 <script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
 <script>
 (() => {
   const cv = document.getElementById('c'), ctx = cv.getContext('2d');
@@ -111,7 +112,14 @@
 
   function say(text, color = '#ffffff') { msg = { text, color, life: 1.6 }; }
 
+  // Once a trip, an ad gives 30 more seconds of fishing with the catch kept.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'klev-time', label: '🎬 +30 секунд рыбалки за рекламу', onReward: () => {
+    chanceUsed = true; state = 'play'; left = 30; msg = null; $('over').hidden = true;
+    toAim(); say('Ещё полминуты!', '#ffd23f');
+  } });
   function startTrip() {
+    chanceUsed = false; chance.hide();
     state = 'play'; left = TRIP; score = 0; catches = []; shown = null; msg = null;
     toAim();
     $('start').hidden = true; $('over').hidden = true;
@@ -217,7 +225,8 @@
     $('catches').innerHTML = counts.size ? [...counts].map(([n, k]) => `<span>${n} <b>×${k}</b></span>`).join('') : '<span>Сегодня не клевало</span>';
     $('trophyOver').innerHTML = heaviest ? `Трофей: <b>${heaviest.fish.name}, ${kg(heaviest.weight)}</b>` : '';
     showBests();
-    setTimeout(() => { if (state === 'over') $('over').hidden = false; }, 700);
+    setTimeout(() => { if (state === 'over') { $('over').hidden = false; if (!chanceUsed) chance.show(); } }, 700);
+
   }
   function showBests() {
     $('bestStart').textContent = $('bestOver').textContent = best;
