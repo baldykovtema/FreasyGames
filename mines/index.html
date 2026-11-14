@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../shared/session.js?v=2"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Минное поле — FreasyGames</title>
+<meta name="description" content="Минное поле на FreasyGames: открывай клетки, ставь флажки на мины по подсказкам-цифрам и проходи поля всё быстрее. Таблица лидеров по времени.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>
+  body { touch-action: manipulation; }
+  .top { position: fixed; top: 62px; left: 0; right: 0; display: flex; justify-content: center; gap: 8px; z-index: 3; pointer-events: none; }
+  .top span, .top button { pointer-events: auto; font: inherit; font-size: 15px; font-weight: 800; color: #f8f7ff; background: #1d1e31e6; border: 1px solid #ffffff24; border-radius: 100px; padding: 8px 14px; }
+  .top button { cursor: pointer; }
+  .top button[aria-pressed="true"] { background: #ffd23f; color: #171225; border-color: transparent; }
+  .top[hidden] { display: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+<div class="top" id="top" hidden><span id="minesLeft">💣 0</span><span id="clock">⏱ 0</span><button id="flagMode" type="button" aria-pressed="false">🚩 Флажок</button></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">💣 Новая игра</div>
+    <h1><span>Минное поле</span></h1>
+    <p>Открой все клетки без мин. Цифра — сколько мин вокруг клетки. Первая клетка всегда безопасна.</p>
+    <p>Флажок ставится долгим нажатием, правой кнопкой мыши или кнопкой «🚩 Флажок». Нажми на цифру, вокруг которой уже стоят все флажки, — откроются соседние клетки.</p>
+    <p>Лучшее время: <b id="bestStart">—</b> · побед: <b id="winsStart">0</b></p>
+    <button class="play" id="go" type="button">Разминировать ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Поле 10 × 14, 22 мины — одинаковое на любом экране</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow" id="overWhy">Бум!</div>
+    <div class="big" id="final">—</div>
+    <p id="overText">Мина взорвалась</p>
+    <p>Лучшее время: <b id="bestOver">—</b> · побед: <b id="winsOver">0</b></p>
+    <button class="play" id="again" type="button">Новое поле ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  let best = Number(store.get('mines-best', 0)) || 0, wins = Number(store.get('mines-wins', 0)) || 0;
+  let muted = store.get('mines-muted', '0') === '1';
+  const secs = (t) => (t ? `${Math.floor(t / 60) ? Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0') : t + ' с'}` : '—');
+
+  // The same field everywhere, so times are fair in the leaderboard; it turns to fit a wide screen.
+  const C = 10, R = 14, MINES = 22;
+  let W = 0, H = 0, DPR = 1, cell = 30, ox = 0, oy = 0, wide = false;
+  let state = 'start', mines, open, flag, nums, opened, flags, startedAt = 0, elapsed = 0, firstDone, boom = null, lastT = 0, time = 0, shake = 0, parts = [];
+  const N = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];
+  const idx = (x, y) => y * C + x;
+
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    wide = W > H * 1.1;
+    const cols = wide ? R : C, rows = wide ? C : R;
+    cell = Math.floor(Math.min((W - 24) / cols, (H - 140) / rows));
+    ox = Math.round((W - cell * cols) / 2); oy = Math.round(108 + (H - 120 - cell * rows) / 2);
+  }
+  // screen ↔ field: on a wide screen the field is turned on its side
+  const toScreen = (x, y) => (wide ? [ox + y * cell, oy + x * cell] : [ox + x * cell, oy + y * cell]);
+  function fromScreen(px, py) {
+    let a = Math.floor((px - ox) / cell), b = Math.floor((py - oy) / cell);
+    const [x, y] = wide ? [b, a] : [a, b];
+    return x >= 0 && y >= 0 && x < C && y < R ? [x, y] : null;
+  }
+
+  function reset() {
+    mines = new Uint8Array(C * R); open = new Uint8Array(C * R); flag = new Uint8Array(C * R); nums = new Uint8Array(C * R);
+    opened = 0; flags = 0; firstDone = false; elapsed = 0; boom = null; parts = [];
+  }
+  // Mines are placed after the first click, away from it, so the first click always opens an area.
+  function plant(sx, sy) {
+    let left = MINES;
+    while (left) {
+      const x = Math.floor(Math.random() * C), y = Math.floor(Math.random() * R);
+      if (mines[idx(x, y)] || (Math.abs(x - sx) <= 1 && Math.abs(y - sy) <= 1)) continue;
+      mines[idx(x, y)] = 1; left--;
+    }
+    for (let y = 0; y < R; y++) for (let x = 0; x < C; x++) nums[idx(x, y)] = N.reduce((n, [dx, dy]) => n + (inside(x + dx, y + dy) && mines[idx(x + dx, y + dy)] ? 1 : 0), 0);
+  }
+  const inside = (x, y) => x >= 0 && y >= 0 && x < C && y < R;
+
+  function reveal(x, y) {
+    const stack = [[x, y]];
+    while (stack.length) {
+      const [cx, cy] = stack.pop(), i = idx(cx, cy);
+      if (open[i] || flag[i]) continue;
+      open[i] = 1; opened++;
+      if (nums[i] === 0) for (const [dx, dy] of N) if (inside(cx + dx, cy + dy)) stack.push([cx + dx, cy + dy]);
+    }
+  }
+  function press(x, y) {
+    if (state !== 'play') return;
+    const i = idx(x, y);
+    if (!firstDone) { plant(x, y); firstDone = true; startedAt = performance.now(); }
+    if (flag[i]) return;
+    if (open[i]) {
+      // chord: a number with all its flags placed opens its other neighbours
+      const f = N.reduce((n, [dx, dy]) => n + (inside(x + dx, y + dy) && flag[idx(x + dx, y + dy)] ? 1 : 0), 0);
+      if (!nums[i] || f !== nums[i]) return;
+      for (const [dx, dy] of N) { const nx = x + dx, ny = y + dy; if (inside(nx, ny) && !flag[idx(nx, ny)] && !open[idx(nx, ny)]) { if (mines[idx(nx, ny)]) return explode(nx, ny); reveal(nx, ny); } }
+    } else {
+      if (mines[i]) return explode(x, y);
+      reveal(x, y);
+    }
+    sound('open');
+    if (opened === C * R - MINES) win();
+  }
+  function toggleFlag(x, y) {
+    if (state !== 'play') return;
+    const i = idx(x, y); if (open[i]) return;
+    flag[i] ^= 1; flags += flag[i] ? 1 : -1; sound('flag');
+    if (navigator.vibrate) navigator.vibrate(18);
+  }
+
+  function explode(x, y) {
+    boom = { x, y }; state = 'over'; shake = 0.6; elapsed = Math.floor((performance.now() - startedAt) / 1000);
+    const [px, py] = toScreen(x, y);
+    for (let k = 0; k < 40; k++) { const a = Math.random() * 7, v = 60 + Math.random() * 300; parts.push({ x: px + cell / 2, y: py + cell / 2, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, color: k % 2 ? '#ff7a6b' : '#ffd23f' }); }
+    sound('boom');
+    setTimeout(() => {
+      if (state !== 'over') return;
+      $('overWhy').textContent = 'Бум!'; $('final').textContent = '💥';
+      $('overText').textContent = `Открыто ${Math.round(opened / (C * R - MINES) * 100)}% поля`;
+      showBests(); $('over').hidden = false;
+      if (!chanceUsed) chance.show();
+    }, 1100);
+  }
+  // Once a field, an ad defuses the mine you hit and the game goes on (the timer keeps counting).
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'mines-defuse', label: '🎬 Обезвредить мину за рекламу', onReward: () => {
+    chanceUsed = true; const i = idx(boom.x, boom.y); flag[i] = 1; flags++; boom = null; state = 'play';
+    startedAt = performance.now() - elapsed * 1000; $('over').hidden = true;
+  } });
+
+  function win() {
+    state = 'won'; elapsed = Math.max(1, Math.floor((performance.now() - startedAt) / 1000));
+    wins++; store.set('mines-wins', wins);
+    const record = !best || elapsed < best;
+    if (record) { best = elapsed; store.set('mines-best', best); }
+    lb.submit({ new_time: elapsed, new_wins: wins });
+    for (let y = 0; y < R; y++) for (let x = 0; x < C; x++) if (mines[idx(x, y)] && !flag[idx(x, y)]) { flag[idx(x, y)] = 1; flags++; }
+    sound('win');
+    setTimeout(() => {
+      $('overWhy').textContent = 'Поле разминировано!'; $('final').textContent = secs(elapsed);
+      $('overText').innerHTML = record ? '<span class="new">Новый рекорд!</span>' : 'время';
+      showBests(); $('over').hidden = false;
+    }, 700);
+  }
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = secs(best);
+    $('winsStart').textContent = $('winsOver').textContent = wins;
+  }
+  function start() {
+    reset(); state = 'play'; chanceUsed = false; chance.hide(); flagMode = false; $('flagMode').setAttribute('aria-pressed', 'false');
+    $('start').hidden = true; $('over').hidden = true; $('top').hidden = false;
+    unlockAudio();
+  }
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (ac && ac.state === 'suspended') ac.resume(); }
+  function tone(f, dur, type, vol, slide = 1, delay = 0) {
+    if (!ac || muted) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function sound(kind) {
+    if (kind === 'open') tone(700 + Math.random() * 200, 0.05, 'triangle', 0.06);
+    else if (kind === 'flag') tone(520, 0.08, 'square', 0.05, 1.4);
+    else if (kind === 'boom') { tone(120, 0.7, 'sawtooth', 0.15, 0.3); tone(60, 0.6, 'sine', 0.3, 0.5); }
+    else if (kind === 'win') [0, 4, 7, 12, 16].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.18, 'square', 0.05, 1, i * 0.08));
+  }
+
+  // ——— Drawing ———
+  const COLORS = ['', '#6fe3ff', '#5df2a5', '#ff7a8a', '#bca0ff', '#ffb24d', '#4fd1c5', '#ffffff', '#c9c5dc'];
+  function draw() {
+    const g = ctx.createRadialGradient(W / 2, -H * 0.12, 0, W / 2, -H * 0.12, H * 1.05);
+    g.addColorStop(0, '#3d326a'); g.addColorStop(0.31, '#181a30'); g.addColorStop(0.63, '#111321');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    if (!mines) return;
+    ctx.save();
+    if (shake > 0) ctx.translate((Math.random() - 0.5) * 16 * shake, (Math.random() - 0.5) * 16 * shake);
+    const pad = Math.max(1, Math.round(cell * 0.06)), rr = Math.max(2, cell * 0.16);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (let y = 0; y < R; y++) for (let x = 0; x < C; x++) {
+      const i = idx(x, y), [px, py] = toScreen(x, y), showMine = (state === 'over' || state === 'won') && mines[i];
+      ctx.beginPath(); ctx.roundRect ? ctx.roundRect(px + pad, py + pad, cell - pad * 2, cell - pad * 2, rr) : ctx.rect(px + pad, py + pad, cell - pad * 2, cell - pad * 2);
+      if (open[i]) ctx.fillStyle = '#16172b';
+      else { const tg = ctx.createLinearGradient(px, py, px, py + cell); tg.addColorStop(0, '#3a3466'); tg.addColorStop(1, '#2a2650'); ctx.fillStyle = tg; }
+      if (boom && boom.x === x && boom.y === y) ctx.fillStyle = '#c8343b';
+      ctx.fill();
+      if (!open[i]) { ctx.strokeStyle = '#ffffff14'; ctx.lineWidth = 1; ctx.stroke(); }
+      if (open[i] && nums[i]) { ctx.fillStyle = COLORS[nums[i]]; ctx.font = `800 ${Math.round(cell * 0.55)}px Manrope`; ctx.fillText(nums[i], px + cell / 2, py + cell / 2 + 1); }
+      if (flag[i]) {
+        // flag: a pole and a yellow cloth
+        const fx = px + cell * 0.42, fy = py + cell * 0.22;
+        ctx.fillStyle = '#d1cde5'; ctx.fillRect(fx, fy, Math.max(2, cell * 0.06), cell * 0.56);
+        ctx.fillStyle = state === 'over' && !mines[i] ? '#ff7a8a' : '#ffd23f';
+        ctx.beginPath(); ctx.moveTo(fx + cell * 0.06, fy); ctx.lineTo(fx + cell * 0.38, fy + cell * 0.14); ctx.lineTo(fx + cell * 0.06, fy + cell * 0.28); ctx.fill();
+      } else if (showMine) {
+        ctx.fillStyle = '#0b0b14'; ctx.beginPath(); ctx.arc(px + cell / 2, py + cell / 2, cell * 0.22, 0, 7); ctx.fill();
+        ctx.strokeStyle = '#0b0b14'; ctx.lineWidth = Math.max(2, cell * 0.06);
+        for (let a = 0; a < 4; a++) { const an = a * Math.PI / 4; ctx.beginPath(); ctx.moveTo(px + cell / 2 + Math.cos(an) * cell * 0.32, py + cell / 2 + Math.sin(an) * cell * 0.32); ctx.lineTo(px + cell / 2 - Math.cos(an) * cell * 0.32, py + cell / 2 - Math.sin(an) * cell * 0.32); ctx.stroke(); }
+        ctx.fillStyle = '#ffffff88'; ctx.beginPath(); ctx.arc(px + cell * 0.44, py + cell * 0.44, cell * 0.05, 0, 7); ctx.fill();
+      }
+    }
+    for (const p of parts) { ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, 2 + p.life * 4, 0, 7); ctx.fill(); }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+    if (state === 'play') {
+      $('minesLeft').textContent = `💣 ${MINES - flags}`;
+      $('clock').textContent = `⏱ ${firstDone ? Math.floor((performance.now() - startedAt) / 1000) : 0}`;
+    }
+  }
+  function frame(now) {
+    const dt = Math.min(0.05, (now - lastT) / 1000 || 0); lastT = now; time += dt;
+    for (const p of parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 400 * dt; p.life -= dt * 1.1; }
+    parts = parts.filter((p) => p.life > 0); shake = Math.max(0, shake - dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'mines',
+    boards: [
+      { id: 'time', title: 'Время', column: 'best_time', order: 'asc', note: 'Быстрее всех разминировали поле 10 × 14 с 22 минами.', format: secs },
+      { id: 'wins', title: 'Победы', column: 'wins', order: 'desc', note: 'Больше всего разминированных полей.', format: (v) => `${v}` },
+    ],
+    bests: () => (best ? { new_time: best, new_wins: wins } : null),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  // Tap — open (or flag in flag mode); long press or right click — flag.
+  let flagMode = false, holdTimer = null, held = false;
+  cv.addEventListener('contextmenu', (e) => e.preventDefault());
+  cv.addEventListener('pointerdown', (e) => {
+    unlockAudio(); const c = fromScreen(e.clientX, e.clientY); if (!c) return;
+    if (e.button === 2) { toggleFlag(...c); return; }
+    held = false; clearTimeout(holdTimer);
+    holdTimer = setTimeout(() => { held = true; toggleFlag(...c); }, 380);
+  });
+  cv.addEventListener('pointerup', (e) => {
+    if (e.button === 2) return;
+    clearTimeout(holdTimer); if (held) return;
+    const c = fromScreen(e.clientX, e.clientY); if (!c) return;
+    if (flagMode && !open[idx(...c)]) toggleFlag(...c); else press(...c);
+  });
+  cv.addEventListener('pointercancel', () => clearTimeout(holdTimer));
+  cv.addEventListener('pointermove', (e) => { if (holdTimer && (Math.abs(e.movementX) + Math.abs(e.movementY) > 6)) clearTimeout(holdTimer); });
+  $('flagMode').addEventListener('click', () => { flagMode = !flagMode; $('flagMode').setAttribute('aria-pressed', String(flagMode)); });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.target.closest && e.target.closest('.box button, a, .top button')) return;
+    if (e.code === 'KeyF' && state === 'play') { $('flagMode').click(); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && state !== 'play' && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); }
+  });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('mines-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; });
+  addEventListener('resize', resize);
+  resize(); reset(); showBests();
+  // For automated checks only (?test=1).
+  if (new URLSearchParams(location.search).get('test') === '1') window.__mines = { get: () => ({ state, mines, open, flag, nums, C, R }), press, toggleFlag };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

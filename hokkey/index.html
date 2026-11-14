@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../shared/session.js?v=2"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Аэрохоккей — FreasyGames</title>
+<meta name="description" content="Аэрохоккей на FreasyGames: отбивай шайбу битой, забивай компьютеру и проходи лигу за лигой. Таблица лидеров по победам и голам.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">🏒 Новая игра</div>
+    <h1><span>Аэрохоккей</span></h1>
+    <p>Води битой по своей половине поля и отбивай шайбу в ворота соперника. Матч — до 5 голов.</p>
+    <p>Каждая победа — новая лига: соперник быстрее и хитрее. Проиграл матч — игра окончена.</p>
+    <p>Рекорд: <b id="bestStart">0</b> побед · голов: <b id="goalsStart">0</b></p>
+    <button class="play" id="go" type="button">На лёд ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Палец или мышь — бита едет за ним</div>
+  </div>
+</div>
+
+<div class="screen" id="between" hidden>
+  <div class="box">
+    <div class="eyebrow">Победа!</div>
+    <div class="big" id="matchScore">5 : 0</div>
+    <p id="betweenText">Следующая лига</p>
+    <button class="play" id="next" type="button">Следующий матч ↗</button>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow">Матч проигран</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">побед</p>
+    <p>Голов забито: <b id="goalsOver">0</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> побед · голов: <b id="bestGoalsOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  let best = Number(store.get('hokkey-best', 0)) || 0, bestGoals = Number(store.get('hokkey-best-goals', 0)) || 0;
+  let muted = store.get('hokkey-muted', '0') === '1';
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const winsWord = (n) => plural(n, 'победа', 'победы', 'побед');
+  const goalsWord = (n) => plural(n, 'гол', 'гола', 'голов');
+
+  // The rink is always 400 × 680 units, scaled to fit the screen: the game is equally hard everywhere.
+  const RW = 400, RH = 680, GOAL = 130, PUCK = 16, MALLET = 30, WIN_AT = 5;
+  let W = 0, H = 0, DPR = 1, k = 1, ox = 0, oy = 0;
+  let state = 'start', time = 0, lastT = 0, flash = 0, shake = 0, pause = 0;
+  let puck, me, ai, mine, theirs, wins, goals, playTime, parts = [], pops = [], pointer = null;
+
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    k = Math.min((W - 24) / RW, (H - 120) / RH); ox = (W - RW * k) / 2; oy = Math.max(70, (H - RH * k) / 2 + 20);
+  }
+  const level = () => wins + 1;
+  // Opponent gets faster and reacts sooner with every league.
+  const aiSpeed = () => 430 + Math.min(10, wins) * 60;
+  const aiAim = () => Math.min(0.9, 0.35 + wins * 0.07);
+
+  function faceOff(towardMe) {
+    puck = { x: RW / 2, y: RH / 2, vx: (Math.random() - 0.5) * 60, vy: towardMe ? 120 : -120 };
+    me = me || { x: RW / 2, y: RH - 90, vx: 0, vy: 0 };
+    ai = { x: RW / 2, y: 90, vx: 0, vy: 0 };
+    pause = 0.8;
+  }
+  function newMatch() { mine = 0; theirs = 0; me = { x: RW / 2, y: RH - 90, vx: 0, vy: 0 }; pointer = null; faceOff(Math.random() < 0.5); }
+  function start() {
+    wins = 0; goals = 0; playTime = 0; chanceUsed = false; chance.hide();
+    newMatch(); state = 'play';
+    $('start').hidden = true; $('over').hidden = true; $('between').hidden = true;
+    unlockAudio();
+  }
+
+  // Once a game, an ad gives a lost match a second chance: the score goes back to 4 : 4.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'hokkey-continue', label: '🎬 Переиграть концовку за рекламу', onReward: () => {
+    chanceUsed = true; mine = Math.max(mine, WIN_AT - 1); theirs = WIN_AT - 1; faceOff(false); state = 'play'; $('over').hidden = true;
+  } });
+
+  function goal(byMe) {
+    if (byMe) { mine++; goals++; } else theirs++;
+    flash = 1; shake = 0.4;
+    burst(puck.x, byMe ? 0 : RH, byMe ? '#5df2a5' : '#ff7a6b', 30);
+    pops.push({ text: byMe ? 'ГОЛ!' : 'Пропустил', color: byMe ? '#5df2a5' : '#ff7a8a', life: 1.2 });
+    sound(byMe ? 'goal' : 'miss');
+    if (mine >= WIN_AT) { wins++; state = 'between'; setTimeout(() => { $('matchScore').textContent = `${mine} : ${theirs}`; $('betweenText').textContent = `Лига ${level()} — соперник быстрее`; $('between').hidden = false; }, 700); return; }
+    if (theirs >= WIN_AT) { gameOver(); return; }
+    faceOff(!byMe);
+  }
+  function gameOver() {
+    state = 'over';
+    const seconds = Math.floor(playTime), record = wins > best;
+    if (record) { best = wins; store.set('hokkey-best', best); }
+    if (goals > bestGoals) { bestGoals = goals; store.set('hokkey-best-goals', bestGoals); }
+    lb.submit({ new_wins: wins, new_goals: goals, new_time: seconds });
+    setTimeout(() => {
+      if (state !== 'over') return;
+      $('final').textContent = wins;
+      $('overText').innerHTML = (record && wins > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + winsWord(wins);
+      $('goalsOver').textContent = goals;
+      showBests(); $('over').hidden = false;
+      if (!chanceUsed) chance.show();
+    }, 900);
+  }
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('goalsStart').textContent = $('bestGoalsOver').textContent = bestGoals;
+  }
+
+  function burst(x, y, color, n) { for (let i = 0; i < n; i++) { const a = Math.random() * 7, v = 60 + Math.random() * 260; parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, color }); } }
+
+  // Mallet vs puck: push the puck out and bounce it with the mallet's own speed added.
+  function hit(m) {
+    const dx = puck.x - m.x, dy = puck.y - m.y, d = Math.hypot(dx, dy), min = PUCK + MALLET;
+    if (d >= min || d === 0) return;
+    const nx = dx / d, ny = dy / d;
+    puck.x = m.x + nx * min; puck.y = m.y + ny * min;
+    const rel = (puck.vx - m.vx) * nx + (puck.vy - m.vy) * ny;
+    if (rel < 0) { puck.vx -= 1.9 * rel * nx; puck.vy -= 1.9 * rel * ny; }
+    puck.vx += m.vx * 0.45; puck.vy += m.vy * 0.45;
+    const sp = Math.hypot(puck.vx, puck.vy), max = 1100;
+    if (sp > max) { puck.vx *= max / sp; puck.vy *= max / sp; }
+    sound('hit', Math.min(1, sp / 1200));
+  }
+
+  function step(dt) {
+    playTime += dt;
+    // my mallet follows the pointer inside my half
+    const tx = pointer ? pointer.x : me.x, ty = pointer ? pointer.y : me.y;
+    const nx = Math.max(MALLET, Math.min(RW - MALLET, tx)), ny = Math.max(RH / 2 + MALLET, Math.min(RH - MALLET, ty));
+    me.vx = (nx - me.x) / dt; me.vy = (ny - me.y) / dt; me.x = nx; me.y = ny;
+    // opponent: defends its goal, attacks when the puck is on its half and slow enough
+    const s = aiSpeed();
+    let gx = RW / 2 + (puck.x - RW / 2) * 0.6, gy = 70;
+    if (puck.y < RH / 2) {
+      // go behind the puck and hit it toward my goal, aiming off-centre on higher leagues
+      const aimX = RW / 2 + (Math.sin(time * 1.3) * GOAL * 0.4) * aiAim();
+      const ax = puck.x - aimX, ay = puck.y - RH, al = Math.hypot(ax, ay) || 1;
+      gx = puck.x + ax / al * (MALLET + PUCK - 4); gy = puck.y + ay / al * (MALLET + PUCK - 4);
+      // a fast puck coming at the goal: block it instead of chasing
+      if (puck.vy < -420 && puck.y > 160) { gx = puck.x + puck.vx * 0.15; gy = 80; }
+    }
+    const dx = gx - ai.x, dy = gy - ai.y, d = Math.hypot(dx, dy), stepLen = Math.min(d, s * dt);
+    ai.vx = d ? dx / d * stepLen / dt : 0; ai.vy = d ? dy / d * stepLen / dt : 0;
+    ai.x = Math.max(MALLET, Math.min(RW - MALLET, ai.x + ai.vx * dt)); ai.y = Math.max(MALLET, Math.min(RH / 2 - MALLET, ai.y + ai.vy * dt));
+    if (pause > 0) { pause -= dt; return; }
+    // puck
+    puck.x += puck.vx * dt; puck.y += puck.vy * dt;
+    const drag = Math.pow(0.82, dt); puck.vx *= drag; puck.vy *= drag;
+    if (puck.x < PUCK) { puck.x = PUCK; puck.vx = Math.abs(puck.vx) * 0.9; sound('wall'); }
+    if (puck.x > RW - PUCK) { puck.x = RW - PUCK; puck.vx = -Math.abs(puck.vx) * 0.9; sound('wall'); }
+    const inGoal = Math.abs(puck.x - RW / 2) < GOAL / 2 - PUCK * 0.4;
+    if (puck.y < PUCK) { if (inGoal) { if (puck.y < -PUCK) return goal(true); } else { puck.y = PUCK; puck.vy = Math.abs(puck.vy) * 0.9; sound('wall'); } }
+    if (puck.y > RH - PUCK) { if (inGoal) { if (puck.y > RH + PUCK) return goal(false); } else { puck.y = RH - PUCK; puck.vy = -Math.abs(puck.vy) * 0.9; sound('wall'); } }
+    hit(me); hit(ai);
+    // A puck stuck still on the AI side gets a nudge, so a match can never freeze.
+    if (Math.hypot(puck.vx, puck.vy) < 8) puck.vy += (puck.y < RH / 2 ? 30 : -30) * dt;
+  }
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (ac && ac.state === 'suspended') ac.resume(); }
+  function tone(f, dur, type, vol, slide = 1, delay = 0) {
+    if (!ac || muted) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  let lastHit = 0;
+  function sound(kind, power = 0.5) {
+    if (kind === 'hit') { if (time - lastHit < 0.05) return; lastHit = time; tone(300 + power * 500, 0.06, 'square', 0.04 + power * 0.06, 0.6); }
+    else if (kind === 'wall') { if (time - lastHit < 0.05) return; lastHit = time; tone(180, 0.05, 'triangle', 0.05); }
+    else if (kind === 'goal') [0, 4, 7, 12].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.15, 'square', 0.06, 1, i * 0.07));
+    else if (kind === 'miss') tone(240, 0.4, 'sawtooth', 0.08, 0.5);
+  }
+
+  // ——— Drawing ———
+  const X = (x) => ox + x * k, Y = (y) => oy + y * k;
+  function mallet(m, c1, c2) {
+    const x = X(m.x), y = Y(m.y), r = MALLET * k;
+    const g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.1, x, y, r);
+    g.addColorStop(0, c1); g.addColorStop(1, c2);
+    ctx.save(); ctx.shadowColor = c1; ctx.shadowBlur = 18; ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.restore();
+    ctx.fillStyle = '#ffffff55'; ctx.beginPath(); ctx.arc(x, y, r * 0.45, 0, 7); ctx.fill();
+  }
+  function draw() {
+    const bg = ctx.createRadialGradient(W / 2, -H * 0.12, 0, W / 2, -H * 0.12, H * 1.05);
+    bg.addColorStop(0, '#3d326a'); bg.addColorStop(0.31, '#181a30'); bg.addColorStop(0.63, '#111321');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    ctx.save();
+    if (shake > 0) ctx.translate((Math.random() - 0.5) * 14 * shake, (Math.random() - 0.5) * 14 * shake);
+    // rink
+    ctx.fillStyle = '#1b2a44'; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(X(0), Y(0), RW * k, RH * k, 26 * k) : ctx.rect(X(0), Y(0), RW * k, RH * k); ctx.fill();
+    ctx.strokeStyle = '#6fe3ff66'; ctx.lineWidth = 4; ctx.stroke();
+    ctx.strokeStyle = '#ffffff22'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(X(0), Y(RH / 2)); ctx.lineTo(X(RW), Y(RH / 2)); ctx.stroke();
+    ctx.beginPath(); ctx.arc(X(RW / 2), Y(RH / 2), 60 * k, 0, 7); ctx.stroke();
+    for (const [y, c] of [[0, '#ff7a8a'], [RH, '#5df2a5']]) {
+      ctx.strokeStyle = c; ctx.lineWidth = 8 * k; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(X(RW / 2 - GOAL / 2), Y(y)); ctx.lineTo(X(RW / 2 + GOAL / 2), Y(y)); ctx.stroke();
+      ctx.strokeStyle = c + '33'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(X(RW / 2), Y(y), GOAL / 2 * k, y ? Math.PI : 0, y ? 2 * Math.PI : Math.PI); ctx.stroke();
+    }
+    if (state !== 'start') {
+      // score on the ice
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `800 ${Math.round(70 * k)}px Manrope`;
+      ctx.fillStyle = '#ff7a8a33'; ctx.fillText(theirs, X(RW / 2), Y(RH / 4));
+      ctx.fillStyle = '#5df2a533'; ctx.fillText(mine, X(RW / 2), Y(RH * 3 / 4));
+    }
+    mallet(ai, '#ffb1bd', '#d03a55');
+    mallet(me, '#c8ffe2', '#22a86a');
+    // puck
+    if (puck) {
+      const x = X(puck.x), y = Y(puck.y), r = PUCK * k;
+      ctx.save(); ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 16; ctx.fillStyle = '#ffd23f'; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.restore();
+      ctx.fillStyle = '#c99a1c'; ctx.beginPath(); ctx.arc(x, y, r * 0.55, 0, 7); ctx.fill();
+    }
+    for (const p of parts) { ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(X(p.x), Y(p.y), 2 + p.life * 3, 0, 7); ctx.fill(); }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+    if (state !== 'start') {
+      ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = '#bca0ff'; ctx.font = '800 14px Manrope';
+      ctx.fillText(`ЛИГА ${level()} · ПОБЕД ${wins}`, W / 2, Math.max(20, oy - 12));
+      for (const p of pops) { ctx.globalAlpha = Math.min(1, p.life * 2); ctx.fillStyle = p.color; ctx.font = '800 44px Manrope'; ctx.fillText(p.text, W / 2, H / 2 - (1 - p.life) * 30); }
+      ctx.globalAlpha = 1;
+    }
+    if (flash > 0) { ctx.fillStyle = `rgba(255,255,255,${flash * 0.12})`; ctx.fillRect(0, 0, W, H); }
+  }
+
+  function frame(now) {
+    const dt = Math.min(0.05, (now - lastT) / 1000 || 0); lastT = now; time += dt;
+    if (state === 'play' && !lb.isOpen()) { const n = 4; for (let i = 0; i < n && state === 'play'; i++) step(dt / n); }
+    for (const p of parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.95; p.vy *= 0.95; p.life -= dt * 1.3; }
+    parts = parts.filter((p) => p.life > 0);
+    for (const p of pops) p.life -= dt * 0.9; pops = pops.filter((p) => p.life > 0);
+    flash = Math.max(0, flash - dt * 2); shake = Math.max(0, shake - dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'hokkey',
+    boards: [
+      { id: 'wins', title: 'Победы', column: 'best_wins', order: 'desc', note: 'Больше всего выигранных матчей подряд.', format: (v) => `${v} ${winsWord(v)}` },
+      { id: 'goals', title: 'Голы', column: 'best_goals', order: 'desc', note: 'Больше всего голов за одну игру.', format: (v) => `${v} ${goalsWord(v)}` },
+    ],
+    bests: () => null,
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  const toRink = (e) => ({ x: (e.clientX - ox) / k, y: (e.clientY - oy) / k });
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); unlockAudio(); pointer = toRink(e); });
+  cv.addEventListener('pointermove', (e) => { if (state === 'play') pointer = toRink(e); });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.target.closest && e.target.closest('.box button, a')) return;
+    if ((e.code === 'Space' || e.code === 'Enter')) {
+      if (!$('between').hidden) { e.preventDefault(); nextMatch(); }
+      else if (state !== 'play' && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); }
+    }
+  });
+  function nextMatch() { $('between').hidden = true; newMatch(); state = 'play'; }
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  $('next').addEventListener('click', nextMatch);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('hokkey-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; });
+  document.addEventListener('visibilitychange', () => { lastT = performance.now(); });
+  addEventListener('resize', resize);
+  resize(); wins = 0; mine = 0; theirs = 0; me = { x: RW / 2, y: RH - 90, vx: 0, vy: 0 }; faceOff(true); showBests();
+  // For automated checks only (?test=1).
+  if (new URLSearchParams(location.search).get('test') === '1') window.__hokkey = { get: () => ({ state, puck, me, ai, mine, theirs, wins, goals }) };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

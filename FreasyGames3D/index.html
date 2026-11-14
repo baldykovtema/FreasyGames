@@ -228,6 +228,26 @@
     .tower3d .sl.mv { --h: 310; top: -1px; width: 46px; height: 44px; animation: slide3d 1.8s ease-in-out infinite alternate; }
     @keyframes slide3d { from { transform: translate(-34px, -8px) rotateX(60deg) rotateZ(45deg); } to { transform: translate(34px, 8px) rotateX(60deg) rotateZ(45deg); } }
     .art .pct.towerp { color: #5df2a5; font-size: 13px; }
+    .art.orbit3d { background: radial-gradient(ellipse at 50% 55%, #7b67fc33 0, transparent 60%), #0d0f1c; }
+    .orbit3d .planet { position: absolute; left: 50%; top: 58px; width: 74px; height: 74px; margin-left: -37px; border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #d3beff, #7b67fc 55%, #3a2a8a); box-shadow: 0 0 40px #9d73f7aa; }
+    .orbit3d .orb { position: absolute; left: 50%; top: 95px; border: 2px dashed #ffffff30; border-radius: 50%; transform: translate(-50%, -50%) rotateX(68deg); }
+    .orbit3d .o1 { width: 130px; height: 130px; } .orbit3d .o2 { width: 200px; height: 200px; border-color: #bca0ff77; }
+    .orbit3d .ship { position: absolute; left: 50%; top: 95px; width: 0; height: 0; animation: orbitfly 4s linear infinite; }
+    .orbit3d .ship::before { content: ""; position: absolute; left: 92px; top: -6px; border-left: 14px solid #f8f7ff; border-top: 7px solid transparent; border-bottom: 7px solid transparent; filter: drop-shadow(0 0 6px #d3beff); }
+    @keyframes orbitfly { from { transform: scaleY(.36) rotate(0deg); } to { transform: scaleY(.36) rotate(360deg); } }
+    .orbit3d .star { position: absolute; color: #ffd23f; font-size: 18px; text-shadow: 0 0 10px #ffd23f; }
+    .orbit3d .s1 { left: 22%; top: 120px; } .orbit3d .s2 { right: 20%; top: 66px; }
+    .art .pct.orbp { color: #ffd23f; font-size: 13px; }
+    .art.snake3d { background: radial-gradient(ellipse at 50% 60%, #7b67fc22 0, transparent 70%), #0d0f1c; }
+    .snake3d .board3d { position: absolute; left: 50%; top: 10px; width: 190px; height: 112px; margin-left: -95px; border: 5px solid #7b67fc; border-radius: 8px;
+      background: conic-gradient(#1d1e31 25%, #25273f 0 50%, #1d1e31 0 75%, #25273f 0) 0 0 / 28px 28px; transform: perspective(420px) rotateX(48deg); box-shadow: 0 24px 30px #0009; }
+    .snake3d .seg { position: absolute; width: 18px; height: 18px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff, #bca0ff 50%, #7b67fc); box-shadow: 0 0 10px #9d73f7; }
+    .snake3d .seg.h { width: 22px; height: 22px; background: radial-gradient(circle at 35% 35%, #fff, #e9dcff); }
+    .snake3d .snk { position: absolute; left: 70px; top: 60px; animation: crawl 2.4s ease-in-out infinite alternate; }
+    @keyframes crawl { to { transform: translateX(60px); } }
+    .snake3d .food { position: absolute; right: 70px; top: 44px; color: #ffd23f; font-size: 22px; text-shadow: 0 0 12px #ffd23f; animation: float 2s ease-in-out infinite; }
+    .art .pct.snkp { color: #ffd23f; font-size: 13px; }
     .slot h3 { margin: 0 0 6px; font-size: 20px; letter-spacing: -.03em; }
     .slot p { margin: 0; color: #8f8ca6; font-size: 14px; line-height: 1.55; }
 
@@ -266,7 +286,7 @@
     <section class="wrap hero">
       <span class="eyebrow">Только 3D</span>
       <h1>Freasy<span class="three">Games 3D</span></h1>
-      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже девять игр, и будут ещё.</p>
+      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже одиннадцать игр, и будут ещё.</p>
       <a class="hero-action" href="#games">Смотреть игры ↓</a>
       <div class="hint">Двигай мышкой или пальцем — сцена повернётся</div>
     </section>
@@ -308,6 +328,12 @@
         <div class="slot game" data-game="3d-bashnya" data-tags="Аркада, На точность, Таблица лидеров"><a class="slot-link" href="bashnya/" aria-label="Играть: Звёздная башня 3D"></a><div class="art tower3d" aria-hidden="true">
           <div class="tw"><span class="sl"></span><span class="sl"></span><span class="sl"></span><span class="sl"></span><span class="sl"></span><span class="sl mv"></span></div><span class="pct towerp">Идеально ×3!</span></div>
           <span class="tag live">Играть</span><h3>Звёздная башня 3D</h3><p>Плиты ездят то вдоль, то поперёк — ставь их ровно, и башня растёт к звёздам. Рекорды общие со Звёздной башней 2D.</p></div>
+        <div class="slot game" data-game="3d-orbita" data-tags="Аркада, Мультиплеер, Таблица лидеров"><a class="slot-link" href="orbita/" aria-label="Играть: Орбита 3D"></a><div class="art orbit3d" aria-hidden="true">
+          <span class="orb o1"></span><span class="orb o2"></span><span class="planet"></span><span class="ship"></span><span class="star s1">★</span><span class="star s2">★</span><span class="pct orbp">✦ 24</span></div>
+          <span class="tag live">Играть</span><h3>Орбита 3D</h3><p>Кораблик летит вокруг объёмной планеты — прыгай между орбитами, собирай звёзды и уворачивайся от метеоритов. Рекорды общие с 2D.</p></div>
+        <div class="slot game" data-game="3d-zmey" data-tags="Аркада, Таблица лидеров"><a class="slot-link" href="zmey/" aria-label="Играть: Звёздный змей 3D"></a><div class="art snake3d" aria-hidden="true">
+          <div class="board3d"></div><div class="snk"><span class="seg" style="left:0;top:2px"></span><span class="seg" style="left:14px;top:2px"></span><span class="seg" style="left:28px;top:2px"></span><span class="seg h" style="left:42px;top:0"></span></div><span class="food">★</span><span class="pct snkp">✦ 12</span></div>
+          <span class="tag live">Играть</span><h3>Звёздный змей 3D</h3><p>Змей из светящихся шаров ползёт по объёмной доске за звёздами. Те же правила и рекорды, что в 2D, — только в 3D.</p></div>
       </div>
     </section>
 
