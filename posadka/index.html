@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../shared/session.js?v=2"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Посадка — FreasyGames</title>
+<meta name="description" content="Посадка на FreasyGames: управляй двигателем и наклоном, мягко сажай ракету на площадки чужих планет и береги топливо. Таблица лидеров по очкам и посадкам.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>
+  .pad { position: fixed; bottom: max(16px, env(safe-area-inset-bottom)); z-index: 3; display: flex; gap: 10px; }
+  .pad.left { left: 14px; } .pad.right { right: 14px; }
+  .pad button { width: 70px; height: 70px; border-radius: 50%; border: 1px solid #ffffff33; background: #1d1e31cc; color: #f8f7ff; font: 800 26px Manrope, system-ui; touch-action: none; backdrop-filter: blur(6px); }
+  .pad button.on { background: #bca0ff; color: #171225; }
+  .pad[hidden] { display: none; }
+  @media (hover: hover) and (pointer: fine) { .pad { opacity: .75; } }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+<div class="pad left" id="padL" hidden><button type="button" data-k="L" aria-label="Наклон влево">⟲</button><button type="button" data-k="R" aria-label="Наклон вправо">⟳</button></div>
+<div class="pad right" id="padR" hidden><button type="button" data-k="T" aria-label="Двигатель">🔥</button></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">🚀 Новая игра</div>
+    <h1><span>Посадка</span></h1>
+    <p>Посади ракету на ровную площадку: медленно и прямо. Двигатель тормозит падение, наклон уводит в сторону.</p>
+    <p>Площадки ×2 и ×3 узкие, но дают больше очков. Остаток топлива — бонус. Каждая планета тяжелее, а топлива меньше.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · посадок: <b id="landsStart">0</b></p>
+    <button class="play" id="go" type="button">Старт ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">↑ / W / пробел — двигатель · ← → — наклон · на телефоне кнопки внизу</div>
+  </div>
+</div>
+
+<div class="screen" id="landed" hidden>
+  <div class="box">
+    <div class="eyebrow" id="landedWhy">Мягкая посадка!</div>
+    <div class="big" id="landedPts">+0</div>
+    <p id="landedText"></p>
+    <button class="play" id="next" type="button">Следующая планета ↗</button>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow" id="overWhy">Крушение</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">очков</p>
+    <p>Посадок: <b id="landsOver">0</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · посадок: <b id="bestLandsOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  let best = Number(store.get('posadka-best', 0)) || 0, bestLands = Number(store.get('posadka-best-lands', 0)) || 0;
+  let muted = store.get('posadka-muted', '0') === '1';
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const pointsWord = (n) => plural(n, 'очко', 'очка', 'очков');
+
+  // The world is 1000 × 700 units on every screen, scaled to fit.
+  const WW = 1000, WH = 700, SAFE_V = 42, SAFE_H = 34, SAFE_A = 0.22;
+  let W = 0, H = 0, DPR = 1, k = 1, ox = 0, oy = 0;
+  let state = 'start', time = 0, lastT = 0, level, ship, ground, pads, fuel, score, lands, playTime, parts = [], shake = 0, stars = [];
+  const keys = new Set();
+
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    k = Math.min(W / WW, (H - 40) / WH); ox = (W - WW * k) / 2; oy = Math.max(40, H - WH * k);
+  }
+  const gravity = () => 38 + level * 6;
+
+  // Ground: a random mountain line with 2–3 flat pads; narrower pads give more points.
+  function newPlanet() {
+    level++;
+    const pts = [], n = 40;
+    let y = WH - 120;
+    for (let i = 0; i <= n; i++) { y = Math.max(WH - 330, Math.min(WH - 30, y + (Math.random() - 0.5) * (90 + level * 10))); pts.push({ x: (i / n) * WW, y }); }
+    pads = [];
+    const kinds = [{ mult: 1, w: 3 }, { mult: 2, w: 2 }, { mult: 3, w: 1 }].slice(0, Math.min(3, 1 + Math.ceil(level / 2)));
+    const used = new Set();
+    for (const kd of kinds) {
+      let i, tries = 0;
+      do { i = 2 + Math.floor(Math.random() * (n - 4 - kd.w)); tries++; } while (tries < 50 && [...Array(kd.w + 3).keys()].some((d) => used.has(i - 1 + d)));
+      for (let d = -1; d <= kd.w + 1; d++) used.add(i + d);
+      const py = pts[i].y;
+      for (let d = 0; d <= kd.w; d++) pts[i + d].y = py;
+      pads.push({ x1: pts[i].x, x2: pts[i + kd.w].x, y: py, mult: kd.mult });
+    }
+    ground = pts;
+    ship = { x: 120 + Math.random() * (WW - 240), y: 60, vx: (Math.random() - 0.5) * 60, vy: 0, a: 0, thrust: 0 };
+    fuel = Math.max(380, 1000 - (level - 1) * 70);
+    stars = Array.from({ length: 90 }, () => ({ x: Math.random() * WW, y: Math.random() * (WH - 200), s: Math.random() * 1.6 + 0.3 }));
+    state = 'play';
+  }
+  function groundY(x) {
+    const i = Math.max(0, Math.min(ground.length - 2, Math.floor((x / WW) * (ground.length - 1))));
+    const a = ground[i], b = ground[i + 1], t = (x - a.x) / (b.x - a.x);
+    return a.y + (b.y - a.y) * Math.max(0, Math.min(1, t));
+  }
+
+  function start() {
+    level = 0; score = 0; lands = 0; playTime = 0; chanceUsed = false; chance.hide();
+    $('start').hidden = true; $('over').hidden = true; $('landed').hidden = true;
+    $('padL').hidden = $('padR').hidden = false;
+    unlockAudio(); newPlanet();
+  }
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'posadka-retry', label: '🎬 Повторить эту посадку за рекламу', onReward: () => {
+    chanceUsed = true; level--; $('over').hidden = true; $('padL').hidden = $('padR').hidden = false; newPlanet();
+  } });
+
+  function touchDown() {
+    const pad = pads.find((p) => ship.x - 14 >= p.x1 && ship.x + 14 <= p.x2);
+    const soft = Math.abs(ship.vy) <= SAFE_V && Math.abs(ship.vx) <= SAFE_H && Math.abs(ship.a) <= SAFE_A;
+    if (pad && soft) {
+      lands++;
+      const pts = Math.round((100 + Math.floor(fuel / 4)) * pad.mult);
+      score += pts; state = 'landed'; sound('land');
+      $('landedPts').textContent = `+${pts}`;
+      $('landedText').textContent = `Площадка ×${pad.mult} · топлива осталось ${Math.round(fuel)} · планета ${level}`;
+      setTimeout(() => { if (state === 'landed') { $('padL').hidden = $('padR').hidden = true; $('landed').hidden = false; } }, 500);
+    } else crash(!pad ? 'Мимо площадки' : Math.abs(ship.a) > SAFE_A ? 'Слишком наклонно' : 'Слишком быстро');
+  }
+  function crash(why) {
+    state = 'over'; shake = 0.7; sound('crash');
+    for (let i = 0; i < 50; i++) { const a = Math.random() * 7, v = 60 + Math.random() * 300; parts.push({ x: ship.x, y: ship.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 100, life: 1, color: i % 2 ? '#ffb24d' : '#ff5f5f' }); }
+    const record = score > best;
+    if (record) { best = score; store.set('posadka-best', best); }
+    if (lands > bestLands) { bestLands = lands; store.set('posadka-best-lands', bestLands); }
+    lb.submit({ new_score: score, new_lands: lands, new_time: Math.floor(playTime) });
+    setTimeout(() => {
+      if (state !== 'over') return;
+      $('padL').hidden = $('padR').hidden = true;
+      $('overWhy').textContent = why; $('final').textContent = score;
+      $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + pointsWord(score);
+      $('landsOver').textContent = lands; showBests(); $('over').hidden = false;
+      if (!chanceUsed) chance.show();
+    }, 1100);
+  }
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('landsStart').textContent = $('bestLandsOver').textContent = bestLands;
+  }
+
+  function step(dt) {
+    playTime += dt;
+    const rot = (keys.has('L') ? -1 : 0) + (keys.has('R') ? 1 : 0);
+    ship.a = Math.max(-1.3, Math.min(1.3, ship.a + rot * 1.8 * dt));
+    const on = keys.has('T') && fuel > 0;
+    ship.thrust += ((on ? 1 : 0) - ship.thrust) * Math.min(1, dt * 12);
+    if (on) { fuel = Math.max(0, fuel - 60 * dt); }
+    const power = 115 * ship.thrust;
+    ship.vx += Math.sin(ship.a) * power * dt;
+    ship.vy += (gravity() - Math.cos(ship.a) * power) * dt;
+    ship.x += ship.vx * dt; ship.y += ship.vy * dt;
+    if (ship.x < 10) { ship.x = 10; ship.vx = Math.abs(ship.vx) * 0.3; }
+    if (ship.x > WW - 10) { ship.x = WW - 10; ship.vx = -Math.abs(ship.vx) * 0.3; }
+    if (ship.y < -200) ship.y = -200;
+    if (on && Math.random() < 0.8) parts.push({ x: ship.x - Math.sin(ship.a) * 22, y: ship.y + Math.cos(ship.a) * 22, vx: -Math.sin(ship.a) * 160 + (Math.random() - 0.5) * 40, vy: Math.cos(ship.a) * 160 + (Math.random() - 0.5) * 40, life: 0.5, color: Math.random() < 0.5 ? '#ffd23f' : '#ff9a4d' });
+    // legs touch the ground
+    const footY = ship.y + 18;
+    if (footY >= groundY(ship.x - 12) || footY >= groundY(ship.x + 12)) { ship.y = Math.min(groundY(ship.x - 12), groundY(ship.x + 12)) - 18; touchDown(); }
+  }
+
+  // ——— Sound ———
+  let ac = null, engine = null;
+  function unlockAudio() {
+    if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} }
+    if (ac && ac.state === 'suspended') ac.resume();
+    if (ac && !engine) {
+      // engine rumble: filtered noise whose volume follows the thrust
+      const len = ac.sampleRate, buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      const src = ac.createBufferSource(); src.buffer = buf; src.loop = true;
+      const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 500;
+      engine = ac.createGain(); engine.gain.value = 0; src.connect(f).connect(engine).connect(ac.destination); src.start();
+    }
+  }
+  function tone(f, dur, type, vol, slide = 1, delay = 0) {
+    if (!ac || muted) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function sound(kind) {
+    if (kind === 'land') [0, 4, 7, 12].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.16, 'triangle', 0.08, 1, i * 0.07));
+    else if (kind === 'crash') { tone(160, 0.8, 'sawtooth', 0.14, 0.3); tone(60, 0.7, 'sine', 0.3, 0.5); }
+  }
+
+  // ——— Drawing ———
+  const X = (x) => ox + x * k, Y = (y) => oy + y * k;
+  function draw() {
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, '#0b0d1c'); bg.addColorStop(1, '#2a1f4a');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    if (!ground) return;
+    for (const s of stars) { ctx.globalAlpha = 0.4 + 0.3 * Math.sin(time + s.x); ctx.fillStyle = '#e7dcff'; ctx.fillRect(X(s.x), Y(s.y), s.s, s.s); }
+    ctx.globalAlpha = 1;
+    // planet in the sky
+    ctx.fillStyle = `hsl(${(level * 67) % 360} 60% 60% / .35)`; ctx.beginPath(); ctx.arc(X(WW * 0.82), Y(110), 46 * k, 0, 7); ctx.fill();
+    ctx.save();
+    if (shake > 0) ctx.translate((Math.random() - 0.5) * 18 * shake, (Math.random() - 0.5) * 18 * shake);
+    // ground
+    const hue = (level * 67) % 360;
+    const gg = ctx.createLinearGradient(0, Y(WH - 330), 0, H);
+    gg.addColorStop(0, `hsl(${hue} 30% 42%)`); gg.addColorStop(1, `hsl(${hue} 35% 16%)`);
+    // the ground goes on to the screen edges on wide screens
+    ctx.fillStyle = gg; ctx.beginPath(); ctx.moveTo(0, H); ctx.lineTo(0, Y(ground[0].y));
+    for (const p of ground) ctx.lineTo(X(p.x), Y(p.y));
+    ctx.lineTo(W, Y(ground[ground.length - 1].y)); ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = `hsl(${hue} 50% 70%)`; ctx.lineWidth = 2; ctx.beginPath(); ground.forEach((p, i) => (i ? ctx.lineTo(X(p.x), Y(p.y)) : ctx.moveTo(X(p.x), Y(p.y)))); ctx.stroke();
+    // pads with lights
+    for (const p of pads) {
+      ctx.fillStyle = p.mult === 3 ? '#ffd23f' : p.mult === 2 ? '#6fe3ff' : '#5df2a5';
+      ctx.fillRect(X(p.x1), Y(p.y) - 3, (p.x2 - p.x1) * k, 6);
+      ctx.globalAlpha = 0.5 + 0.5 * Math.sin(time * 4); ctx.beginPath(); ctx.arc(X(p.x1), Y(p.y) - 6, 3, 0, 7); ctx.arc(X(p.x2), Y(p.y) - 6, 3, 0, 7); ctx.fill(); ctx.globalAlpha = 1;
+      ctx.font = '800 14px Manrope'; ctx.textAlign = 'center'; ctx.fillText(`×${p.mult}`, X((p.x1 + p.x2) / 2), Y(p.y) + 22);
+    }
+    for (const q of parts) { ctx.globalAlpha = Math.max(0, q.life * 1.6); ctx.fillStyle = q.color; ctx.beginPath(); ctx.arc(X(q.x), Y(q.y), (2 + q.life * 4) * Math.max(0.6, k), 0, 7); ctx.fill(); }
+    ctx.globalAlpha = 1;
+    // ship
+    if (state !== 'over') {
+      ctx.save(); ctx.translate(X(ship.x), Y(ship.y)); ctx.rotate(ship.a); ctx.scale(k, k);
+      if (ship.thrust > 0.05) { ctx.fillStyle = '#ffd23f'; ctx.globalAlpha = ship.thrust; ctx.beginPath(); ctx.moveTo(-7, 16); ctx.lineTo(0, 16 + 22 * ship.thrust + Math.random() * 8); ctx.lineTo(7, 16); ctx.fill(); ctx.globalAlpha = 1; }
+      ctx.strokeStyle = '#c9c5dc'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(-9, 8); ctx.lineTo(-15, 18); ctx.moveTo(9, 8); ctx.lineTo(15, 18); ctx.stroke();
+      const g = ctx.createLinearGradient(-12, 0, 12, 0); g.addColorStop(0, '#d3beff'); g.addColorStop(1, '#7b67fc');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(0, -24); ctx.quadraticCurveTo(13, -6, 11, 14); ctx.lineTo(-11, 14); ctx.quadraticCurveTo(-13, -6, 0, -24); ctx.fill();
+      ctx.fillStyle = '#6fe3ff'; ctx.beginPath(); ctx.arc(0, -6, 5, 0, 7); ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+    // HUD: fuel, speeds (green when safe)
+    if (state !== 'start') {
+      const bx = 16, by = 64, bw = Math.min(200, W * 0.4);
+      ctx.fillStyle = '#ffffff1a'; ctx.fillRect(bx, by, bw, 8);
+      ctx.fillStyle = fuel > 200 ? '#ffd23f' : '#ff7a8a'; ctx.fillRect(bx, by, bw * fuel / 1000, 8);
+      ctx.font = '800 13px Manrope'; ctx.textAlign = 'left';
+      const ok = (v, lim) => (Math.abs(v) <= lim ? '#5df2a5' : '#ff7a8a');
+      ctx.fillStyle = '#f8f7ff'; ctx.fillText(`⛽ ${Math.round(fuel)}   Планета ${level}   ★ ${score}`, bx, by + 26);
+      ctx.fillStyle = ok(ship.vy, SAFE_V); ctx.fillText(`↓ ${Math.round(ship.vy)}`, bx, by + 46);
+      ctx.fillStyle = ok(ship.vx, SAFE_H); ctx.fillText(`↔ ${Math.round(ship.vx)}`, bx + 70, by + 46);
+      ctx.fillStyle = ok(ship.a, SAFE_A); ctx.fillText(`∠ ${Math.round(ship.a * 57)}°`, bx + 140, by + 46);
+    }
+  }
+
+  function frame(now) {
+    const dt = Math.min(0.05, (now - lastT) / 1000 || 0); lastT = now; time += dt;
+    if (state === 'play' && !lb.isOpen()) step(dt);
+    for (const q of parts) { q.x += q.vx * dt; q.y += q.vy * dt; q.vy += 120 * dt; q.life -= dt * 1.2; }
+    parts = parts.filter((q) => q.life > 0); shake = Math.max(0, shake - dt);
+    if (engine) engine.gain.value = muted || state !== 'play' ? 0 : ship.thrust * 0.25;
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'posadka',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за один полёт.', format: (v) => `${v} ${pointsWord(v)}` },
+      { id: 'lands', title: 'Посадки', column: 'best_lands', order: 'desc', note: 'Больше всего мягких посадок подряд.', format: (v) => `${v}` },
+    ],
+    bests: () => null,
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  const KEYS = { ArrowLeft: 'L', KeyA: 'L', ArrowRight: 'R', KeyD: 'R', ArrowUp: 'T', KeyW: 'T', Space: 'T' };
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.target.closest && e.target.closest('.box button, a')) return;
+    if (!$('landed').hidden && (e.code === 'Space' || e.code === 'Enter')) { e.preventDefault(); next(); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && state !== 'play' && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); return; }
+    if (KEYS[e.code]) { e.preventDefault(); unlockAudio(); keys.add(KEYS[e.code]); }
+  });
+  addEventListener('keyup', (e) => { if (KEYS[e.code]) keys.delete(KEYS[e.code]); });
+  // On-screen buttons: held while the finger is on them.
+  document.querySelectorAll('.pad button').forEach((b) => {
+    const k2 = b.dataset.k;
+    b.addEventListener('pointerdown', (e) => { e.preventDefault(); unlockAudio(); b.setPointerCapture(e.pointerId); keys.add(k2); b.classList.add('on'); });
+    const up = () => { keys.delete(k2); b.classList.remove('on'); };
+    b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('lostpointercapture', up);
+  });
+  function next() { $('landed').hidden = true; $('padL').hidden = $('padR').hidden = false; keys.clear(); newPlanet(); }
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  $('next').addEventListener('click', next);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('posadka-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; });
+  document.addEventListener('visibilitychange', () => { lastT = performance.now(); keys.clear(); });
+  addEventListener('resize', resize);
+  resize(); level = 0; score = 0; lands = 0; newPlanet(); state = 'start'; showBests();
+  // For automated checks only (?test=1).
+  if (new URLSearchParams(location.search).get('test') === '1') window.__posadka = { get: () => ({ state, ship, pads, fuel, score, lands, level, g: gravity() }), keys };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

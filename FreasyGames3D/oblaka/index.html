@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../../shared/session.js?v=2"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0d0f1c">
+<title>Облака 3D — FreasyGames 3D</title>
+<meta name="description" content="Облака на FreasyGames: прыгай с облака на облако всё выше, собирай звёзды и не упади вниз.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>
+  .score { position: fixed; top: 64px; left: 0; right: 0; text-align: center; pointer-events: none; z-index: 2; }
+  .score b { display: block; font-size: 44px; font-weight: 800; letter-spacing: -.05em; line-height: 1; text-shadow: 0 6px 30px #0008; }
+  .score span { color: #ffd23f; font-size: 18px; font-weight: 800; }
+  .score[hidden] { display: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames 3D</a><div class="hud-right"><button class="sound" id="settings" type="button" aria-label="Настройки">⚙️</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="score" id="hudScore" hidden><b id="hudHeight">0 м</b><span id="hudStars">✦ 0</span></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ Новая игра</div>
+    <h1><span>Облака 3D</span></h1>
+    <p>Пушистик сам подпрыгивает. Держи левую или правую половину экрана, чтобы лететь в сторону.</p>
+    <p>Серые облака рассыпаются, на пружинке улетишь высоко. Собирай звёзды и не падай вниз.</p>
+    <p>Высота: <b id="bestStart">0 м</b> · звёзд: <b id="bestStarsStart">0</b></p>
+    <button class="play" id="go" type="button">Прыгать ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Стрелки или A и D. На телефоне — джойстик: коснись и веди пальцем</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow">Упал вниз</div>
+    <div class="big" id="final">0 м</div>
+    <p id="overText">высота</p>
+    <p>Звёзд: <b id="starsOver">0</b> · время: <b id="timeOver">00:00</b></p>
+    <p>Рекорд: <b id="bestOver">0 м</b> · звёзд: <b id="bestStarsOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<script src="../../shared/rewards.js"></script>
+<script src="../shared/multiplayer.js"></script>
+<script src="../shared/joystick.js"></script>
+<script>
+(() => {
+  const cv = document.getElementById('c');
+  const $ = (id) => document.getElementById(id);
+  let W = 0, H = 0, DPR = 1, S = 1, colX = 0, colW = 0, viewH = 100, camX = 50, px = 50, lastPx = 50;
+
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  let best = Number(store.get('oblaka-best', 0)) || 0, bestStars = Number(store.get('oblaka-best-stars', 0)) || 0, bestTime = Number(store.get('oblaka-best-time', 0)) || 0;
+  let muted = store.get('oblaka-muted', '0') === '1';
+  const clock = (t) => `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const starsWord = (n) => plural(n, 'звезда', 'звезды', 'звёзд');
+
+  // The world is 100 units wide on every screen (10 units = 1 m), y grows upward.
+  // A jump rises JUMP²/2G ≈ 45 units, so a gap between clouds is never more than 38.
+  const WORLD = 100, G = 300, JUMP = 165, SPRING = 330, SPEED = 100, R = 5;
+  let run = 0, state = 'start', p, clouds, stars, topY, camY, maxY, starCount, playTime, input = 0, time = 0, lastT = 0, parts = [], pops = [];
+
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    // A zero-size window (hidden iframe, rotating phone) would make the scale 0 and the view height NaN.
+    W = Math.max(1, innerWidth); H = Math.max(1, innerHeight);
+    if (typeof resize3d === 'function') resize3d();
+    colW = Math.min(W, H * 0.62); colX = (W - colW) / 2; S = colW / WORLD; viewH = H / S;
+  }
+  // The sky wraps left to right, so on a wide screen it simply goes on to the edges: the camera follows the
+  // hero sideways (px is the hero's x without wrapping) and clouds repeat every WORLD units.
+  const wide = () => colW < W - 1;
+  const sx = (x) => W / 2 + (x - camX) * S, sy = (y) => H - (y - camY) * S;
+  const near = (x) => x + WORLD * Math.round((camX - x) / WORLD);
+  const copies = (x, pad) => { const out = []; for (let k = -6; k <= 6; k++) { const v = near(x) + k * WORLD, q = sx(v); if (q > -pad && q < W + pad) out.push(v); } return out; };
+
+  function reset() {
+    p = { x: 50, y: 6, vx: 0, vy: JUMP, squash: 0 }; camX = px = lastPx = 50;
+    clouds = [{ x: 50, y: 0, w: 60, kind: 'base' }]; stars = [];
+    topY = 0; camY = -viewH * 0.15; maxY = 0; starCount = 0; playTime = 0; parts = []; pops = [];
+    fill();
+  }
+
+  // Clouds get narrower, further apart and trickier with height.
+  function fill() {
+    while (topY < camY + viewH + 60) {
+      const h = topY / 10, hard = Math.min(1, h / 600);
+      topY += 13 + Math.random() * (10 + 15 * hard);
+      const w = 26 - 9 * hard + Math.random() * 6, x = w / 2 + Math.random() * (WORLD - w);
+      const roll = Math.random();
+      let kind = 'cloud';
+      if (h > 30 && roll < 0.08 + 0.27 * hard) kind = 'moving';
+      else if (h > 60 && roll < 0.14 + 0.43 * hard) kind = 'fragile';
+      const c = { x, y: topY, w, kind, v: (Math.random() < 0.5 ? -1 : 1) * (18 + 22 * hard), spring: kind === 'cloud' && h > 15 && Math.random() < 0.07 };
+      clouds.push(c);
+      // A fragile cloud is never the only way up: another one is always close by.
+      if (kind === 'fragile') clouds.push({ x: 11 + (x + WORLD / 2 + Math.random() * 20 - 10 - 11 + WORLD) % (WORLD - 22), y: topY + 4 + Math.random() * 6, w: 22, kind: 'cloud' });
+      if (Math.random() < 0.22) stars.push({ x: Math.max(6, Math.min(WORLD - 6, x + Math.random() * 24 - 12)), y: topY + 16 + Math.random() * 14 });
+    }
+    clouds = clouds.filter((c) => c.y > camY - 40 && !c.gone);
+    stars = stars.filter((s) => s.y > camY - 40 && !s.got);
+  }
+
+  function step(dt) {
+    playTime += dt;
+    p.vx += (input * SPEED - p.vx) * Math.min(1, dt * 10);
+    const lastY = p.y;
+    p.x += p.vx * dt; p.vy -= G * dt; p.y += p.vy * dt;
+    // The screen wraps around: leave on the left, come back on the right.
+    if (p.x < 0) p.x += WORLD; else if (p.x > WORLD) p.x -= WORLD;
+    for (const c of clouds) {
+      if (c.kind === 'moving') { c.x += c.v * dt; if (c.x < c.w / 2 || c.x > WORLD - c.w / 2) { c.v = -c.v; c.x = Math.max(c.w / 2, Math.min(WORLD - c.w / 2, c.x)); } }
+      if (p.vy > 0 || c.gone || c.falling) continue;
+      if (lastY - R >= c.y && p.y - R <= c.y && Math.abs(p.x - c.x) < c.w / 2 + R * 0.6) {
+        p.y = c.y + R; p.squash = 1;
+        const spring = c.spring && Math.abs(p.x - c.x) < 7;
+        p.vy = spring ? SPRING : JUMP;
+        sound(spring ? 'spring' : 'jump');
+        if (c.kind === 'fragile') { c.falling = true; puff(c, '#a8a6bd'); }
+        else if (spring) puff({ x: c.x, y: c.y, w: 8 }, '#ffd23f');
+      }
+    }
+    for (const c of clouds) if (c.falling) { c.y -= 90 * dt; c.fade = (c.fade || 0) + dt * 2.5; if (c.fade >= 1) c.gone = true; }
+    for (const s of stars) {
+      if (!s.got && Math.hypot(p.x - s.x, p.y - s.y) < R + 5) {
+        s.got = true; starCount++; sound('star');
+        burst(sx(near(s.x)), sy(s.y), '#ffd23f', 12);
+        pops.push({ x: sx(near(s.x)), y: sy(s.y), text: '+1 ✦', life: 1 });
+      }
+    }
+    maxY = Math.max(maxY, p.y);
+    camY = Math.max(camY, p.y - viewH * 0.42);
+    fill();
+    if (p.y < camY - R * 2) gameOver();
+  }
+
+  const height = () => Math.floor(maxY / 10);
+
+  function burst(x, y, color, n) {
+    for (let k = 0; k < n; k++) {
+      const a = Math.random() * Math.PI * 2, v = 40 + Math.random() * 180;
+      parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, color });
+    }
+  }
+  function puff(c, color) {
+    for (let k = 0; k < 10; k++) parts.push({ x: sx(near(c.x) + (Math.random() - 0.5) * c.w), y: sy(c.y), vx: (Math.random() - 0.5) * 80, vy: Math.random() * 60, life: 0.8, color });
+  }
+
+  function start() {
+    reset(); state = 'play'; run++; input = 0; chanceUsed = false; chance.hide();
+    $('start').hidden = true; $('over').hidden = true;
+    unlockAudio();
+  }
+  // Once a game, an ad puts a springy rescue cloud under the hero at the bottom of the screen.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'oblaka-continue', label: '🎬 Спасательное облако за рекламу', onReward: () => {
+    chanceUsed = true;
+    const y = camY + 10, x = Math.max(20, Math.min(WORLD - 20, p.x));
+    clouds.push({ x, y, w: 40, kind: 'cloud', v: 0, spring: true });
+    p.x = x; p.y = y + R; p.vy = SPRING; p.vx = 0; input = 0; p.squash = 1;
+    puff({ x, y, w: 40 }, '#ffd23f');
+    state = 'play'; $('over').hidden = true;
+  } });
+
+  function gameOver() {
+    state = 'over'; sound('fall');
+    const h = height(), seconds = Math.floor(playTime), record = h > best;
+    if (record) { best = h; store.set('oblaka-best', best); }
+    if (starCount > bestStars) { bestStars = starCount; store.set('oblaka-best-stars', bestStars); }
+    if (seconds > bestTime) { bestTime = seconds; store.set('oblaka-best-time', bestTime); }
+    lb.submit({ new_height: h, new_stars: starCount, new_time: seconds });
+    setTimeout(() => {
+      if (state !== 'over') return;
+      $('final').textContent = `${h} м`;
+      $('overText').innerHTML = record && h > 0 ? '<span class="new">Новый рекорд!</span> высота' : 'высота';
+      $('starsOver').textContent = starCount;
+      $('timeOver').textContent = clock(seconds);
+      showBests();
+      $('over').hidden = false;
+      if (!chanceUsed) chance.show();
+    }, 700);
+
+  }
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = `${best} м`;
+    $('bestStarsStart').textContent = $('bestStarsOver').textContent = bestStars;
+  }
+
+  // Sound: a small WebAudio synth, started on the first tap.
+  let ac = null;
+  function unlockAudio() { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (ac && ac.state === 'suspended') ac.resume(); }
+  function tone(f, dur, type, vol, slide = 1, delay = 0) {
+    if (!ac || muted) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t);
+    if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function sound(kind) {
+    if (state !== 'play' && kind !== 'fall') return;
+    if (kind === 'jump') tone(330, 0.12, 'sine', 0.1, 1.8);
+    else if (kind === 'spring') { tone(300, 0.35, 'triangle', 0.14, 3.5); tone(600, 0.3, 'sine', 0.05, 2.5, 0.05); }
+    else if (kind === 'star') { const f = 660 * Math.pow(2, (starCount % 8) / 12); tone(f, 0.16, 'triangle', 0.14); tone(f * 2, 0.12, 'sine', 0.05, 1, 0.04); }
+    else if (kind === 'fall') { tone(500, 0.8, 'sine', 0.14, 0.2); tone(250, 0.8, 'triangle', 0.08, 0.3, 0.1); }
+  }
+
+  // Sky colour moves from dusk to deep space with height.
+  // ——— 3D ———
+  // Небо в 2D закольцовано по ширине (100 единиц), поэтому в 3D облака стоят по кругу вокруг огромного
+  // невидимого столба: x — угол, y — высота. Камера облетает столб вслед за пушистиком.
+  const RC = 16, ANG = (x) => (x / WORLD) * Math.PI * 2, HS = (2 * Math.PI * RC) / WORLD;
+  const P3 = (x, y, r = RC) => new THREE.Vector3(Math.sin(ANG(x)) * r, y * HS, Math.cos(ANG(x)) * r);
+  const fromPx = (x, y) => [camX + (x - W / 2) / S, camY + (H - y) / S];
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); } catch (e) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="screen"><div class="box"><h1><span>3D</span> не запускается</h1><p>Браузер не поддерживает WebGL.</p><a class="play" style="display:block;text-decoration:none" href="../../oblaka/">Облака 2D ↗</a></div></div>');
+    throw e;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  const scene = new THREE.Scene(); scene.fog = new THREE.Fog('#3d326a', 60, 110);
+  const camera = new THREE.PerspectiveCamera(55, 1, 0.3, 500);
+  scene.add(new THREE.HemisphereLight('#ffffff', '#5a4a8a', 0.95));
+  const sunL = new THREE.DirectionalLight('#fff3e0', 0.6); sunL.position.set(30, 50, 40); scene.add(sunL);
+  const skyTop = new THREE.Color(), skyBot = new THREE.Color();
+
+  // звёзды вдалеке — поднимаются вместе с камерой медленнее
+  const sg = new THREE.BufferGeometry(), sp = [];
+  for (let i = 0; i < 900; i++) { const a = Math.random() * Math.PI * 2, r = 90 + Math.random() * 40; sp.push(Math.sin(a) * r, Math.random() * 160 - 40, Math.cos(a) * r); }
+  sg.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
+  const starsBg = new THREE.Points(sg, new THREE.PointsMaterial({ color: '#e7dcff', size: 0.6, transparent: true, fog: false }));
+  scene.add(starsBg);
+
+  // облака: пушистые группы шаров; пул по числу облаков
+  const puffGeo = new THREE.SphereGeometry(1, 16, 12);
+  const cloudMats = { cloud: new THREE.MeshStandardMaterial({ color: '#f8f7ff', roughness: 0.9, emissive: '#bca0ff', emissiveIntensity: 0.12, transparent: true }),
+    moving: new THREE.MeshStandardMaterial({ color: '#bfe3ff', roughness: 0.9, emissive: '#7cc4ff', emissiveIntensity: 0.2, transparent: true }),
+    fragile: new THREE.MeshStandardMaterial({ color: '#a8a6bd', roughness: 1, flatShading: true, transparent: true }) };
+  const springMat = new THREE.MeshStandardMaterial({ color: '#ffd23f', emissive: '#ffb000', emissiveIntensity: 0.6, metalness: 0.4 });
+  const cloudPool = [];
+  function cloudMesh(i) {
+    if (!cloudPool[i]) {
+      const g = new THREE.Group(), puffs = [];
+      for (let k = 0; k < 6; k++) { const m = new THREE.Mesh(puffGeo, cloudMats.cloud); g.add(m); puffs.push(m); }
+      const spring = new THREE.Group();
+      for (let k = 0; k < 4; k++) { const t = new THREE.Mesh(new THREE.TorusGeometry(0.9, 0.18, 6, 16), springMat); t.rotation.x = Math.PI / 2; t.position.y = 0.8 + k * 0.45; spring.add(t); }
+      const pad = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 0.25, 16), springMat); pad.position.y = 2.7; spring.add(pad);
+      g.add(spring); g.userData = { puffs, spring, kind: '' };
+      scene.add(g); cloudPool[i] = g;
+    }
+    return cloudPool[i];
+  }
+  // звёзды-бонусы
+  const shape = new THREE.Shape();
+  for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? 0.55 : 1.35; i ? shape.lineTo(Math.cos(a) * r, Math.sin(a) * r) : shape.moveTo(Math.cos(a) * r, Math.sin(a) * r); }
+  const starGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.4, bevelEnabled: true, bevelSize: 0.1, bevelThickness: 0.1, bevelSegments: 1 }); starGeo.center();
+  const starMat = new THREE.MeshStandardMaterial({ color: '#ffd23f', emissive: '#ffb000', emissiveIntensity: 0.8, metalness: 0.3 });
+  const starPool = [];
+  const starMesh = (i) => { if (!starPool[i]) { starPool[i] = new THREE.Mesh(starGeo, starMat); scene.add(starPool[i]); } return starPool[i]; };
+
+  // пушистик
+  function fluffy(color, opacity = 1) {
+    const g = new THREE.Group();
+    const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.6, emissive: color, emissiveIntensity: 0.25, transparent: opacity < 1, opacity });
+    const body = new THREE.Mesh(new THREE.SphereGeometry(1.5, 20, 16), mat); g.add(body);
+    for (let k = 0; k < 10; k++) { const a = (k / 10) * Math.PI * 2, b = new THREE.Mesh(new THREE.SphereGeometry(0.7, 10, 8), mat); b.position.set(Math.cos(a) * 1.35, Math.sin(a) * 1.35, 0); g.add(b); }
+    const eyeM = new THREE.MeshBasicMaterial({ color: '#171225' });
+    for (const e of [-1, 1]) { const eye = new THREE.Mesh(new THREE.SphereGeometry(0.28, 10, 8), eyeM); eye.position.set(e * 0.5, 0.2, 1.35); g.add(eye); }
+    const mouth = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.07, 6, 12, Math.PI), eyeM); mouth.position.set(0, -0.3, 1.38); mouth.rotation.z = Math.PI; g.add(mouth);
+    scene.add(g); return g;
+  }
+  const hero = fluffy('#c9a8ff'); hero.userData.base = (R * HS) / 2.1;
+  const heroLight = new THREE.PointLight('#bca0ff', 0.8, 18); hero.add(heroLight);
+  const ghostMeshes = new Map();
+
+  // метки высоты каждые 50 м — светящиеся кольца
+  const markPool = [];
+  function mark(i) {
+    if (!markPool[i]) { const m = new THREE.Mesh(new THREE.TorusGeometry(RC + 6, 0.06, 4, 96), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.25 })); m.rotation.x = Math.PI / 2; scene.add(m); markPool[i] = m; }
+    return markPool[i];
+  }
+
+  // частицы (взрывы посчитаны в пикселях 2D-экрана)
+  const MAXP = 300, pGeo = new THREE.BufferGeometry(), pPos = new Float32Array(MAXP * 3), pCol = new Float32Array(MAXP * 3);
+  pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3)); pGeo.setAttribute('color', new THREE.BufferAttribute(pCol, 3));
+  const ptsM = new THREE.Points(pGeo, new THREE.PointsMaterial({ size: 0.5, vertexColors: true, transparent: true, depthWrite: false })); ptsM.frustumCulled = false; scene.add(ptsM);
+  const tmpC = new THREE.Color();
+
+  function resize3d() { renderer.setSize(Math.max(1, innerWidth), Math.max(1, innerHeight), false); camera.aspect = Math.max(1, innerWidth) / Math.max(1, innerHeight); camera.updateProjectionMatrix(); }
+  let camAng = Math.PI, focusY = 20, camReady = false;
+  const camPos = new THREE.Vector3(), look = new THREE.Vector3();
+
+  function draw() {
+    const t = Math.min(1, camY / 8000);
+    skyTop.setRGB(61 / 255 + (17 - 61) / 255 * t, 50 / 255 + (19 - 50) / 255 * t, 106 / 255 + (33 - 106) / 255 * t);
+    skyBot.setRGB(110 / 255 + (40 - 110) / 255 * t, 72 / 255 + (30 - 72) / 255 * t, 140 / 255 + (80 - 140) / 255 * t);
+    scene.background = skyBot.clone().lerp(skyTop, 0.5); scene.fog.color.copy(scene.background);
+    starsBg.material.opacity = 0.3 + t * 0.7;
+
+    // камера: снаружи кольца облаков, напротив героя, чуть выше; плавно догоняет его по кругу
+    const target = ANG(px);
+    camAng += (target - camAng) * 0.12;
+    const portrait = innerHeight > innerWidth, dist = RC + (portrait ? 78 : 56);
+    // смотрим чуть выше героя, чтобы были видны облака впереди; камера едет плавно
+    focusY += ((p.y + 16) * HS - focusY) * 0.08; const hy = focusY;
+    camPos.set(Math.sin(camAng) * dist, hy + 14, Math.cos(camAng) * dist);
+    if (!camReady) { camera.position.copy(camPos); camReady = true; }
+    camera.position.lerp(camPos, 0.15);
+    look.set(Math.sin(camAng) * RC, hy + 12, Math.cos(camAng) * RC);
+    scene.fog.near = dist - 8; scene.fog.far = dist + RC * 1.4;
+    camera.lookAt(look);
+    starsBg.position.y = camera.position.y * 0.7;
+
+    // облака
+    let n = 0;
+    for (const c of clouds) {
+      const g = cloudMesh(n++); g.visible = true;
+      const mat = cloudMats[c.kind === 'base' ? 'cloud' : c.kind] || cloudMats.cloud;
+      if (g.userData.kind !== c.kind) {
+        g.userData.kind = c.kind; g.userData.puffs.forEach((m) => { m.material = mat; });
+      }
+      const wpx = c.w * HS;
+      g.userData.puffs.forEach((m, k) => {
+        const u = (k / 5 - 0.5) * wpx * 0.85, big = k % 2 ? 1 : 1.25;
+        m.position.set(u, (k % 2 ? 0.8 : 0) * big, (k % 3 - 1) * 0.8); m.scale.setScalar(Math.min(3.4, Math.max(2.2, wpx * 0.11)) * big);
+      });
+      g.userData.spring.visible = !!c.spring;
+      g.position.copy(P3(c.x, c.y)); g.position.y -= 2.6;
+      g.rotation.y = ANG(c.x);
+      mat.opacity = c.fade ? Math.max(0, 1 - c.fade) : 1;
+    }
+    for (let i = n; i < cloudPool.length; i++) cloudPool[i].visible = false;
+    let s = 0;
+    for (const st of stars) {
+      if (st.got) continue;
+      const m = starMesh(s++); m.visible = true;
+      m.position.copy(P3(st.x, st.y)); m.position.y += Math.sin(time * 3 + st.x) * 0.4;
+      m.rotation.set(0, ANG(st.x) + time * 2, 0); m.scale.setScalar(2.2);
+    }
+    for (let i = s; i < starPool.length; i++) starPool[i].visible = false;
+
+    // герой
+    hero.visible = state !== 'over' || p.y > camY - R * 3;
+    hero.position.copy(P3(p.x, p.y));
+    hero.rotation.y = ANG(p.x) + Math.max(-0.6, Math.min(0.6, p.vx / SPEED)) * 0.6;
+    const sq = p.squash * 0.25, hb = hero.userData.base; hero.scale.set(hb * (1 + sq), hb * (1 - sq), hb * (1 + sq));
+
+    // другие игроки — полупрозрачные пушистики своего цвета
+    const seen = new Set();
+    for (const g of mp.peers()) {
+      if (g.s.st !== 'play') continue;
+      seen.add(g.id);
+      let m = ghostMeshes.get(g.id); if (!m) { m = fluffy(g.color, 0.5); m.scale.setScalar((R * HS) / 2.1); ghostMeshes.set(g.id, m); }
+      m.visible = true; m.position.copy(P3(g.s.x, g.s.y)); m.rotation.y = ANG(g.s.x);
+    }
+    for (const [id, m] of ghostMeshes) if (!seen.has(id)) m.visible = false;
+
+    // кольца высоты
+    let k = 0;
+    for (let m = Math.ceil(camY / 500) * 500; m < camY + viewH + 200; m += 500) { if (m <= 0) continue; const r = mark(k++); r.visible = true; r.position.y = m * HS; }
+    for (let i = k; i < markPool.length; i++) markPool[i].visible = false;
+
+    let q = 0;
+    for (const d of parts) {
+      if (q >= MAXP) break;
+      const [wx, wy] = fromPx(d.x, d.y), v = P3(wx, wy, RC + 1);
+      pPos.set([v.x, v.y, v.z], q * 3); tmpC.set(d.color).multiplyScalar(Math.max(0, d.life)); pCol.set([tmpC.r, tmpC.g, tmpC.b], q * 3); q++;
+    }
+    pGeo.setDrawRange(0, q); pGeo.attributes.position.needsUpdate = true; pGeo.attributes.color.needsUpdate = true;
+
+    $('hudScore').hidden = state === 'start';
+    $('hudHeight').textContent = `${height()} м`; $('hudStars').textContent = `✦ ${starCount}`;
+    renderer.render(scene, camera);
+  }
+
+  function frame(now) {
+    const dt = Math.min(0.1, (now - lastT) / 1000 || 0); lastT = now; time += dt;
+    if (state === 'play') {
+      // The settings sheet covers the game and takes the keys, so the climb waits behind it.
+      // Small steps keep landings exact even when frames are slow.
+      const n = mp.settingsOpen() ? 0 : Math.ceil(dt / (1 / 120));
+      for (let k = 0; k < n && state === 'play'; k++) step(dt / n);
+    } else if (state === 'start') {
+      // On the start screen the hero bounces on the first cloud.
+      p.vy -= G * dt; p.y += p.vy * dt;
+      if (p.y < R) { p.y = R; p.vy = JUMP * 0.75; p.squash = 1; }
+    } else { p.vy -= G * dt; p.y += p.vy * dt; }
+    p.squash = Math.max(0, p.squash - dt * 5);
+    let d = p.x - lastPx; if (d > WORLD / 2) d -= WORLD; else if (d < -WORLD / 2) d += WORLD; px += d; lastPx = p.x;
+    camX = wide() ? camX + (px - camX) * Math.min(1, dt * 4) : WORLD / 2;
+    for (const q of parts) { q.x += q.vx * dt; q.y -= q.vy * dt; q.vx *= 0.96; q.vy *= 0.96; q.life -= dt * 1.4; }
+    for (const q of pops) q.life -= dt * 1.4;
+    parts = parts.filter((q) => q.life > 0); pops = pops.filter((q) => q.life > 0);
+    mp.send({ st: state, run, x: p.x, y: p.y, h: height(), stars: starCount });
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'oblaka',
+    boards: [
+      { id: 'height', title: 'Высота', column: 'best_height', order: 'desc', note: 'Выше всех забрались за одну игру.', format: (v) => `${v} м` },
+      { id: 'stars', title: 'Звёзды', column: 'best_stars', order: 'desc', note: 'Больше всего звёзд за одну игру.', format: (v) => `${v} ${starsWord(v)}` },
+    ],
+    bests: () => (best > 0 || bestStars > 0 ? { new_height: best, new_stars: bestStars, new_time: bestTime } : null),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  const mp = FreasyMultiplayer({
+    key: 'oblaka', sessionKey: 'oblaka-session', wrap: { x: WORLD },
+    describe: (s) => (s.st === 'play' ? `${s.h} м · ✦ ${s.stars}` : s.st === 'over' ? `упал на ${s.h} м` : 'ждёт'),
+  });
+  $('settings').addEventListener('click', () => mp.openSettings());
+
+  // Holding a half of the screen moves that way; several fingers count by the last one.
+  const held = new Map();
+  const side = (x) => (x < W / 2 ? -1 : 1);
+  const fromPointers = () => { input = held.size ? [...held.values()].pop() : keys(); };
+  // Capture, so the release reaches the canvas even over the game over screen; otherwise the pointer stays "held" and the keys stop working.
+  // A finger steers with the joystick (shared/joystick.js); the mouse still holds a half of the screen.
+  cv.addEventListener('pointerdown', (e) => { if (e.pointerType !== 'mouse') return; e.preventDefault(); try { cv.setPointerCapture(e.pointerId); } catch {} held.set(e.pointerId, side(e.clientX)); fromPointers(); });
+  cv.addEventListener('pointermove', (e) => { if (held.has(e.pointerId)) { held.set(e.pointerId, side(e.clientX)); fromPointers(); } });
+  for (const kind of ['pointerup', 'pointercancel', 'pointerleave']) cv.addEventListener(kind, (e) => { held.delete(e.pointerId); fromPointers(); });
+  const joy = FreasyJoystick({ target: cv, axes: 'x', enabled: () => state === 'play', onStart: unlockAudio, onChange: (x) => { input = joy.active ? x : (held.size ? [...held.values()].pop() : keys()); } });
+  const down = new Set();
+  const keys = () => (down.has('L') ? -1 : 0) + (down.has('R') ? 1 : 0);
+  const KEYS = { ArrowLeft: 'L', KeyA: 'L', ArrowRight: 'R', KeyD: 'R' };
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (mp.settingsOpen()) return;
+    if (KEYS[e.code]) { e.preventDefault(); down.add(KEYS[e.code]); if (!held.size && !joy.active) input = keys(); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && state !== 'play' && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); }
+  });
+  addEventListener('keyup', (e) => { if (KEYS[e.code]) { down.delete(KEYS[e.code]); if (!held.size && !joy.active) input = keys(); } });
+  addEventListener('blur', () => { down.clear(); held.clear(); input = 0; });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('oblaka-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; });
+
+  addEventListener('resize', resize);
+  resize(); resize3d(); reset(); showBests();
+  if (best > 0 && lb.signedIn()) lb.submit({ new_height: best, new_stars: bestStars, new_time: bestTime });
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

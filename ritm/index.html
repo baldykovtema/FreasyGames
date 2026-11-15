@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../shared/session.js?v=2"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Ритм — FreasyGames</title>
+<meta name="description" content="Ритм на FreasyGames: ноты падают по четырём дорожкам — нажимай точно в такт, собирай серии и играй мелодию сам. Таблица лидеров по очкам и сериям.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">🎵 Новая игра</div>
+    <h1><span>Ритм</span></h1>
+    <p>Ноты падают по четырём дорожкам. Нажми дорожку, когда нота коснётся светящейся линии, — и сыграешь мелодию сам.</p>
+    <p>Чем точнее, тем больше очков, а серия без промахов умножает их до ×4. Промахи отнимают энергию, музыка с каждой минутой быстрее.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · лучшая серия: <b id="comboStart">0</b></p>
+    <button class="play" id="go" type="button">Играть ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Тап по дорожке · на клавиатуре D F J K</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow">Энергия кончилась</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">очков</p>
+    <p>Лучшая серия: <b id="comboOver">0</b> · точно: <b id="perfectOver">0</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · рекорд серии: <b id="bestComboOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  let best = Number(store.get('ritm-best', 0)) || 0, bestCombo = Number(store.get('ritm-best-combo', 0)) || 0;
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const pointsWord = (n) => plural(n, 'очко', 'очка', 'очков');
+
+  const LANES = 4, KEYS = { KeyD: 0, KeyF: 1, KeyJ: 2, KeyK: 3, ArrowLeft: 0, ArrowDown: 1, ArrowUp: 2, ArrowRight: 3 };
+  const COLORS = ['#ff7a8a', '#ffd23f', '#5df2a5', '#6fe3ff'];
+  const PERFECT = 0.06, GOOD = 0.13, FALL = 1.6; // seconds: windows and how long a note falls
+  let W = 0, H = 0, DPR = 1, laneW = 0, ox = 0, hitY = 0;
+  let state = 'start', time = 0, lastT = 0, song = 0, notes, nextBeat, bpm, energy, score, combo, maxCombo, perfects, hits, playTime, flashes = [0, 0, 0, 0], judge = null, parts = [];
+
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    laneW = Math.min(110, (W - 32) / LANES); ox = (W - laneW * LANES) / 2; hitY = H - Math.max(110, H * 0.17);
+  }
+
+  // ——— Music: a pentatonic melody over a bass line, written bar by bar as the song goes ———
+  const SCALE = [0, 2, 4, 7, 9, 12, 14, 16];
+  let ac = null, master = null;
+  function unlockAudio() {
+    if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); master = ac.createGain(); master.gain.value = 0.6; master.connect(ac.destination); } catch {} }
+    if (ac && ac.state === 'suspended') ac.resume();
+  }
+  function tone(f, at, dur, type, vol) {
+    if (!ac) return;
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, at);
+    g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(vol, at + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    o.connect(g).connect(master); o.start(at); o.stop(at + dur + 0.02);
+  }
+  const freq = (semi) => 261.63 * Math.pow(2, semi / 12);
+  // The game clock is playTime; sounds are scheduled relative to it, so the game runs even when the
+  // browser keeps the sound off.
+  const now = () => playTime;
+  const at = (t) => (ac ? ac.currentTime + Math.max(0, t - playTime) : 0);
+
+  // Each bar: 8 eighth-note slots, some get a note; lanes follow the melody up and down.
+  let melodyPos = 3, bar = 0;
+  function writeBar() {
+    const beat = 60 / bpm, density = Math.min(0.85, 0.38 + bar * 0.02);
+    for (let s = 0; s < 8; s++) {
+      const t = nextBeat + s * beat / 2;
+      // bass on every beat (just sound, not a note to hit)
+      if (s % 2 === 0 && ac) tone(freq([0, -5, -3, -7][Math.floor(bar % 4)] - 12 + (s === 4 ? 7 : 0)), at(t), beat * 0.9, 'triangle', 0.12);
+      if (s === 0 || Math.random() < density * (s % 2 ? 0.6 : 1)) {
+        melodyPos = Math.max(0, Math.min(SCALE.length - 1, melodyPos + Math.round((Math.random() - 0.5) * 3)));
+        const lane = Math.min(LANES - 1, Math.floor(melodyPos / 2));
+        notes.push({ t, lane, semi: SCALE[melodyPos], done: false });
+        // on later bars sometimes a second note at once
+        if (bar > 6 && Math.random() < Math.min(0.25, bar * 0.012)) notes.push({ t, lane: (lane + 2) % LANES, semi: SCALE[melodyPos] + 4, done: false });
+      }
+    }
+    nextBeat += beat * 4; bar++;
+    // faster every 8 bars, up to a limit
+    if (bar % 8 === 0) bpm = Math.min(170, bpm + 8);
+  }
+
+  function reset() { notes = []; bpm = 96; nextBeat = 1.2; bar = 0; melodyPos = 3; energy = 1; score = 0; combo = 0; maxCombo = 0; perfects = 0; hits = 0; playTime = 0; judge = null; parts = []; }
+  function start() {
+    unlockAudio(); reset(); state = 'play'; song++; chanceUsed = false; chance.hide();
+    $('start').hidden = true; $('over').hidden = true;
+  }
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'ritm-continue', label: '🎬 Продолжить песню за рекламу', onReward: () => {
+    chanceUsed = true; energy = 0.6; state = 'play';
+    // skip ahead past the notes that were already due
+    const t = now(); notes = notes.filter((n) => n.t > t + 1); $('over').hidden = true;
+  } });
+
+  const mult = () => (combo >= 30 ? 4 : combo >= 20 ? 3 : combo >= 10 ? 2 : 1);
+  function hitLane(lane) {
+    if (state !== 'play') return;
+    unlockAudio(); flashes[lane] = 1;
+    const t = now();
+    let bestN = null, bestD = GOOD;
+    for (const n of notes) if (!n.done && n.lane === lane) { const d = Math.abs(n.t - t); if (d < bestD) { bestD = d; bestN = n; } }
+    if (!bestN) { tone(140, ac ? ac.currentTime : 0, 0.08, 'square', 0.03); return; }
+    bestN.done = true; hits++;
+    const perfect = bestD <= PERFECT;
+    combo++; maxCombo = Math.max(maxCombo, combo); if (perfect) perfects++;
+    score += (perfect ? 300 : 120) * mult();
+    energy = Math.min(1, energy + 0.02);
+    judge = { text: perfect ? 'Точно!' : 'Хорошо', color: perfect ? '#5df2a5' : '#6fe3ff', life: 0.6 };
+    if (ac) tone(freq(bestN.semi), ac.currentTime, 0.32, 'square', 0.08), tone(freq(bestN.semi + 12), ac.currentTime, 0.2, 'sine', 0.05);
+    const x = ox + (lane + 0.5) * laneW;
+    for (let i = 0; i < (perfect ? 16 : 8); i++) { const a = Math.random() * 7, v = 60 + Math.random() * 220; parts.push({ x, y: hitY, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 80, life: 1, color: COLORS[lane] }); }
+  }
+  function miss(n) {
+    n.done = true; combo = 0; energy -= 0.12;
+    judge = { text: 'Мимо', color: '#ff7a8a', life: 0.6 };
+    if (energy <= 0) gameOver();
+  }
+  function gameOver() {
+    state = 'over';
+    const record = score > best;
+    if (record) { best = score; store.set('ritm-best', best); }
+    if (maxCombo > bestCombo) { bestCombo = maxCombo; store.set('ritm-best-combo', bestCombo); }
+    lb.submit({ new_score: score, new_combo: maxCombo, new_hits: hits, new_time: Math.floor(playTime) });
+    if (ac) tone(220, ac.currentTime, 0.6, 'sawtooth', 0.08);
+    setTimeout(() => {
+      if (state !== 'over') return;
+      $('final').textContent = score.toLocaleString('ru-RU');
+      $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + pointsWord(score);
+      $('comboOver').textContent = maxCombo; $('perfectOver').textContent = perfects;
+      showBests(); $('over').hidden = false;
+      if (!chanceUsed) chance.show();
+    }, 700);
+  }
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best.toLocaleString('ru-RU');
+    $('comboStart').textContent = $('bestComboOver').textContent = bestCombo;
+  }
+
+  function step(dt) {
+    playTime += dt;
+    const t = now();
+    while (nextBeat < t + FALL + 1) writeBar();
+    for (const n of notes) if (!n.done && t - n.t > GOOD) { miss(n); if (state !== 'play') return; }
+    notes = notes.filter((n) => !n.done || t - n.t < 0.5);
+  }
+
+  function draw() {
+    const bg = ctx.createRadialGradient(W / 2, -H * 0.12, 0, W / 2, -H * 0.12, H * 1.05);
+    bg.addColorStop(0, '#3d326a'); bg.addColorStop(0.31, '#181a30'); bg.addColorStop(0.63, '#111321');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    const t = state === 'play' ? now() : playTime;
+    // beat pulse
+    const beat = 60 / (bpm || 96), pulse = state === 'play' ? Math.pow(1 - ((t % beat) / beat), 3) : 0;
+    for (let l = 0; l < LANES; l++) {
+      const x = ox + l * laneW;
+      ctx.fillStyle = l % 2 ? '#ffffff07' : '#ffffff0d'; ctx.fillRect(x, 0, laneW, H);
+      if (flashes[l] > 0) { const g = ctx.createLinearGradient(0, hitY, 0, hitY - 260); g.addColorStop(0, COLORS[l] + '66'); g.addColorStop(1, COLORS[l] + '00'); ctx.fillStyle = g; ctx.globalAlpha = flashes[l]; ctx.fillRect(x, hitY - 260, laneW, 260); ctx.globalAlpha = 1; }
+      // targets on the hit line
+      ctx.strokeStyle = COLORS[l]; ctx.lineWidth = 3; ctx.globalAlpha = 0.6 + flashes[l] * 0.4;
+      ctx.beginPath(); ctx.arc(x + laneW / 2, hitY, laneW * 0.32 * (1 + pulse * 0.06), 0, 7); ctx.stroke(); ctx.globalAlpha = 1;
+      ctx.fillStyle = '#ffffff55'; ctx.font = '800 14px Manrope'; ctx.textAlign = 'center'; ctx.fillText('DFJK'[l], x + laneW / 2, hitY + laneW * 0.32 + 26);
+    }
+    ctx.fillStyle = `rgba(188,160,255,${0.35 + pulse * 0.4})`; ctx.fillRect(ox, hitY - 2, laneW * LANES, 4);
+    // notes
+    if (notes) for (const n of notes) {
+      if (n.done) continue;
+      const y = hitY - ((n.t - t) / FALL) * (hitY + 40);
+      if (y < -40) continue;
+      const x = ox + (n.lane + 0.5) * laneW, r = laneW * 0.28;
+      ctx.save(); ctx.shadowColor = COLORS[n.lane]; ctx.shadowBlur = 18; ctx.fillStyle = COLORS[n.lane];
+      ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.restore();
+      ctx.fillStyle = '#ffffffaa'; ctx.beginPath(); ctx.arc(x - r * 0.3, y - r * 0.3, r * 0.25, 0, 7); ctx.fill();
+    }
+    for (const p of parts) { ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, 2 + p.life * 3, 0, 7); ctx.fill(); }
+    ctx.globalAlpha = 1;
+    if (state !== 'start') {
+      ctx.textAlign = 'center'; ctx.fillStyle = '#ffffff'; ctx.font = '800 44px Manrope'; ctx.fillText(score.toLocaleString('ru-RU'), W / 2, 104);
+      ctx.font = '800 14px Manrope'; ctx.fillStyle = '#bca0ff';
+      ctx.fillText(`СЕРИЯ ${combo}${mult() > 1 ? ' · ×' + mult() : ''} · ${bpm} BPM`, W / 2, 128);
+      // energy bar
+      const bw = Math.min(260, W - 60), bx = (W - bw) / 2;
+      ctx.fillStyle = '#ffffff1a'; ctx.fillRect(bx, 140, bw, 6);
+      ctx.fillStyle = energy > 0.3 ? '#5df2a5' : '#ff7a8a'; ctx.fillRect(bx, 140, bw * Math.max(0, energy), 6);
+      if (judge) { ctx.globalAlpha = Math.min(1, judge.life * 3); ctx.fillStyle = judge.color; ctx.font = '800 28px Manrope'; ctx.fillText(judge.text, W / 2, hitY - 120 - (0.6 - judge.life) * 40); ctx.globalAlpha = 1; }
+    }
+  }
+
+  function frame(nowMs) {
+    const dt = Math.min(0.05, (nowMs - lastT) / 1000 || 0); lastT = nowMs; time += dt;
+    if (state === 'play' && !lb.isOpen()) step(dt);
+    for (let l = 0; l < LANES; l++) flashes[l] = Math.max(0, flashes[l] - dt * 5);
+    for (const p of parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 300 * dt; p.life -= dt * 1.6; }
+    parts = parts.filter((p) => p.life > 0);
+    if (judge) { judge.life -= dt; if (judge.life <= 0) judge = null; }
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'ritm',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за одну песню.', format: (v) => Number(v).toLocaleString('ru-RU') },
+      { id: 'combo', title: 'Серия', column: 'best_combo', order: 'desc', note: 'Самая длинная серия нот без промахов.', format: (v) => `${v}` },
+    ],
+    bests: () => null,
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  // Every finger on its own lane: several notes at once can be pressed together.
+  cv.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    const lane = Math.floor((e.clientX - ox) / laneW);
+    if (lane >= 0 && lane < LANES) hitLane(lane);
+  });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.target.closest && e.target.closest('.box button, a')) return;
+    if (e.code in KEYS) { e.preventDefault(); if (!e.repeat) hitLane(KEYS[e.code]); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && state !== 'play' && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); }
+  });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  addEventListener('resize', resize);
+  resize(); reset(); showBests();
+  // For automated checks only (?test=1): the test plays the notes itself.
+  if (new URLSearchParams(location.search).get('test') === '1') window.__ritm = { get: () => ({ state, notes, t: state === 'play' ? now() : 0, score, combo, maxCombo, hits, energy, bpm }), hitLane };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../shared/chat-boot.js?v=5"></script>
+</body>
+</html>
