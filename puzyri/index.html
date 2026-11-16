@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../shared/session.js?v=2"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#14122b">
+<title>Пузыри — FreasyGames</title>
+<meta name="description" content="Пузыри на FreasyGames: стреляй цветными пузырями, собирай три одного цвета и обрушивай целые гроздья, пока потолок не опустился. Таблица лидеров по очкам и лучшему выстрелу.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>
+  body { background: #14122b; }
+  #c { touch-action: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">🫧 Новая игра</div>
+    <h1><span>Пузыри</span></h1>
+    <p>Целься и стреляй: три пузыря одного цвета лопаются, а всё, что на них висело, падает и даёт вдвое больше очков.</p>
+    <p>Промахи не прощаются — после нескольких выстрелов без попаданий потолок опускается. Не дай пузырям дойти до линии.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · лучший выстрел: <b id="comboStart">0</b></p>
+    <button class="play" id="go" type="button">Играть ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Мышь или палец — прицел, отпусти — выстрел · пробел — поменять пузырь · ← → и ↑ с клавиатуры</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow">Пузыри дошли до линии</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">очков</p>
+    <p>Лучший выстрел: <b id="comboOver">0</b> · выстрелов: <b id="shotsOver">0</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · лучший выстрел: <b id="bestComboOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  let best = Number(store.get('puzyri-best', 0)) || 0, bestCombo = Number(store.get('puzyri-best-combo', 0)) || 0;
+  let muted = store.get('puzyri-muted', '0') === '1';
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const pointsWord = (n) => plural(n, 'очко', 'очка', 'очков');
+  const bubblesWord = (n) => plural(n, 'пузырь', 'пузыря', 'пузырей');
+
+  // Поле — 11 пузырей в ширину (через ряд 10, со сдвигом), размеры в игровых единицах.
+  const R = 20, COLS = 11, ROWH = R * Math.sqrt(3), WW = COLS * 2 * R, LOSE_ROW = 14, WH = R + LOSE_ROW * ROWH + 150;
+  const SHOOT_Y = WH - 70, SPEED = 950;
+  const COLORS = ['#ff5d73', '#ffc94d', '#4dd6ff', '#7dde5a', '#b48cff', '#ff9a3d'];
+  let W = 0, H = 0, DPR = 1, k = 1, ox = 0, oy = 0;
+  let grid = [], oddTop = false, state = 'start', time = 0, lastT = 0;
+  let cur = null, nxt = null, shot = null, aim = -Math.PI / 2, score = 0, shots = 0, misses = 0, combo = 0, nColors = 4, chanceUsed = false;
+  let pops = [], falls = [], floats = [], drop = 0, shake = 0;
+
+  const odd = (r) => ((r % 2 === 1) !== oddTop);
+  const rowLen = (r) => odd(r) ? COLS - 1 : COLS;
+  const cx = (r, c) => R + c * 2 * R + (odd(r) ? R : 0);
+  const cy = (r) => R + r * ROWH;
+  const get = (r, c) => (grid[r] && grid[r][c]) ?? null;
+  function neighbors(r, c) {
+    const o = odd(r) ? 1 : 0;
+    return [[r, c - 1], [r, c + 1], [r - 1, c - 1 + o], [r - 1, c + o], [r + 1, c - 1 + o], [r + 1, c + o]].filter(([a, b]) => a >= 0 && b >= 0 && b < rowLen(a));
+  }
+  function ensureRow(r) { while (grid.length <= r) { const i = grid.length; grid.push(Array(rowLen(i)).fill(null)); } }
+  function randRow(r) {
+    const row = [];
+    for (let c = 0; c < rowLen(r); c++) {
+      let col = Math.floor(Math.random() * nColors);
+      if (Math.random() < 0.45) { if (c > 0 && row[c - 1] !== null) col = row[c - 1]; else { const up = neighbors(r, c).find(([a]) => a === r - 1); if (up && get(...up) !== null) col = get(...up); } }
+      row.push(col);
+    }
+    return row;
+  }
+  function addTopRow() {
+    oddTop = !oddTop; // все ряды сдвинулись вниз — чётность меняется
+    const old = grid; grid = [];
+    grid[0] = null; for (let i = 0; i < old.length; i++) grid[i + 1] = old[i];
+    grid[0] = []; grid[0] = randRow(0);
+    drop = ROWH; sound('drop');
+    trimRows();
+  }
+  function trimRows() { while (grid.length && grid[grid.length - 1].every((v) => v === null)) grid.pop(); }
+  const present = () => { const s = new Set(); for (const row of grid) for (const v of row) if (v !== null) s.add(v); return [...s]; };
+  function pickColor() { const p = present(); return p.length ? p[Math.floor(Math.random() * p.length)] : Math.floor(Math.random() * nColors); }
+
+  function start() {
+    grid = []; oddTop = false; nColors = 4; score = 0; shots = 0; misses = 0; combo = 0; pops = []; falls = []; floats = []; shot = null; chanceUsed = false; chance.hide();
+    for (let r = 0; r < 6; r++) { ensureRow(r); grid[r] = randRow(r); }
+    cur = pickColor(); nxt = pickColor();
+    $('start').hidden = true; $('over').hidden = true; state = 'play'; unlockAudio();
+  }
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'puzyri-continue', label: '🎬 Убрать 4 нижних ряда за рекламу', onReward: () => {
+    chanceUsed = true; let n = 0;
+    for (let r = grid.length - 1; r >= 0 && n < 4; r--) if (grid[r].some((v) => v !== null)) { grid[r] = grid[r].map(() => null); n++; }
+    trimRows(); misses = 0; $('over').hidden = true; state = 'play'; if (!grid.length) refill();
+  } });
+  function refill() { score += 1000; floats.push({ x: WW / 2, y: WH / 2 - 60, t: 1.6, txt: 'Чисто! +1000', big: true }); nColors = Math.min(6, nColors + 1); for (let r = 0; r < 5; r++) { ensureRow(r); grid[r] = randRow(r); } sound('clear'); }
+
+  // ---------- выстрел ----------
+  function fire() {
+    if (state !== 'play' || shot || drop > 0) return;
+    shot = { x: WW / 2, y: SHOOT_Y, vx: Math.cos(aim) * SPEED, vy: Math.sin(aim) * SPEED, col: cur };
+    cur = nxt; nxt = pickColor(); shots++; sound('shoot');
+  }
+  function swap() { if (state !== 'play' || shot) return; [cur, nxt] = [nxt, cur]; sound('swap'); }
+  function stepShot(dt) {
+    const n = Math.ceil(SPEED * dt / (R * 0.5));
+    for (let i = 0; i < n && shot; i++) {
+      shot.x += shot.vx * dt / n; shot.y += shot.vy * dt / n;
+      if (shot.x < R) { shot.x = R; shot.vx = Math.abs(shot.vx); sound('wall'); }
+      if (shot.x > WW - R) { shot.x = WW - R; shot.vx = -Math.abs(shot.vx); sound('wall'); }
+      let hit = shot.y <= R;
+      if (!hit) {
+        const r0 = Math.max(0, Math.floor((shot.y - R) / ROWH) - 1);
+        outer: for (let r = r0; r <= r0 + 3 && r < grid.length; r++) for (let c = 0; c < rowLen(r); c++) if (get(r, c) !== null && Math.hypot(cx(r, c) - shot.x, cy(r) - shot.y) < 2 * R * 0.86) { hit = true; break outer; }
+      }
+      if (hit) land();
+    }
+  }
+  function land() {
+    // ближайшая свободная клетка, которая касается потолка или другого пузыря
+    let bestCell = null, bd = 1e9;
+    const r0 = Math.max(0, Math.round((shot.y - R) / ROWH) - 1);
+    for (let r = r0; r <= r0 + 2; r++) {
+      if (r > LOSE_ROW + 2) continue;
+      for (let c = 0; c < (r < grid.length ? rowLen(r) : rowLen(r)); c++) {
+        if (get(r, c) !== null) continue;
+        const ok = r === 0 || neighbors(r, c).some(([a, b]) => get(a, b) !== null);
+        if (!ok) continue;
+        const d = Math.hypot(cx(r, c) - shot.x, cy(r) - shot.y);
+        if (d < bd) { bd = d; bestCell = [r, c]; }
+      }
+    }
+    if (!bestCell) { // запасной вариант: верхний ряд
+      const c = Math.max(0, Math.min(rowLen(0) - 1, Math.round((shot.x - R - (odd(0) ? R : 0)) / (2 * R)))); bestCell = [0, c];
+    }
+    const [r, c] = bestCell; ensureRow(r); grid[r][c] = shot.col; const col = shot.col; shot = null;
+    // одинаковый цвет
+    const same = [[r, c]], seen = new Set([r * 100 + c]);
+    for (let i = 0; i < same.length; i++) for (const [a, b] of neighbors(...same[i])) if (!seen.has(a * 100 + b) && get(a, b) === col) { seen.add(a * 100 + b); same.push([a, b]); }
+    if (same.length >= 3) {
+      for (const [a, b] of same) { pops.push({ x: cx(a, b), y: cy(a), col: COLORS[grid[a][b]], t: 0 }); grid[a][b] = null; }
+      // всё, что больше не держится за потолок, падает
+      const hold = new Set(), q = [];
+      for (let b = 0; b < rowLen(0); b++) if (get(0, b) !== null) { hold.add(b); q.push([0, b]); }
+      for (let i = 0; i < q.length; i++) for (const [a, b] of neighbors(...q[i])) if (!hold.has(a * 100 + b) && get(a, b) !== null) { hold.add(a * 100 + b); q.push([a, b]); }
+      let fell = 0;
+      for (let a = 0; a < grid.length; a++) for (let b = 0; b < rowLen(a); b++) if (get(a, b) !== null && !hold.has(a * 100 + b)) {
+        falls.push({ x: cx(a, b), y: cy(a), vx: (Math.random() - 0.5) * 120, vy: -60 - Math.random() * 120, col: COLORS[grid[a][b]] }); grid[a][b] = null; fell++; }
+      const total = same.length + fell, pts = same.length * 10 + fell * 20 + (total >= 8 ? total * 10 : 0);
+      score += pts; combo = Math.max(combo, total); misses = 0;
+      floats.push({ x: cx(r, c), y: cy(r), t: 1, txt: '+' + pts, big: fell > 0 });
+      sound(fell ? 'fall' : 'pop'); if (total >= 8) shake = 0.25;
+      trimRows();
+      if (!grid.length || grid.every((row) => row.every((v) => v === null))) { grid = []; refill(); }
+    } else {
+      sound('stick'); misses++;
+      const limit = Math.max(3, 6 - Math.floor(shots / 60));
+      if (misses >= limit) { misses = 0; addTopRow(); }
+    }
+    // следующий пузырь — только тех цветов, что ещё есть на поле
+    const p = present(); if (p.length && !p.includes(cur)) cur = pickColor(); if (p.length && !p.includes(nxt)) nxt = pickColor();
+    if (grid.length > LOSE_ROW && grid.slice(LOSE_ROW).some((row) => row.some((v) => v !== null))) gameOver();
+  }
+  function gameOver() {
+    state = 'over'; sound('over'); shake = 0.4;
+    const record = score > best;
+    if (record) { best = score; store.set('puzyri-best', best); }
+    if (combo > bestCombo) { bestCombo = combo; store.set('puzyri-best-combo', bestCombo); }
+    lb.submit({ new_score: score, new_combo: combo, new_shots: shots });
+    setTimeout(() => {
+      if (state !== 'over') return;
+      $('final').textContent = score;
+      $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + pointsWord(score);
+      $('comboOver').textContent = `${combo} ${bubblesWord(combo)}`; $('shotsOver').textContent = shots;
+      showBests(); $('over').hidden = false;
+      if (!chanceUsed) chance.show();
+    }, 900);
+  }
+  function showBests() { $('bestStart').textContent = best; $('comboStart').textContent = bestCombo; $('bestOver').textContent = best; $('bestComboOver').textContent = bestCombo; }
+
+  // ---------- рисование ----------
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1); W = innerWidth; H = innerHeight;
+    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    k = Math.min((W - 16) / WW, (H - 70) / WH); ox = (W - WW * k) / 2; oy = Math.max(60, H - WH * k - 8);
+  }
+  function bubble(x, y, col, r = R, a = 1) {
+    ctx.globalAlpha = a;
+    const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.4, r * 0.1, x, y, r);
+    g.addColorStop(0, '#ffffff'); g.addColorStop(0.25, col); g.addColorStop(1, shade(col));
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r * 0.95, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#ffffff30'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+  const shadeCache = {};
+  function shade(col) { if (shadeCache[col]) return shadeCache[col]; const n = parseInt(col.slice(1), 16), f = 0.55; return (shadeCache[col] = `rgb(${Math.round((n >> 16) * f)},${Math.round(((n >> 8) & 255) * f)},${Math.round((n & 255) * f)})`); }
+  function aimPath() {
+    // пунктир с одним отскоком от стены
+    const pts = []; let x = WW / 2, y = SHOOT_Y, vx = Math.cos(aim), vy = Math.sin(aim), len = 0, bounces = 0;
+    while (len < 900 && y > R && bounces < 2) {
+      x += vx * 6; y += vy * 6; len += 6;
+      if (x < R || x > WW - R) { vx = -vx; x = Math.max(R, Math.min(WW - R, x)); bounces++; }
+      const r0 = Math.max(0, Math.floor((y - R) / ROWH) - 1); let hit = false;
+      for (let r = r0; r <= r0 + 2 && r < grid.length && !hit; r++) for (let c = 0; c < rowLen(r); c++) if (get(r, c) !== null && Math.hypot(cx(r, c) - x, cy(r) - y) < 2 * R * 0.86) { hit = true; break; }
+      if (hit) break;
+      if (len % 24 < 6) pts.push([x, y]);
+    }
+    return pts;
+  }
+  function draw() {
+    const bg = ctx.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#1d1a45'); bg.addColorStop(1, '#0f0d22'); ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    ctx.save();
+    let sx = 0, sy = 0; if (shake > 0) { sx = (Math.random() - 0.5) * 10 * shake; sy = (Math.random() - 0.5) * 10 * shake; }
+    ctx.translate(ox + sx, oy + sy); ctx.scale(k, k);
+    // поле
+    ctx.fillStyle = '#ffffff0a'; ctx.beginPath(); ctx.roundRect(0, 0, WW, WH, 18); ctx.fill();
+    ctx.fillStyle = '#ffffff14'; ctx.fillRect(0, 0, WW, 4);
+    // линия проигрыша
+    const ly = cy(LOSE_ROW) - R;
+    ctx.strokeStyle = '#ff5d7366'; ctx.setLineDash([10, 8]); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, ly); ctx.lineTo(WW, ly); ctx.stroke(); ctx.setLineDash([]);
+    // пузыри на поле (при опускании потолка — плавный сдвиг)
+    ctx.save(); ctx.translate(0, -drop);
+    for (let r = 0; r < grid.length; r++) for (let c = 0; c < rowLen(r); c++) { const v = get(r, c); if (v !== null) bubble(cx(r, c), cy(r), COLORS[v]); }
+    ctx.restore();
+    for (const p of pops) { const s = 1 + p.t * 3; ctx.globalAlpha = Math.max(0, 1 - p.t * 4); ctx.strokeStyle = p.col; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(p.x, p.y, R * s * 0.6, 0, 7); ctx.stroke();
+      for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2; ctx.fillStyle = p.col; ctx.fillRect(p.x + Math.cos(a) * R * s - 2, p.y + Math.sin(a) * R * s - 2, 4, 4); } ctx.globalAlpha = 1; }
+    for (const f of falls) bubble(f.x, f.y, f.col, R, 0.9);
+    // пушка
+    if (state === 'play' && !shot) { ctx.fillStyle = '#ffffffaa'; for (const [x, y] of aimPath()) { ctx.beginPath(); ctx.arc(x, y, 3, 0, 7); ctx.fill(); } }
+    ctx.save(); ctx.translate(WW / 2, SHOOT_Y); ctx.rotate(aim + Math.PI / 2);
+    ctx.fillStyle = '#3a3670'; ctx.beginPath(); ctx.roundRect(-10, -48, 20, 40, 6); ctx.fill(); ctx.restore();
+    ctx.fillStyle = '#2a2756'; ctx.beginPath(); ctx.arc(WW / 2, SHOOT_Y, 30, 0, 7); ctx.fill();
+    if (cur !== null && cur !== undefined) bubble(WW / 2, SHOOT_Y, COLORS[cur]);
+    // следующий
+    ctx.fillStyle = '#ffffff80'; ctx.font = '700 13px Manrope, system-ui'; ctx.textAlign = 'center'; ctx.fillText('след.', WW / 2 - 78, SHOOT_Y + 34);
+    if (nxt !== null && nxt !== undefined) bubble(WW / 2 - 78, SHOOT_Y, COLORS[nxt], R * 0.8);
+    if (shot) bubble(shot.x, shot.y, COLORS[shot.col]);
+    // счёт
+    ctx.textAlign = 'right'; ctx.fillStyle = '#f8f7ff'; ctx.font = '800 26px Manrope, system-ui'; ctx.fillText(score, WW - 14, SHOOT_Y + 8);
+    ctx.font = '700 12px Manrope, system-ui'; ctx.fillStyle = '#ffffff80'; ctx.fillText('очков', WW - 14, SHOOT_Y + 26);
+    // сколько промахов до опускания потолка
+    const limit = Math.max(3, 6 - Math.floor(shots / 60));
+    ctx.textAlign = 'left'; for (let i = 0; i < limit; i++) { ctx.fillStyle = i < limit - misses ? '#ffc94d' : '#ffffff22'; ctx.beginPath(); ctx.arc(18 + i * 16, SHOOT_Y, 5, 0, 7); ctx.fill(); }
+    ctx.fillStyle = '#ffffff80'; ctx.fillText('до опускания', 12, SHOOT_Y + 26);
+    for (const f of floats) { ctx.globalAlpha = Math.min(1, f.t * 2); ctx.textAlign = 'center'; ctx.font = `800 ${f.big ? 28 : 20}px Manrope, system-ui`; ctx.fillStyle = f.big ? '#ffc94d' : '#ffffff'; ctx.fillText(f.txt, f.x, f.y); ctx.globalAlpha = 1; }
+    ctx.restore();
+  }
+
+  // ---------- звук ----------
+  let ac = null;
+  function unlockAudio() { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (ac && ac.state === 'suspended') ac.resume(); }
+  function tone(freq, dur, type = 'sine', vol = 0.12, slide = 0, delay = 0) {
+    if (muted || !ac) return; const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t); if (slide) o.frequency.exponentialRampToValueAtTime(freq * slide, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur); o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur);
+  }
+  function sound(k) {
+    if (k === 'shoot') tone(500, 0.08, 'triangle', 0.08, 1.6);
+    else if (k === 'wall') tone(900, 0.03, 'sine', 0.04);
+    else if (k === 'stick') tone(180, 0.07, 'triangle', 0.08);
+    else if (k === 'pop') [700, 900, 1100].forEach((f, i) => tone(f, 0.08, 'sine', 0.09, 1.3, i * 0.04));
+    else if (k === 'fall') { [700, 900, 1100, 1400].forEach((f, i) => tone(f, 0.09, 'sine', 0.09, 1.3, i * 0.04)); tone(300, 0.4, 'triangle', 0.06, 0.4, 0.1); }
+    else if (k === 'swap') tone(600, 0.05, 'sine', 0.05, 0.8);
+    else if (k === 'drop') tone(120, 0.25, 'sawtooth', 0.06, 0.6);
+    else if (k === 'clear') [523, 659, 784, 1046].forEach((f, i) => tone(f, 0.22, 'triangle', 0.1, 0, i * 0.1));
+    else if (k === 'over') tone(300, 0.6, 'sawtooth', 0.08, 0.3);
+  }
+
+  // ---------- цикл ----------
+  function frame(now) {
+    const dt = Math.min(0.033, (now - lastT) / 1000 || 0); lastT = now; time += dt;
+    if (state === 'play' && !lb.isOpen()) {
+      if (keys.L) aim = Math.max(-Math.PI + 0.12, aim - dt * 1.8);
+      if (keys.R) aim = Math.min(-0.12, aim + dt * 1.8);
+      if (shot) stepShot(dt);
+    }
+    if (drop > 0) drop = Math.max(0, drop - dt * ROWH * 4);
+    for (const p of pops) p.t += dt; pops = pops.filter((p) => p.t < 0.3);
+    for (const f of falls) { f.x += f.vx * dt; f.y += f.vy * dt; f.vy += 1400 * dt; } falls = falls.filter((f) => f.y < WH + 60);
+    for (const f of floats) { f.t -= dt; f.y -= 40 * dt; } floats = floats.filter((f) => f.t > 0);
+    shake = Math.max(0, shake - dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'puzyri',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за одну игру.', format: (v) => `${v} ${pointsWord(v)}` },
+      { id: 'combo', title: 'Выстрел', column: 'best_combo', order: 'desc', note: 'Больше всего пузырей, лопнувших и упавших от одного выстрела.', format: (v) => `${v} ${bubblesWord(v)}` },
+    ],
+    bests: () => null,
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  // ---------- управление ----------
+  const keys = {};
+  function toWorld(e) { const r = cv.getBoundingClientRect(); return { x: ((e.clientX - r.left) - ox) / k, y: ((e.clientY - r.top) - oy) / k }; }
+  function aimAt(e) { const p = toWorld(e); let a = Math.atan2(p.y - SHOOT_Y, p.x - WW / 2); if (a > 0) a = a > Math.PI / 2 ? -Math.PI + 0.12 : -0.12; aim = Math.max(-Math.PI + 0.12, Math.min(-0.12, a)); return p; }
+  let press = null;
+  cv.addEventListener('pointerdown', (e) => {
+    if (state !== 'play') return; unlockAudio(); const p = toWorld(e);
+    if (Math.hypot(p.x - (WW / 2 - 78), p.y - SHOOT_Y) < 30) { swap(); return; }
+    press = { id: e.pointerId }; aimAt(e); cv.setPointerCapture(e.pointerId);
+  });
+  cv.addEventListener('pointermove', (e) => { if (state !== 'play') return; if (e.pointerType === 'mouse' || (press && press.id === e.pointerId)) aimAt(e); });
+  cv.addEventListener('pointerup', (e) => { if (press && press.id === e.pointerId) { press = null; const p = aimAt(e); if (p.y < SHOOT_Y - 10) fire(); } });
+  cv.addEventListener('pointercancel', () => { press = null; });
+  const KEYS = { ArrowLeft: 'L', KeyA: 'L', ArrowRight: 'R', KeyD: 'R' };
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.target.closest && e.target.closest('.box button, a')) return;
+    if ((e.code === 'Space' || e.code === 'Enter') && state !== 'play') { e.preventDefault(); start(); return; }
+    if (state !== 'play') return;
+    if (KEYS[e.code]) { e.preventDefault(); keys[KEYS[e.code]] = true; }
+    if (e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Enter') { e.preventDefault(); unlockAudio(); fire(); }
+    if (e.code === 'Space' || e.code === 'KeyX' || e.code === 'ShiftLeft') { e.preventDefault(); swap(); }
+  });
+  addEventListener('keyup', (e) => { if (KEYS[e.code]) keys[KEYS[e.code]] = false; });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('puzyri-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; });
+  document.addEventListener('visibilitychange', () => { lastT = performance.now(); for (const x in keys) keys[x] = false; });
+  addEventListener('resize', resize);
+  resize();
+  for (let r = 0; r < 6; r++) { ensureRow(r); grid[r] = randRow(r); } cur = pickColor(); nxt = pickColor();
+  showBests();
+  if (new URLSearchParams(location.search).get('test') === '1') window.__puz = { get: () => ({ state, score, shots, combo, rows: grid.length, cur, misses }), fire, setAim: (a) => { aim = a; }, start, grid: () => grid };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

@@ -264,6 +264,23 @@
     .art .pct.lakep { color: #ffd23f; font-size: 13px; }
     .art.clouds3d::after, .art.lake3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 80px; background: linear-gradient(transparent, #181a2e); pointer-events: none; }
     .clouds3d .c1 { top: 118px; } .lake3d .dock { bottom: 30px; height: 30px; } .lake3d .bobber { top: 104px; }
+    .art.jump3d { background: linear-gradient(180deg, #7fc8ff 0, #bfe6ff 60%, #8a5a33 60%, #5a3b22 100%); }
+    .jump3d .ground { position: absolute; left: -10%; right: -10%; bottom: 38%; height: 26px; background: #4fc24a; transform: perspective(240px) rotateX(48deg); transform-origin: bottom; box-shadow: 0 10px 0 #8a5a33; }
+    .jump3d .plank { position: absolute; left: 52%; top: 60px; width: 34%; height: 12px; border-radius: 3px; background: #c98b4c; box-shadow: 0 5px 0 #8a5a2b; }
+    .jump3d .hero { position: absolute; left: 26%; top: 96px; width: 38px; height: 36px; border-radius: 50% 50% 44% 44%; background: radial-gradient(circle at 35% 30%, #ffd09a, #ff8a00 55%, #c25e00); animation: bob 1.2s ease-in-out infinite; }
+    .jump3d .hero::after { content: ""; position: absolute; right: 6px; top: 11px; width: 7px; height: 9px; border-radius: 50%; background: #fff; box-shadow: -11px 0 0 #fff; }
+    .jump3d .coin3 { position: absolute; top: 36px; width: 16px; height: 16px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff3b0, #ffd84d 50%, #c79a00); }
+    .jump3d .coin3.a { left: 58%; } .jump3d .coin3.b { left: 68%; } .jump3d .coin3.c { left: 78%; }
+    .art .pct.jumpp { color: #ff8a00; font-size: 13px; }
+    .art.space3d { background: radial-gradient(circle at 30% 30%, #3a2a8a 0, transparent 45%), radial-gradient(1px 1px at 20% 30%, #fff, transparent), radial-gradient(1px 1px at 70% 20%, #fff, transparent), radial-gradient(1px 1px at 50% 60%, #fff, transparent), radial-gradient(1px 1px at 85% 75%, #fff, transparent), #05030f; }
+    .space3d .planet { position: absolute; right: 10%; top: 24px; width: 64px; height: 64px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #8b6cff, #5a3cc8 55%, #241060); box-shadow: 0 0 0 6px #b59bff33; }
+    .space3d .ship { position: absolute; left: 46%; bottom: 30px; width: 0; height: 0; border-left: 18px solid transparent; border-right: 18px solid transparent; border-bottom: 40px solid #7ef9ff; filter: drop-shadow(0 0 8px #3a8bff); }
+    .space3d .ship::after { content: ""; position: absolute; left: -5px; top: 40px; width: 10px; height: 16px; border-radius: 0 0 50% 50%; background: #ffb84d; animation: bob .3s ease-in-out infinite; }
+    .space3d .foe { position: absolute; top: 60px; width: 0; height: 0; border-left: 14px solid transparent; border-right: 14px solid transparent; border-top: 22px solid #ff5f7e; filter: drop-shadow(0 0 6px #ff5f7e); }
+    .space3d .foe.a { left: 22%; } .space3d .foe.b { left: 60%; top: 92px; border-top-color: #ffb84d; filter: drop-shadow(0 0 6px #ffb84d); }
+    .space3d .laser { position: absolute; left: calc(46% + 16px); bottom: 80px; width: 4px; height: 26px; border-radius: 2px; background: #9ffcff; box-shadow: 0 -44px 0 #9ffcff; }
+    .art .pct.spacep { color: #7ef9ff; font-size: 13px; }
+    .art.jump3d::after, .art.space3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, #181a2e); pointer-events: none; }
     .slot h3 { margin: 0 0 6px; font-size: 20px; letter-spacing: -.03em; }
     .slot p { margin: 0; color: #8f8ca6; font-size: 14px; line-height: 1.55; }
 
@@ -302,7 +319,7 @@
     <section class="wrap hero">
       <span class="eyebrow">Только 3D</span>
       <h1>Freasy<span class="three">Games 3D</span></h1>
-      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже тринадцать игр, и будут ещё.</p>
+      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже пятнадцать игр, и будут ещё.</p>
       <a class="hero-action" href="#games">Смотреть игры ↓</a>
       <div class="hint">Двигай мышкой или пальцем — сцена повернётся</div>
     </section>
@@ -356,6 +373,12 @@
         <div class="slot game" data-game="3d-klev" data-tags="Рыбалка, Таблица лидеров"><a class="slot-link" href="klev/" aria-label="Играть: Клёв 3D"></a><div class="art lake3d" aria-hidden="true">
           <span class="sun"></span><span class="forest"></span><span class="bobber"></span><span class="dock"></span><span class="pct lakep">🐟 1,2 кг</span></div>
           <span class="tag live">Играть</span><h3>Клёв 3D</h3><p>Объёмное озеро с волнами, лесом и камышами, закат садится по-настоящему. Та же рыбалка и рекорды, что в 2D.</p></div>
+        <div class="slot game" data-game="3d-prygun" data-tags="Платформер, Редактор уровней, Таблица лидеров"><a class="slot-link" href="prygun/" aria-label="Играть: Прыгун 3D"></a><div class="art jump3d" aria-hidden="true">
+          <span class="ground"></span><span class="plank"></span><span class="coin3 a"></span><span class="coin3 b"></span><span class="coin3 c"></span><span class="hero"></span><span class="pct jumpp">🪙 3/9</span></div>
+          <span class="tag live">Играть</span><h3>Прыгун 3D</h3><p>Объёмные уровни из кубиков: трава, платформы, шипы и батуты, камера летит сбоку. Те же уровни, редактор и рекорды, что в 2D.</p></div>
+        <div class="slot game" data-game="3d-patrul" data-tags="Шутер, Космос, Таблица лидеров"><a class="slot-link" href="patrul/" aria-label="Играть: Звёздный патруль 3D"></a><div class="art space3d" aria-hidden="true">
+          <span class="planet"></span><span class="foe a"></span><span class="foe b"></span><span class="laser"></span><span class="ship"></span><span class="pct spacep">Волна 5</span></div>
+          <span class="tag live">Играть</span><h3>Звёздный патруль 3D</h3><p>Объёмные корабли, босс с пушками и звёзды, летящие навстречу. Те же волны, магазин кораблей и рекорды, что в 2D.</p></div>
       </div>
     </section>
 

@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../shared/session.js?v=2"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#1b1712">
+<title>Грузчик — FreasyGames</title>
+<meta name="description" content="Грузчик на FreasyGames: толкай ящики на отмеченные места склада. 20 уровней-головоломок, отмена хода, звёзды за короткое решение и таблица лидеров.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>
+  body { background: #1b1712; }
+  .bar { position: fixed; left: 50%; transform: translateX(-50%); top: max(58px, calc(env(safe-area-inset-top) + 52px)); z-index: 3; display: flex; gap: 8px; align-items: center;
+    background: #2a241ccc; border: 1px solid #ffffff1f; border-radius: 14px; padding: 6px 8px; backdrop-filter: blur(6px); color: #f6efe3; font: 700 14px Manrope, system-ui; white-space: nowrap; }
+  .bar button { border: 0; border-radius: 10px; background: #ffffff14; color: #f6efe3; font: 800 14px Manrope, system-ui; padding: 7px 11px; cursor: pointer; }
+  .bar button:hover { background: #ffffff26; }
+  .bar .info { padding: 0 6px; }
+  .bar[hidden], .dpad[hidden] { display: none; }
+  .dpad { position: fixed; right: 16px; bottom: max(16px, env(safe-area-inset-bottom)); z-index: 3; display: grid; grid-template-columns: repeat(3, 58px); grid-template-rows: repeat(2, 58px); gap: 6px; }
+  .dpad button { border-radius: 16px; border: 1px solid #ffffff2a; background: #2a241ccc; color: #f6efe3; font: 800 24px Manrope, system-ui; touch-action: none; backdrop-filter: blur(6px); }
+  .dpad button:active { background: #f2b544; color: #2a1d05; }
+  .dpad .u { grid-column: 2; grid-row: 1; } .dpad .l { grid-column: 1; grid-row: 2; } .dpad .d { grid-column: 2; grid-row: 2; } .dpad .r { grid-column: 3; grid-row: 2; }
+  .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 14px 0; }
+  .grid button { aspect-ratio: 1; border-radius: 12px; border: 1px solid #ffffff22; background: #ffffff12; color: #f6efe3; font: 800 17px Manrope, system-ui; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+  .grid button small { font-size: 10px; color: #f2b544; letter-spacing: -1px; }
+  .grid button:hover:not(:disabled) { background: #ffffff24; }
+  .grid button:disabled { opacity: .35; cursor: default; }
+  .grid button.cur { outline: 2px solid #f2b544; }
+  .stars { font-size: 30px; letter-spacing: 4px; color: #f2b544; margin: 4px 0 8px; }
+  .stars i { font-style: normal; color: #ffffff2a; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+<div class="bar" id="bar" hidden>
+  <button type="button" id="bMenu" aria-label="Меню">☰</button>
+  <span class="info" id="info">Уровень 1 · ходов 0</span>
+  <button type="button" id="bUndo" aria-label="Отменить ход">↶</button>
+  <button type="button" id="bRestart" aria-label="Начать уровень заново">⟲</button>
+</div>
+<div class="dpad" id="dpad" hidden>
+  <button type="button" class="u" data-d="U" aria-label="Вверх">▲</button>
+  <button type="button" class="l" data-d="L" aria-label="Влево">◀</button>
+  <button type="button" class="d" data-d="D" aria-label="Вниз">▼</button>
+  <button type="button" class="r" data-d="R" aria-label="Вправо">▶</button>
+</div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">📦 Новая игра</div>
+    <h1><span>Грузчик</span></h1>
+    <p>Расставь все ящики по отмеченным местам склада. Ящик можно только толкать — тянуть нельзя, так что думай наперёд.</p>
+    <p>Чем короче решение, тем больше звёзд и очков. Ошибся — отмени ход.</p>
+    <p>Пройдено уровней: <b id="doneStart">0</b> из 20 · очков: <b id="scoreStart">0</b></p>
+    <button class="play" id="go" type="button">Играть ↗</button>
+    <button class="ghost" type="button" id="toLevels">Выбрать уровень</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Стрелки / WASD — ходить · Z или Backspace — отменить · R — заново · на телефоне свайпы или кнопки</div>
+  </div>
+</div>
+
+<div class="screen" id="levels" hidden>
+  <div class="box">
+    <div class="eyebrow">Уровни</div>
+    <div class="grid" id="grid"></div>
+    <button class="ghost" type="button" id="levelsBack">Назад</button>
+  </div>
+</div>
+
+<div class="screen" id="pause" hidden>
+  <div class="box">
+    <div class="eyebrow" id="pauseTitle">Уровень 1</div>
+    <p id="pauseText">Лучшее решение — за 0 ходов.</p>
+    <button class="play" id="resume" type="button">Продолжить ↗</button>
+    <button class="ghost" type="button" id="pauseRestart">Начать заново</button>
+    <button class="ghost" type="button" id="pauseLevels">Все уровни</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+  </div>
+</div>
+
+<div class="screen" id="win" hidden>
+  <div class="box">
+    <div class="eyebrow" id="winTitle">Уровень пройден!</div>
+    <div class="stars" id="winStars">★★★</div>
+    <div class="big" id="winPts">+300</div>
+    <p id="winText"></p>
+    <p>Пройдено: <b id="doneWin">0</b> из 20 · всего очков: <b id="scoreWin">0</b></p>
+    <button class="play" id="next" type="button">Следующий уровень ↗</button>
+    <button class="ghost" type="button" id="winRetry">Пройти короче</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  // Все уровни проверены решателем: второе число — кратчайшее решение в ходах.
+  const LEVELS = [[["#####", "#@$.#", "#####"], 1], [["######", "#    #", "#@$$.#", "#   .#", "######"], 9], [["#######", "#.    #", "# ##@ #", "# # $ #", "## .$ #", " ######"], 11], [["#######", "#  #  #", "# $# .#", "#@    #", "## *  #", " ######"], 12], [["  ####", "###  #", "#. $ #", "#..$ ##", "# $   #", "#  @  #", "#######"], 14], [["########", "# .    #", "#   #  #", "#   # ##", "###  $##", "#.   $@#", "########"], 15], [["#######", "#.  # #", "# $   #", "#.$#@ #", "#     #", "#######"], 18], [["#######", "# .  @#", "### $ ##", "#   ## #", "# $    #", "#   .  #", "########"], 18], [["########", "#    . #", "#  $ ###", "##@  $ #", "## $.# #", "#.     #", "########"], 24], [["  ######", "###    #", "#.#    #", "#$ $ $##", "#      #", "#. .  @#", "########"], 24], [["#########", "#    @ .#", "#  $$ . #", "# #     #", "# # $   #", "#   ###.#", "##### ###"], 27], [["#########", "#@$    .#", "###    .#", "#   $## #", "#    $ ##", "#       #", "#    . ##", "########"], 28], [[" ########", " # @  . #", "## $#. $#", "#   #   #", "### $   #", " #  #  .#", " ########"], 30], [["#########", "#.    $ #", "# ### $ #", "# ###   #", "#   .  @#", "## $    #", "#  #   .#", "#########"], 31], [["########", "#      #", "# #$## #", "# . @$.#", "## ### #", " #     #", " #######"], 33], [[" ########", "## @    #", "#   $   #", "#      .#", "# .$# ###", "#   $.  #", "###. $  #", "  #######"], 33], [["#########", "#       #", "# $  .$$#", "# #  .  #", "# ##.   #", "# ##  $ #", "#@  ## .#", "#########"], 33], [[" ######", " #    #", "##$## #", "#  . @#", "# $ #.#", "#   # #", "#######"], 38], [["##########", "#.  .    #", "#$   ##  #", "#  ###   #", "#+$   . ##", "## # $#$##", " # #     #", " #########"], 38], [["##########", "#  ##    #", "#  #    ##", "#     .  #", "#   ##   #", "# $$##$. #", "#.  #+$  #", "##########"], 39]];
+  const N = LEVELS.length;
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  let save = (() => { try { const s = JSON.parse(store.get('gruzchik-save', 'null')); if (s && Array.isArray(s.best)) return s; } catch {} return { best: [], skipped: [], cur: 0 }; })();
+  const persist = () => store.set('gruzchik-save', JSON.stringify(save));
+  let muted = store.get('gruzchik-muted', '0') === '1';
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const movesWord = (n) => plural(n, 'ход', 'хода', 'ходов');
+  const pointsWord = (n) => plural(n, 'очко', 'очка', 'очков');
+
+  // Очки за уровень: 100 за решение и до 200 за краткость (кратчайшее решение — все 300).
+  const par = (i) => LEVELS[i][1];
+  const points = (i, m) => 100 + Math.round(200 * par(i) / Math.max(par(i), m));
+  const starsFor = (i, m) => m <= par(i) ? 3 : m <= Math.ceil(par(i) * 1.5) ? 2 : 1;
+  const solved = () => save.best.filter((m) => m > 0).length;
+  const totalScore = () => save.best.reduce((s, m, i) => s + (m > 0 ? points(i, m) : 0), 0);
+  const unlocked = (i) => i === 0 || save.best[i - 1] > 0 || save.skipped.includes(i - 1) || save.best[i] > 0;
+
+  // ---------- уровень ----------
+  let lvl = 0, walls, goals, inside, boxes, pl, moves, undo, W0, H0, face = 'D', state = 'start', winT = 0;
+  let disp = { x: 0, y: 0 }, boxDisp = [], walkT = 0, bump = null;
+  const key = (x, y) => y * 100 + x;
+  function load(i) {
+    lvl = i; save.cur = i; persist();
+    const rows = LEVELS[i][0]; H0 = rows.length; W0 = Math.max(...rows.map((r) => r.length));
+    walls = new Set(); goals = new Set(); boxes = [];
+    for (let y = 0; y < H0; y++) for (let x = 0; x < W0; x++) {
+      const c = rows[y][x] || ' ';
+      if (c === '#') walls.add(key(x, y));
+      if ('.*+'.includes(c)) goals.add(key(x, y));
+      if ('$*'.includes(c)) boxes.push({ x, y });
+      if ('@+'.includes(c)) pl = { x, y };
+    }
+    // пол — всё, куда можно дойти от грузчика
+    inside = new Set([key(pl.x, pl.y)]); const st = [[pl.x, pl.y]];
+    while (st.length) { const [x, y] = st.pop(); for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const k = key(x + dx, y + dy); if (!walls.has(k) && !inside.has(k) && x + dx >= 0 && y + dy >= 0 && x + dx < W0 && y + dy < H0) { inside.add(k); st.push([x + dx, y + dy]); } } }
+    moves = 0; undo = []; face = 'D'; disp = { ...pl }; boxDisp = boxes.map((b) => ({ ...b })); state = 'play';
+    for (const s of ['start', 'levels', 'pause', 'win']) $(s).hidden = true;
+    $('bar').hidden = false; $('dpad').hidden = !touchUI; resize(); updInfo();
+  }
+  const boxAt = (x, y) => boxes.findIndex((b) => b.x === x && b.y === y);
+  const DIRS = { U: [0, -1], D: [0, 1], L: [-1, 0], R: [1, 0] };
+  function step(d) {
+    if (state !== 'play') return;
+    const [dx, dy] = DIRS[d]; face = d;
+    const nx = pl.x + dx, ny = pl.y + dy;
+    if (walls.has(key(nx, ny))) { bump = { d, t: 0.15 }; sound('bump'); return; }
+    const bi = boxAt(nx, ny);
+    if (bi >= 0) {
+      const tx = nx + dx, ty = ny + dy;
+      if (walls.has(key(tx, ty)) || boxAt(tx, ty) >= 0) { bump = { d, t: 0.15 }; sound('bump'); return; }
+      undo.push({ pl: { ...pl }, boxes: boxes.map((b) => ({ ...b })), moves });
+      boxes[bi] = { x: tx, y: ty };
+      sound(goals.has(key(tx, ty)) ? 'goal' : 'push');
+    } else { undo.push({ pl: { ...pl }, boxes: boxes.map((b) => ({ ...b })), moves }); sound('step'); }
+    if (undo.length > 2000) undo.shift();
+    pl = { x: nx, y: ny }; moves++; walkT += 1; updInfo();
+    if (boxes.every((b) => goals.has(key(b.x, b.y)))) win();
+  }
+  function doUndo() { if (state !== 'play' || !undo.length) return; const u = undo.pop(); pl = u.pl; boxes = u.boxes; moves = u.moves; boxDisp = boxes.map((b, i) => boxDisp[i] || { ...b }); sound('undo'); updInfo(); }
+  function restart() { if (state === 'play' || state === 'pause' || state === 'win') load(lvl); }
+  function updInfo() { $('info').textContent = `Уровень ${lvl + 1} · ${moves} ${movesWord(moves)}`; }
+
+  function win() {
+    state = 'won'; winT = 0; sound('win');
+    const prev = save.best[lvl] || 0, better = !prev || moves < prev;
+    if (better) save.best[lvl] = moves;
+    save.skipped = save.skipped.filter((i) => i !== lvl);
+    persist();
+    lb.submit({ new_score: totalScore(), new_levels: solved() });
+    setTimeout(() => {
+      if (state !== 'won') return;
+      state = 'win';
+      const st = starsFor(lvl, moves), pts = points(lvl, moves);
+      $('winTitle').textContent = `Уровень ${lvl + 1} пройден!`;
+      $('winStars').innerHTML = '★'.repeat(st) + '<i>' + '★'.repeat(3 - st) + '</i>';
+      $('winPts').textContent = `${pts} ${pointsWord(pts)}`;
+      $('winText').innerHTML = `${moves} ${movesWord(moves)}` + (moves <= par(lvl) ? ' — <span class="new">самое короткое решение!</span>' : ` · можно за ${par(lvl)}`) + (better && prev ? '<br><span class="new">Лучше прошлого раза!</span>' : '');
+      $('doneWin').textContent = solved(); $('scoreWin').textContent = totalScore();
+      $('next').hidden = lvl >= N - 1; $('next').textContent = 'Следующий уровень ↗';
+      if (lvl >= N - 1) $('winText').innerHTML += '<br>Это был последний уровень. Ты настоящий грузчик!';
+      $('bar').hidden = true; $('dpad').hidden = true; $('win').hidden = false;
+    }, 700);
+  }
+  function openPause() {
+    if (state !== 'play') return; state = 'pause';
+    $('pauseTitle').textContent = `Уровень ${lvl + 1} из ${N}`;
+    $('pauseText').textContent = save.best[lvl] ? `Твой рекорд — ${save.best[lvl]} ${movesWord(save.best[lvl])}, самое короткое решение — ${par(lvl)}.` : `Этот уровень можно решить за ${par(lvl)} ${movesWord(par(lvl))}.`;
+    if (lvl < N - 1 && !unlocked(lvl + 1)) skip.show(); else skip.hide();
+    $('bar').hidden = true; $('dpad').hidden = true; $('pause').hidden = false;
+  }
+  function resume() { if (state !== 'pause') return; state = 'play'; $('pause').hidden = true; $('bar').hidden = false; $('dpad').hidden = !touchUI; }
+  const skip = FreasyRewards.offer({ host: '#pause .box', before: '#pauseRestart', name: 'gruzchik-skip', label: '🎬 Открыть следующий уровень за рекламу', onReward: () => {
+    if (!save.skipped.includes(lvl)) save.skipped.push(lvl); persist(); load(lvl + 1);
+  } });
+  let levelsFrom = 'start';
+  function showLevels() {
+    levelsFrom = state;
+    for (const s of ['start', 'pause', 'win']) $(s).hidden = true;
+    $('bar').hidden = true; $('dpad').hidden = true;
+    $('grid').innerHTML = LEVELS.map((_, i) => {
+      const m = save.best[i], st = m ? starsFor(i, m) : 0;
+      return `<button type="button" data-i="${i}" ${unlocked(i) ? '' : 'disabled'} class="${i === save.cur ? 'cur' : ''}">${unlocked(i) ? i + 1 : '🔒'}<small>${m ? '★'.repeat(st) + '☆'.repeat(3 - st) : save.skipped.includes(i) ? 'пропущен' : '&nbsp;'}</small></button>`;
+    }).join('');
+    $('levels').hidden = false; state = 'levels';
+  }
+  $('grid').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b && !b.disabled) { unlockAudio(); load(+b.dataset.i); } });
+  function showStart() {
+    $('doneStart').textContent = solved(); $('scoreStart').textContent = totalScore();
+    for (const s of ['levels', 'pause', 'win']) $(s).hidden = true; $('bar').hidden = true; $('dpad').hidden = true;
+    $('start').hidden = false; state = 'start';
+  }
+  function firstOpen() { let i = 0; while (i < N - 1 && (save.best[i] > 0 || save.skipped.includes(i))) i++; return i; }
+
+  // ---------- рисование ----------
+  let W = 0, H = 0, DPR = 1, T = 48, ox = 0, oy = 0, time = 0;
+  const touchUI = matchMedia('(pointer: coarse)').matches;
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1); W = innerWidth; H = innerHeight;
+    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    if (!W0) return;
+    const top = 112, bottom = touchUI ? 150 : 24;
+    T = Math.floor(Math.max(18, Math.min(72, (W - 24) / W0, (H - top - bottom) / H0)));
+    ox = Math.round((W - W0 * T) / 2); oy = Math.round(top + Math.max(0, (H - top - bottom - H0 * T) / 2));
+  }
+  const rr = (x, y, w, h, r) => { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); };
+  function drawWall(x, y) {
+    const px = ox + x * T, py = oy + y * T;
+    ctx.fillStyle = '#5b4a3a'; ctx.fillRect(px, py, T, T);
+    ctx.fillStyle = '#7a6450'; const bh = T / 3;
+    for (let r = 0; r < 3; r++) { const off = (r + x + y) % 2 ? T / 2 : 0; for (let c = -1; c < 2; c++) { const bx = px + c * T / 2 + off; const x1 = Math.max(px, bx + 1.5), x2 = Math.min(px + T, bx + T / 2 - 1.5); if (x2 > x1) ctx.fillRect(x1, py + r * bh + 1.5, x2 - x1, bh - 3); } }
+    ctx.fillStyle = '#ffffff12'; ctx.fillRect(px, py, T, 3);
+  }
+  function drawBox(x, y, on, pulse) {
+    const s = T * 0.84, px = ox + x * T + (T - s) / 2, py = oy + y * T + (T - s) / 2;
+    ctx.fillStyle = '#00000040'; rr(px + 3, py + 5, s, s, T * 0.1); ctx.fill();
+    ctx.fillStyle = on ? '#6fbf5a' : '#c98b4c'; rr(px, py, s, s, T * 0.1); ctx.fill();
+    ctx.strokeStyle = on ? '#3d7f2e' : '#8a5a2b'; ctx.lineWidth = Math.max(2, T * 0.07);
+    rr(px + T * 0.08, py + T * 0.08, s - T * 0.16, s - T * 0.16, T * 0.05); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(px + T * 0.1, py + T * 0.1); ctx.lineTo(px + s - T * 0.1, py + s - T * 0.1); ctx.moveTo(px + s - T * 0.1, py + T * 0.1); ctx.lineTo(px + T * 0.1, py + s - T * 0.1); ctx.stroke();
+    if (on) { ctx.strokeStyle = `rgba(190,255,150,${0.35 + pulse * 0.4})`; ctx.lineWidth = 2; rr(px - 2, py - 2, s + 4, s + 4, T * 0.14); ctx.stroke(); }
+  }
+  function drawWorker(x, y, walk) {
+    const cx = ox + (x + 0.5) * T, cy = oy + (y + 0.5) * T, s = T / 48;
+    const bob = Math.sin(walk * Math.PI) * 2 * s, [fx, fy] = DIRS[face];
+    ctx.fillStyle = '#00000045'; ctx.beginPath(); ctx.ellipse(cx, cy + 16 * s, 14 * s, 6 * s, 0, 0, 7); ctx.fill();
+    // ноги
+    ctx.fillStyle = '#2f3b63'; const leg = Math.sin(walk * Math.PI * 2) * 3 * s;
+    ctx.fillRect(cx - 7 * s, cy + 4 * s - bob, 5 * s, 11 * s + leg); ctx.fillRect(cx + 2 * s, cy + 4 * s - bob, 5 * s, 11 * s - leg);
+    // туловище в комбинезоне
+    ctx.fillStyle = '#ff8a2a'; rr(cx - 11 * s, cy - 10 * s - bob, 22 * s, 18 * s, 6 * s); ctx.fill();
+    ctx.fillStyle = '#3a5ba8'; ctx.fillRect(cx - 8 * s, cy - 2 * s - bob, 16 * s, 9 * s);
+    // руки тянутся в сторону взгляда
+    ctx.fillStyle = '#f2c79b'; ctx.beginPath(); ctx.arc(cx - 12 * s + fx * 6 * s, cy - 1 * s - bob + fy * 4 * s, 3.5 * s, 0, 7); ctx.arc(cx + 12 * s + fx * 6 * s, cy - 1 * s - bob + fy * 4 * s, 3.5 * s, 0, 7); ctx.fill();
+    // голова и каска
+    const hx = cx + fx * 2 * s, hy = cy - 17 * s - bob;
+    ctx.fillStyle = '#f2c79b'; ctx.beginPath(); ctx.arc(hx, hy, 9 * s, 0, 7); ctx.fill();
+    ctx.fillStyle = '#f2c230'; ctx.beginPath(); ctx.arc(hx, hy - 2 * s, 9.5 * s, Math.PI, 0); ctx.fill(); ctx.fillRect(hx - 11 * s, hy - 2.5 * s, 22 * s, 3 * s);
+    if (fy <= 0 || fx) { // лицо видно, если не идёт от нас
+      ctx.fillStyle = '#2a1d10';
+      if (fy < 0 && !fx) {} else { ctx.beginPath(); ctx.arc(hx - 3.5 * s + fx * 3 * s, hy + 2 * s, 1.5 * s, 0, 7); ctx.arc(hx + 3.5 * s + fx * 3 * s, hy + 2 * s, 1.5 * s, 0, 7); ctx.fill(); }
+    }
+    if (fy > 0) { ctx.fillStyle = '#2a1d10'; ctx.beginPath(); ctx.arc(hx - 3.5 * s, hy + 2 * s, 1.5 * s, 0, 7); ctx.arc(hx + 3.5 * s, hy + 2 * s, 1.5 * s, 0, 7); ctx.fill(); }
+  }
+  function draw(dt) {
+    ctx.fillStyle = '#1b1712'; ctx.fillRect(0, 0, W, H);
+    const vg = ctx.createRadialGradient(W / 2, H / 2, 50, W / 2, H / 2, Math.max(W, H) * 0.7); vg.addColorStop(0, '#2e271e'); vg.addColorStop(1, '#141009'); ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+    if (!W0) return;
+    // пол — доски
+    for (const k of inside) { const x = k % 100, y = Math.floor(k / 100), px = ox + x * T, py = oy + y * T;
+      ctx.fillStyle = (x + y) % 2 ? '#a98a63' : '#b39470'; ctx.fillRect(px, py, T, T);
+      ctx.fillStyle = '#00000014'; ctx.fillRect(px, py + T / 2 - 1, T, 2); ctx.fillRect(px + ((y % 2) ? T * 0.3 : T * 0.7), py, 2, T / 2); }
+    // цели
+    for (const k of goals) { const x = k % 100, y = Math.floor(k / 100), cx = ox + (x + 0.5) * T, cy = oy + (y + 0.5) * T;
+      ctx.strokeStyle = '#f2b544'; ctx.lineWidth = Math.max(2, T * 0.06); ctx.setLineDash([T * 0.12, T * 0.08]);
+      ctx.beginPath(); ctx.arc(cx, cy, T * 0.3, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = `rgba(242,181,68,${0.25 + Math.sin(time * 3 + x + y) * 0.1})`; ctx.beginPath(); ctx.arc(cx, cy, T * 0.14, 0, 7); ctx.fill(); }
+    for (const k of walls) { const x = k % 100, y = Math.floor(k / 100); let near = false;
+      for (let a = -1; a <= 1 && !near; a++) for (let b = -1; b <= 1; b++) if (inside.has(key(x + a, y + b))) { near = true; break; }
+      if (near) drawWall(x, y); }
+    // плавное движение
+    const f = Math.min(1, dt * 18);
+    disp.x += (pl.x - disp.x) * f; disp.y += (pl.y - disp.y) * f;
+    let bx = 0, by = 0; if (bump) { bump.t -= dt; const [dx, dy] = DIRS[bump.d], a = Math.sin(Math.max(0, bump.t) / 0.15 * Math.PI) * 0.12; bx = dx * a; by = dy * a; if (bump.t <= 0) bump = null; }
+    boxes.forEach((b, i) => { const d = boxDisp[i] || (boxDisp[i] = { ...b }); d.x += (b.x - d.x) * f; d.y += (b.y - d.y) * f; });
+    const order = boxes.map((b, i) => i).sort((a, b) => boxDisp[a].y - boxDisp[b].y);
+    const moving = Math.abs(pl.x - disp.x) + Math.abs(pl.y - disp.y) > 0.02;
+    let drawn = false;
+    for (const i of order) { if (!drawn && boxDisp[i].y > disp.y) { drawWorker(disp.x + bx, disp.y + by, moving ? walkT % 2 : 0); drawn = true; }
+      drawBox(boxDisp[i].x, boxDisp[i].y, goals.has(key(boxes[i].x, boxes[i].y)), (Math.sin(time * 4) + 1) / 2); }
+    if (!drawn) drawWorker(disp.x + bx, disp.y + by, moving ? walkT % 2 : 0);
+    // победа — конфетти
+    if (state === 'won') { winT += dt; for (let i = 0; i < 40; i++) { const a = i * 2.4, r = winT * 300 * (0.4 + (i % 5) / 6); ctx.fillStyle = ['#f2b544', '#6fbf5a', '#ff8a2a', '#9ad0ff'][i % 4]; ctx.globalAlpha = Math.max(0, 1 - winT / 0.8); ctx.fillRect(ox + W0 * T / 2 + Math.cos(a) * r, oy + H0 * T / 2 + Math.sin(a) * r + winT * winT * 200, 6, 6); } ctx.globalAlpha = 1; }
+  }
+
+  // ---------- звук ----------
+  let ac = null;
+  function unlockAudio() { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (ac && ac.state === 'suspended') ac.resume(); }
+  function tone(freq, dur, type = 'sine', vol = 0.12, slide = 0) {
+    if (muted || !ac) return; const t = ac.currentTime, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t); if (slide) o.frequency.exponentialRampToValueAtTime(freq * slide, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur); o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur);
+  }
+  function sound(k) {
+    if (k === 'step') tone(220, 0.05, 'triangle', 0.05);
+    else if (k === 'push') tone(110, 0.12, 'sawtooth', 0.06, 0.7);
+    else if (k === 'goal') { tone(523, 0.12, 'triangle', 0.1); setTimeout(() => tone(784, 0.16, 'triangle', 0.1), 70); }
+    else if (k === 'bump') tone(80, 0.08, 'square', 0.05);
+    else if (k === 'undo') tone(330, 0.07, 'sine', 0.06, 0.6);
+    else if (k === 'win') [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => tone(f, 0.25, 'triangle', 0.11), i * 110));
+  }
+
+  // ---------- таблица лидеров ----------
+  const lb = FreasyLeaderboard({
+    key: 'gruzchik',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Сумма очков за все пройденные уровни: чем короче решения, тем больше.', format: (v) => `${v} ${pointsWord(v)}` },
+      { id: 'levels', title: 'Уровни', column: 'best_levels', order: 'desc', note: 'Сколько уровней пройдено из 20.', format: (v) => `${v} из ${N}` },
+    ],
+    bests: () => null,
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  // ---------- управление ----------
+  const KEYS = { ArrowUp: 'U', KeyW: 'U', ArrowDown: 'D', KeyS: 'D', ArrowLeft: 'L', KeyA: 'L', ArrowRight: 'R', KeyD: 'R' };
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.target.closest && e.target.closest('input, textarea')) return;
+    if (state === 'play') {
+      if (KEYS[e.code]) { e.preventDefault(); unlockAudio(); step(KEYS[e.code]); return; }
+      if (e.code === 'KeyZ' || e.code === 'Backspace' || e.code === 'KeyU') { e.preventDefault(); doUndo(); return; }
+      if (e.code === 'KeyR') { restart(); return; }
+      if (e.code === 'Escape' || e.code === 'KeyP') { openPause(); return; }
+    } else if (state === 'pause' && e.code === 'Escape') resume();
+    else if (state === 'win' && (e.code === 'Enter' || e.code === 'Space')) { e.preventDefault(); if (lvl < N - 1) load(lvl + 1); else showLevels(); }
+    else if (state === 'start' && (e.code === 'Enter' || e.code === 'Space') && !(e.target.closest && e.target.closest('button'))) { e.preventDefault(); unlockAudio(); load(firstOpen()); }
+  });
+  // свайпы по полю
+  let sw = null;
+  cv.addEventListener('pointerdown', (e) => { unlockAudio(); sw = { x: e.clientX, y: e.clientY, id: e.pointerId }; });
+  cv.addEventListener('pointermove', (e) => {
+    if (!sw || sw.id !== e.pointerId) return; const dx = e.clientX - sw.x, dy = e.clientY - sw.y, lim = Math.max(26, T * 0.6);
+    if (Math.max(Math.abs(dx), Math.abs(dy)) > lim) { step(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'R' : 'L') : (dy > 0 ? 'D' : 'U')); sw.x = e.clientX; sw.y = e.clientY; }
+  });
+  const swEnd = () => { sw = null; }; cv.addEventListener('pointerup', swEnd); cv.addEventListener('pointercancel', swEnd);
+  // кнопки-стрелки: удержание повторяет шаг
+  document.querySelectorAll('.dpad button').forEach((b) => {
+    let rep = 0;
+    const stop = () => { clearInterval(rep); rep = 0; };
+    b.addEventListener('pointerdown', (e) => { e.preventDefault(); unlockAudio(); step(b.dataset.d); stop(); rep = setInterval(() => step(b.dataset.d), 220); });
+    b.addEventListener('pointerup', stop); b.addEventListener('pointercancel', stop); b.addEventListener('pointerleave', stop);
+  });
+  $('bUndo').addEventListener('click', doUndo);
+  $('bRestart').addEventListener('click', restart);
+  $('bMenu').addEventListener('click', openPause);
+  $('resume').addEventListener('click', resume);
+  $('pauseRestart').addEventListener('click', () => load(lvl));
+  $('pauseLevels').addEventListener('click', showLevels);
+  $('go').addEventListener('click', () => { unlockAudio(); load(firstOpen()); });
+  $('toLevels').addEventListener('click', showLevels);
+  $('levelsBack').addEventListener('click', () => { $('levels').hidden = true; if (levelsFrom === 'pause') { state = 'play'; openPause(); } else showStart(); });
+  $('next').addEventListener('click', () => { if (lvl < N - 1) load(lvl + 1); });
+  $('winRetry').addEventListener('click', () => load(lvl));
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('gruzchik-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; });
+  addEventListener('resize', resize);
+
+  let lastT = 0;
+  function frame(now) { const dt = Math.min(0.05, (now - lastT) / 1000 || 0); lastT = now; time += dt; draw(dt); requestAnimationFrame(frame); }
+  // за стартовым экраном видно текущий уровень
+  load(Math.min(save.cur || 0, N - 1)); state = 'start'; $('bar').hidden = true; $('dpad').hidden = true; showStart();
+  if (new URLSearchParams(location.search).get('test') === '1') window.__gruz = { get: () => ({ state, lvl, moves, pl, boxes, save }), step, doUndo, load, LEVELS };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../shared/chat-boot.js?v=5"></script>
+</body>
+</html>
