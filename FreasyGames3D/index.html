@@ -36,8 +36,10 @@
       box-shadow: 0 8px 26px var(--accent-shadow); transform: perspective(200px) rotateX(12deg) rotateY(-14deg); }
     .brand b { color: var(--accent-2); }
     .nav { display: flex; gap: 8px; }
+    @media (max-width: 450px) { .nav .nav-link:not(.nav-clips) { display: none; } .nav-clips span { display: none; } .topbar { gap: 8px; } .nav { gap: 6px; } .nav .nav-link { padding: 9px 11px; font-size: 12px; } }
     .nav-link { color: var(--soft); font-size: 13px; font-weight: 700; padding: 10px 15px; border: 1px solid var(--line); border-radius: 100px;
       background: var(--label-bg); backdrop-filter: blur(8px); transition: background .2s; }
+    .nav-link.nav-clips { color: #fff; border-color: transparent; background: linear-gradient(120deg, #ff2d55, #ff7a45); }
     .nav-link:hover { background: var(--hover); }
 
     .hero { min-height: calc(100vh - 84px); display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -310,7 +312,7 @@
 
     @media (max-width: 820px) {
       .soon, .features { grid-template-columns: 1fr; }
-      .nav .nav-link:not(:last-child) { display: none; }
+      .nav .nav-link:not(.nav-clips):not(:last-child) { display: none; }
     }
     @media (prefers-reduced-motion: reduce) { .cube { animation: none; } }
   </style>
@@ -322,6 +324,7 @@
   <header class="wrap topbar">
     <a class="brand" href="#"><span class="brand-icon">3D</span><span>Freasy<b>Games</b> 3D</span></a>
     <nav class="nav">
+      <a class="nav-link nav-clips" href="../clips/" aria-label="Клипы">🎬<span> Клипы</span></a>
       <a class="nav-link" href="#games">Игры</a>
       <a class="nav-link" href="#about">О сайте</a>
       <a class="nav-link" href="../">FreasyGames 2D ↗</a>
@@ -396,7 +399,7 @@
           <span class="tag live">Играть</span><h3>Кирпичики 3D</h3><p>Объёмные кирпичи на светящемся поле, мяч отбрасывает тень, камера смотрит из-за платформы. Те же уровни, бонусы и рекорды, что в 2D.</p></div>
         <div class="slot game" data-game="3d-narezka" data-tags="Аркада, Таблица лидеров"><a class="slot-link" href="narezka/" aria-label="Играть: Нарезка 3D"></a><div class="art fruit3d" aria-hidden="true"><span class="pct fruitp">Комбо ×4</span></div>
           <span class="tag live">Играть</span><h3>Нарезка 3D</h3><p>Объёмные фрукты крутятся над деревянной доской и распадаются на половинки с сочным срезом. Те же бомбы, комбо и рекорды, что в 2D.</p></div>
-        <div class="slot game" data-game="3d-kubomir" data-tags="Песочница, Онлайн"><a class="slot-link" href="../kubomir/" aria-label="Играть: Кубомир"></a><div class="art cube3d" aria-hidden="true"><span class="pct cubep">🌐 онлайн</span></div>
+        <div class="slot game" data-game="3d-kubomir" data-tags="Песочница, Онлайн"><a class="slot-link" href="kubomir/" aria-label="Играть: Кубомир"></a><div class="art cube3d" aria-hidden="true"><span class="pct cubep">🌐 онлайн</span></div>
           <span class="tag live">Играть</span><h3>Кубомир</h3><p>Бесконечный мир из кубиков: шахты, крафт, механизмы, три измерения и стражи. Сохранения и игра по сети.</p></div>
         <div class="slot game" data-game="3d-neograd" data-tags="Экшен, Онлайн"><a class="slot-link" href="../neograd/" aria-label="Играть: Неоград"></a><div class="art neo3d" aria-hidden="true"><span class="pct cubep">🌐 онлайн</span></div>
           <span class="tag live">Играть</span><h3>Неоград</h3><p>Открытый город: машины, самолёты, вертолёты, погони, задания и миникарта. Игра по сети с друзьями.</p></div>
@@ -549,7 +552,7 @@
   </script>
   <!-- FreasyChat: чат, личные сообщения, группы и голос -->
   <script src="../shared/account.js?v=6"></script>
-  <script src="../shared/site-account.js?v=3"></script>
+  <script src="../shared/site-account.js?v=4"></script>
   <script src="../shared/chat-boot.js?v=5" data-catalog></script>
 </body>
 </html>

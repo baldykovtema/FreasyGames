@@ -8,6 +8,7 @@
   const me = document.currentScript;
   // страница «Настройки» (пароль, аватарка, тема) — рядом с папкой shared/
   const SETTINGS = new URL('../settings/', me && me.src || new URL('shared/', location.href)).pathname;
+  const CLIPS = new URL('../clips/', me && me.src || new URL('shared/', location.href)).pathname;
   const params = new URLSearchParams(location.search);
   let next = params.get('next') || '';
   // возвращаемся только на свои страницы
@@ -85,7 +86,7 @@
     if (!url.pathname.startsWith(here) || url.pathname === here || /\.(apk|dmg|zip|exe)$/i.test(url.pathname)) return;
     if (url.pathname.replace(here, '').split('/').filter(Boolean).length !== 1) return;
     if (/^FreasyGames3D\/?$/i.test(url.pathname.replace(here, ''))) return; // ссылка на 3D-каталог — не игра
-    if (url.pathname === SETTINGS) return; // настройки — тоже не игра
+    if (url.pathname === SETTINGS || url.pathname === CLIPS) return; // настройки и клипы — тоже не игры
     e.preventDefault();
     openLogin(url.pathname + url.search + url.hash);
   }, true);

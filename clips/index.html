@@ -1,0 +1,789 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+<script src="../shared/session.js?v=2" data-catalog></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+<script src="../shared/theme.js?v=1"></script>
+<script src="../shared/clips.js?v=1" data-catalog></script>
+  <title>Клипы — FreasyGames</title>
+  <meta name="description" content="Клипы FreasyGames: короткие видео из игр от игроков. Смотри, ставь лайки, подписывайся и комментируй.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root { color-scheme: dark; font-family: Manrope, system-ui, sans-serif; color: var(--text);
+      --bg: #111321; --card: #1d1e31; --shot: #18192a; --offer: #28213f; --accent: #bca0ff; --accent-hi: #d3beff; --accent-2: #6fe3ff; --on-accent: #171225;
+      --accent-soft: #a98aff14; --accent-a: #b79aff80; --text: #f8f7ff; --soft: #d1cde5; --muted: #aaa8bb; --dim: #89879e; --line: #ffffff18; --line-2: #ffffff30; --hover: #ffffff14; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #000; }
+    body { overflow: hidden; min-width: 320px; }
+    a { color: inherit; text-decoration: none; }
+    button, input, textarea { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    [hidden] { display: none !important; }
+
+    /* ---------- верхняя панель ---------- */
+    .top { position: fixed; z-index: 20; top: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: max(10px, env(safe-area-inset-top)) 12px 10px; background: linear-gradient(#000a, transparent); pointer-events: none; }
+    .top > * { pointer-events: auto; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 13px; border-radius: 100px; font-size: 13px; font-weight: 800; white-space: nowrap;
+      color: #fff; background: #0008; border: 1px solid #ffffff2e; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+    .pill:hover { background: #000b; }
+    .tabs { display: flex; gap: 2px; padding: 3px; border-radius: 100px; background: #0008; border: 1px solid #ffffff2e; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+    .tab { border: 0; background: none; color: #ffffffb0; font-size: 13px; font-weight: 800; padding: 8px 12px; border-radius: 100px; white-space: nowrap; }
+    .tab[aria-selected=true] { background: #fff; color: #000; }
+    .me { width: 38px; height: 38px; border-radius: 50%; padding: 0; overflow: hidden; border: 2px solid #ffffff60; background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: var(--on-accent); font-weight: 800; font-size: 15px; display: grid; place-items: center; }
+    .me img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+    /* ---------- лента ---------- */
+    .feed { position: fixed; inset: 0; overflow-y: auto; scroll-snap-type: y mandatory; overscroll-behavior: contain; scrollbar-width: none; }
+    .feed::-webkit-scrollbar { display: none; }
+    .clip { position: relative; height: 100vh; height: 100dvh; scroll-snap-align: start; scroll-snap-stop: always; display: grid; place-items: center; overflow: hidden; background: #000; }
+    .clip .blur { position: absolute; inset: -40px; background: center / cover no-repeat; filter: blur(40px) brightness(.45); transform: scale(1.1); }
+    .frame { position: relative; overflow: hidden; background: #000; }
+    .frame video { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: fill; background: #000; }
+    .layer { position: absolute; inset: 0; pointer-events: none; }
+    .ov { position: absolute; transform: translate(-50%, -50%); font-weight: 800; line-height: 1.15; text-align: center; white-space: pre-wrap; max-width: 92%;
+      text-shadow: 0 2px 6px #000c, 0 0 2px #000; word-break: break-word; }
+    .ov.bg { background: #000b; padding: .15em .45em; border-radius: .35em; text-shadow: none; }
+    .tapzone { position: absolute; inset: 0; }
+    .paused { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 64px; color: #ffffffd0; pointer-events: none; text-shadow: 0 4px 20px #0008; }
+    .info { position: absolute; left: 0; right: 0; bottom: 0; padding: 60px 84px max(18px, env(safe-area-inset-bottom)) 16px; background: linear-gradient(transparent, #000c); color: #fff; pointer-events: none; }
+    .info > * { pointer-events: auto; }
+    .author { display: inline-flex; align-items: center; gap: 8px; font-weight: 800; font-size: 16px; background: none; border: 0; padding: 0; color: #fff; }
+    .info h2 { margin: 8px 0 4px; font-size: 17px; line-height: 1.3; letter-spacing: -.01em; }
+    .info p { margin: 0; font-size: 14px; line-height: 1.45; color: #ffffffd8; max-height: 4.4em; overflow: hidden; white-space: pre-wrap; word-break: break-word; }
+    .info p.open { max-height: none; }
+    .game { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 7px 11px; border-radius: 10px; background: #ffffff22; font-size: 13px; font-weight: 800; color: #fff; backdrop-filter: blur(6px); }
+    .game:hover { background: #ffffff38; }
+    .acts { position: absolute; right: 10px; bottom: max(110px, calc(env(safe-area-inset-bottom) + 100px)); display: flex; flex-direction: column; align-items: center; gap: 16px; z-index: 2; }
+    .act { display: flex; flex-direction: column; align-items: center; gap: 3px; border: 0; background: none; color: #fff; font-size: 12px; font-weight: 800; padding: 0; text-shadow: 0 1px 4px #000a; }
+    .act .ic { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; font-size: 24px; background: #0006; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); transition: transform .15s; }
+    .act:active .ic { transform: scale(.88); }
+    .act.liked .ic { background: #ff2d55; }
+    .ava-wrap { position: relative; margin-bottom: 8px; }
+    .ava { width: 50px; height: 50px; border-radius: 50%; border: 2px solid #fff; overflow: hidden; display: grid; place-items: center; font-weight: 800; font-size: 20px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: var(--on-accent); }
+    .ava img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .ava.sm { width: 30px; height: 30px; font-size: 13px; border-width: 1.5px; }
+    .ava.lg { width: 92px; height: 92px; font-size: 38px; border-width: 3px; }
+    .follow { position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%); width: 22px; height: 22px; border-radius: 50%; border: 0; background: #ff2d55; color: #fff; font-weight: 900; font-size: 15px; line-height: 22px; padding: 0; }
+    .follow.on { background: #fff; color: #ff2d55; font-size: 12px; }
+    .sound { position: fixed; z-index: 21; right: 12px; top: max(58px, calc(env(safe-area-inset-top) + 50px)); }
+    .empty { height: 100dvh; display: grid; place-items: center; text-align: center; padding: 30px; color: #fff; }
+    .empty > div { max-width: 380px; }
+    .empty h2 { margin: 10px 0 8px; font-size: 22px; }
+    .empty p { margin: 0 0 16px; color: #ffffffb0; line-height: 1.55; font-size: 14px; }
+    .big-ic { font-size: 54px; }
+    .heart-pop { position: absolute; font-size: 90px; pointer-events: none; animation: pop .8s ease-out forwards; z-index: 3; }
+    @keyframes pop { 0% { transform: translate(-50%, -50%) scale(.3); opacity: 0; } 25% { transform: translate(-50%, -50%) scale(1.15); opacity: 1; } 100% { transform: translate(-50%, -110%) scale(1); opacity: 0; } }
+
+    /* ---------- обычные страницы (мои записи) ---------- */
+    .page { position: fixed; inset: 0; overflow-y: auto; background: radial-gradient(circle at 50% -10%, var(--offer) 0, var(--bg) 55%); color: var(--text); padding: max(70px, calc(env(safe-area-inset-top) + 62px)) 0 40px; }
+    .wrap { width: min(980px, calc(100% - 28px)); margin-inline: auto; }
+    .page h1 { margin: 6px 0 4px; font-size: clamp(26px, 5vw, 36px); letter-spacing: -.05em; }
+    .page .sub { margin: 0 0 18px; color: var(--muted); font-size: 14px; line-height: 1.55; }
+    .page h3 { margin: 26px 0 12px; font-size: 18px; letter-spacing: -.02em; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+    .tile { position: relative; border-radius: 16px; overflow: hidden; background: var(--card); border: 1px solid var(--line); display: flex; flex-direction: column; }
+    .tile .th { position: relative; aspect-ratio: 16 / 10; background: #000 center / cover no-repeat; border: 0; padding: 0; width: 100%; display: block; }
+    .tile .th .d { position: absolute; right: 7px; bottom: 7px; background: #000b; color: #fff; font-size: 11px; font-weight: 800; padding: 3px 7px; border-radius: 6px; }
+    .tile .th .st { position: absolute; left: 7px; top: 7px; background: var(--accent); color: var(--on-accent); font-size: 11px; font-weight: 800; padding: 3px 7px; border-radius: 6px; }
+    .tile .tx { padding: 10px 11px 4px; font-size: 13px; font-weight: 800; }
+    .tile .tx small { display: block; color: var(--muted); font-weight: 600; font-size: 12px; margin-top: 2px; }
+    .tile .bt { display: flex; gap: 6px; padding: 8px 10px 11px; flex-wrap: wrap; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--line-2); background: var(--hover); color: var(--text);
+      padding: 9px 13px; border-radius: 11px; font-weight: 800; font-size: 13px; white-space: nowrap; }
+    .btn:hover { background: var(--line-2); }
+    .btn.main { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+    .btn.main:hover { background: var(--accent-hi); }
+    .btn.red { color: #ff8f9e; }
+    .btn.sm { padding: 7px 10px; font-size: 12px; border-radius: 9px; }
+    .btn[disabled] { opacity: .5; pointer-events: none; }
+    .note { border: 1px dashed var(--line-2); border-radius: 16px; padding: 20px; color: var(--soft); font-size: 14px; line-height: 1.6; text-align: center; }
+    .howto { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 8px; }
+    .howto div { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 13px; font-size: 13px; color: var(--soft); line-height: 1.5; }
+    .howto b { display: block; color: var(--text); font-size: 14px; margin-bottom: 3px; }
+
+    /* ---------- окна ---------- */
+    .modal { position: fixed; inset: 0; z-index: 50; background: #000b; backdrop-filter: blur(4px); display: grid; place-items: center; padding: 12px; color: var(--text); }
+    .sheet { width: min(980px, 100%); max-height: 100%; overflow-y: auto; background: var(--card); border: 1px solid var(--accent-a); border-radius: 22px; padding: 16px; box-shadow: 0 30px 80px #000a; }
+    .sheet-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .sheet-head b { font-size: 19px; letter-spacing: -.02em; }
+    .x { border: 0; background: var(--hover); width: 36px; height: 36px; border-radius: 50%; font-size: 20px; color: var(--text); flex: none; }
+    .ed { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(260px, 1fr); gap: 16px; align-items: start; }
+    .ed-stage { background: #000; border-radius: 14px; display: grid; place-items: center; height: min(62vh, 520px); overflow: hidden; position: relative; }
+    .ed-stage .ov { pointer-events: auto; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+    .ed-stage .ov.sel { outline: 2px dashed #fff; outline-offset: 4px; }
+    .ed-stage .layer { pointer-events: none; }
+    .ed-stage .layer .ov { pointer-events: auto; }
+    .ed-side { display: flex; flex-direction: column; gap: 12px; }
+    .fld { display: flex; flex-direction: column; gap: 5px; font-size: 13px; font-weight: 700; color: var(--soft); }
+    .fld input, .fld textarea { font-size: 15px; color: var(--text); background: var(--shot); border: 1px solid var(--line-2); border-radius: 12px; padding: 10px 12px; outline: none; resize: vertical; }
+    .fld input:focus, .fld textarea:focus { border-color: var(--accent); }
+    .fld .cnt { align-self: flex-end; font-size: 11px; color: var(--dim); font-weight: 600; }
+    .txt-box { border: 1px solid var(--line); border-radius: 14px; padding: 12px; background: var(--shot); display: flex; flex-direction: column; gap: 10px; }
+    .txt-box .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .sw { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--line-2); padding: 0; }
+    .sw[aria-pressed=true] { outline: 3px solid var(--accent); outline-offset: 1px; }
+    .rng { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; color: var(--soft); }
+    .rng input { flex: 1; accent-color: var(--accent); }
+    .chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: var(--soft); }
+    .msg { min-height: 18px; font-size: 13px; font-weight: 700; color: var(--accent-2); }
+    .msg.err { color: #ff8f9e; }
+    .progress { height: 8px; border-radius: 4px; background: var(--hover); overflow: hidden; }
+    .progress i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .2s; }
+    .hint { font-size: 12px; color: var(--dim); line-height: 1.5; }
+
+    /* нижние шторки: комментарии и профиль */
+    .drawer { position: fixed; inset: 0; z-index: 40; background: #0007; display: flex; align-items: flex-end; justify-content: center; color: var(--text); }
+    .drawer-box { width: min(560px, 100%); height: min(72vh, 640px); background: var(--card); border-radius: 22px 22px 0 0; display: flex; flex-direction: column; box-shadow: 0 -20px 60px #0009;
+      padding-bottom: env(safe-area-inset-bottom); animation: up .22s ease-out; }
+    @keyframes up { from { transform: translateY(40%); opacity: .4; } }
+    .drawer-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px 10px; border-bottom: 1px solid var(--line); font-weight: 800; }
+    .drawer-body { flex: 1; overflow-y: auto; padding: 8px 16px; }
+    .cm { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+    .cm .who { font-size: 12px; font-weight: 800; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+    .cm .who button { border: 0; background: none; color: var(--dim); font-size: 12px; padding: 0; }
+    .cm .body { font-size: 14px; line-height: 1.45; margin-top: 3px; white-space: pre-wrap; word-break: break-word; }
+    .cm-form { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); }
+    .cm-form input { flex: 1; min-width: 0; font-size: 15px; background: var(--shot); color: var(--text); border: 1px solid var(--line-2); border-radius: 100px; padding: 10px 14px; outline: none; }
+    .prof { text-align: center; padding: 14px 0 6px; }
+    .prof .ava { margin: 0 auto 8px; }
+    .prof .nm { font-size: 20px; font-weight: 800; }
+    .stats { display: flex; justify-content: center; gap: 22px; margin: 12px 0 14px; }
+    .stats div { font-size: 12px; color: var(--muted); font-weight: 700; }
+    .stats b { display: block; font-size: 18px; color: var(--text); }
+    .pgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 12px; }
+    .pgrid button { aspect-ratio: 3 / 4; border: 0; padding: 0; border-radius: 8px; background: #000 center / cover no-repeat; position: relative; }
+    .pgrid button span { position: absolute; left: 6px; bottom: 5px; color: #fff; font-size: 11px; font-weight: 800; text-shadow: 0 1px 4px #000; }
+    .toast { position: fixed; z-index: 60; left: 50%; bottom: max(24px, env(safe-area-inset-bottom)); transform: translateX(-50%); background: #fff; color: #000; font-weight: 800; font-size: 13px;
+      padding: 10px 15px; border-radius: 12px; box-shadow: 0 10px 30px #0008; max-width: calc(100% - 24px); text-align: center; }
+
+    @media (max-width: 760px) {
+      .ed { grid-template-columns: 1fr; }
+      .ed-stage { height: 46vh; }
+      .howto { grid-template-columns: 1fr; }
+      .modal { padding: 0; }
+      .sheet { border-radius: 0; height: 100%; max-height: none; border: 0; }
+    }
+    @media (max-width: 520px) {
+      .tab { padding: 8px 9px; font-size: 12px; }
+      .pill.back span { display: none; }
+      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .tile .bt .btn { flex: 1 1 auto; }
+    }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <a class="pill back" href="../" aria-label="К играм">←<span> Игры</span></a>
+    <nav class="tabs" role="tablist">
+      <button class="tab" data-view="feed" role="tab">Для тебя</button>
+      <button class="tab" data-view="following" role="tab">Подписки</button>
+      <button class="tab" data-view="mine" role="tab">Мои записи</button>
+    </nav>
+    <button class="me" id="me" type="button" aria-label="Мой профиль">👤</button>
+  </header>
+  <button class="pill sound" id="sound" type="button" aria-label="Включить звук">🔇 Звук</button>
+
+  <main class="feed" id="feed" aria-live="polite"></main>
+
+  <section class="page" id="mine" hidden>
+    <div class="wrap">
+      <h1>🎬 Мои записи</h1>
+      <p class="sub">Записи из игр хранятся на этом устройстве. Добавь текст, название и описание — и опубликуй, чтобы клип увидели все.</p>
+      <div class="howto">
+        <div><b>1. Запиши</b>В любой игре нажми кнопку «● Клип». Запись идёт до 30 секунд — или нажми ■, чтобы остановить раньше.</div>
+        <div><b>2. Подпиши</b>Здесь нажми «Опубликовать»: добавь текст прямо на видео, название и описание.</div>
+        <div><b>3. Делись</b>Клип появится в ленте: его посмотрят, лайкнут, прокомментируют и подпишутся на тебя.</div>
+      </div>
+      <h3>Записи на этом устройстве</h3>
+      <div class="grid" id="local"></div>
+      <h3>Опубликованные клипы</h3>
+      <div class="grid" id="published"></div>
+    </div>
+  </section>
+
+  <!-- редактор публикации -->
+  <div class="modal" id="editor" hidden>
+    <div class="sheet" role="dialog" aria-label="Публикация клипа">
+      <div class="sheet-head"><b>Публикация клипа</b><button class="x" data-close type="button" aria-label="Закрыть">×</button></div>
+      <div class="ed">
+        <div>
+          <div class="ed-stage" id="ed-stage"></div>
+          <div class="hint" style="margin-top:8px">Нажми «＋ Текст», потом перетаскивай надпись пальцем или мышкой прямо по видео.</div>
+        </div>
+        <div class="ed-side">
+          <div class="txt-box">
+            <div class="row"><button class="btn main sm" id="t-add" type="button">＋ Текст</button><button class="btn red sm" id="t-del" type="button">✕ Удалить надпись</button></div>
+            <div id="t-edit">
+              <div class="fld"><input id="t-text" maxlength="80" placeholder="Текст на видео"></div>
+              <div class="row" id="t-colors" style="margin-top:8px"></div>
+              <div class="rng" style="margin-top:8px">Размер <input type="range" id="t-size" min="3" max="16" step="0.5"></div>
+              <label class="chk" style="margin-top:6px"><input type="checkbox" id="t-bg"> Подложка под текстом</label>
+            </div>
+          </div>
+          <label class="fld">Название<input id="e-title" maxlength="80" placeholder="Например: Рекорд в Прыгуне!"><span class="cnt" id="e-title-c">0/80</span></label>
+          <label class="fld">Описание<textarea id="e-desc" maxlength="500" rows="3" placeholder="Расскажи, что происходит в клипе"></textarea><span class="cnt" id="e-desc-c">0/500</span></label>
+          <div class="progress" id="e-prog" hidden><i></i></div>
+          <div class="msg" id="e-msg"></div>
+          <button class="btn main" id="e-publish" type="button">🚀 Опубликовать</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- комментарии -->
+  <div class="drawer" id="comments" hidden>
+    <div class="drawer-box" role="dialog" aria-label="Комментарии">
+      <div class="drawer-head"><span id="cm-title">Комментарии</span><button class="x" data-close type="button" aria-label="Закрыть">×</button></div>
+      <div class="drawer-body" id="cm-list"></div>
+      <form class="cm-form" id="cm-form"><input id="cm-input" maxlength="300" placeholder="Напиши комментарий…" autocomplete="off"><button class="btn main" type="submit">➤</button></form>
+    </div>
+  </div>
+
+  <!-- профиль автора -->
+  <div class="drawer" id="profile" hidden>
+    <div class="drawer-box" role="dialog" aria-label="Профиль">
+      <div class="drawer-head"><span>Профиль</span><button class="x" data-close type="button" aria-label="Закрыть">×</button></div>
+      <div class="drawer-body">
+        <div class="prof">
+          <div class="ava lg" id="pf-ava"></div>
+          <div class="nm" id="pf-name"></div>
+          <div class="stats"><div><b id="pf-followers">0</b>подписчиков</div><div><b id="pf-following">0</b>подписок</div><div><b id="pf-likes">0</b>лайков</div></div>
+          <div style="display:flex;gap:8px;justify-content:center"><button class="btn main" id="pf-follow" type="button">Подписаться</button><button class="btn" id="pf-watch" type="button">▶ Смотреть все</button></div>
+        </div>
+        <div class="pgrid" id="pf-grid"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="../shared/account.js?v=6"></script>
+  <script>
+  (() => {
+    const SB_URL = 'https://ywqxrbmgmvpbeytxjkpi.supabase.co', SB_KEY = 'sb_publishable_igyJK68YpyJYo-0KNrVZPA_rm6_gIRg';
+    const S = window.FreasySession, store = window.FreasyClips.store;
+    const $ = (s, el = document) => el.querySelector(s);
+    const acc = window.FreasyAccount({ sessionKey: 'freasy-session', onChange: () => { renderMe(); loadFollows().then(refreshVisibleState); if (view === 'mine') renderMine(); } });
+    const api = (path, o) => acc.fetch(path, o);
+    const pub = (p) => SB_URL + '/storage/v1/object/public/clips/' + p.split('/').map(encodeURIComponent).join('/');
+    const uid = () => { const s = S.get(); return s && s.user.id; };
+    const okAva = (a) => typeof a === 'string' && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(a) ? a : null;
+    const okGameUrl = (u) => typeof u === 'string' && /^[A-Za-z0-9_\-]+(\/[A-Za-z0-9_\-]+)*\/?$/.test(u) ? u : null;
+    const num = (n) => n >= 1e6 ? (n / 1e6).toFixed(1).replace('.0', '') + ' млн' : n >= 1e4 ? Math.round(n / 1e3) + ' тыс' : n >= 1e3 ? (n / 1e3).toFixed(1).replace('.0', '') + ' тыс' : String(n || 0);
+    const ago = (t) => { const s = (Date.now() - new Date(t).getTime()) / 1000; if (s < 60) return 'только что'; if (s < 3600) return Math.floor(s / 60) + ' мин назад'; if (s < 86400) return Math.floor(s / 3600) + ' ч назад'; if (s < 2592000) return Math.floor(s / 86400) + ' дн назад'; return new Date(t).toLocaleDateString('ru-RU'); };
+    const fmtDur = (d) => '0:' + String(Math.round(d)).padStart(2, '0');
+    function avaEl(cls, name, avatar) {
+      const d = document.createElement('div'); d.className = 'ava ' + (cls || '');
+      const a = okAva(avatar);
+      if (a) { const i = new Image(); i.src = a; i.alt = ''; d.appendChild(i); } else d.textContent = (name || '?')[0].toUpperCase();
+      return d;
+    }
+    let toastT = 0;
+    function toast(t) { let el = $('#toast'); if (!el) { el = document.createElement('div'); el.id = 'toast'; el.className = 'toast'; el.setAttribute('role', 'status'); document.body.appendChild(el); } el.textContent = t; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => (el.hidden = true), 2800); }
+    const needLogin = (why) => { if (uid()) return false; toast(why || 'Войди в аккаунт FreasyGames'); acc.open(); return true; };
+
+    // ---------- моя кнопка ----------
+    function renderMe() {
+      const b = $('#me'), s = S.get(), name = S.username();
+      b.textContent = '';
+      const a = s && okAva(s.user.user_metadata && s.user.user_metadata.avatar);
+      if (a) { const i = new Image(); i.src = a; i.alt = ''; b.appendChild(i); } else b.textContent = name ? name[0].toUpperCase() : '👤';
+      b.setAttribute('aria-label', name ? 'Мой профиль: ' + name : 'Войти');
+    }
+    $('#me').addEventListener('click', () => { const s = S.get(); if (!s) return acc.open(); openProfile(s.user.id, S.username(), s.user.user_metadata && s.user.user_metadata.avatar); });
+    renderMe();
+
+    // ---------- подписки и лайки ----------
+    let follows = new Set();
+    async function loadFollows() {
+      follows = new Set();
+      if (!uid()) return;
+      try { (await api(`/rest/v1/clip_follows?select=followee&follower=eq.${uid()}&limit=1000`)).forEach((r) => follows.add(r.followee)); } catch {}
+    }
+    const liked = new Set();
+    async function loadLiked(ids) {
+      if (!uid() || !ids.length) return;
+      try { (await api(`/rest/v1/clip_likes?select=clip_id&user_id=eq.${uid()}&clip_id=in.(${ids.join(',')})`)).forEach((r) => liked.add(r.clip_id)); } catch {}
+    }
+    async function toggleLike(c, card) {
+      if (needLogin('Войди, чтобы ставить лайки')) return;
+      const on = !liked.has(c.id);
+      on ? liked.add(c.id) : liked.delete(c.id); c.likes = Math.max(0, c.likes + (on ? 1 : -1)); paintActs(card, c);
+      try {
+        if (on) await api('/rest/v1/clip_likes', { method: 'POST', body: { clip_id: c.id }, headers: { Prefer: 'return=minimal,resolution=ignore-duplicates' } });
+        else await api(`/rest/v1/clip_likes?clip_id=eq.${c.id}&user_id=eq.${uid()}`, { method: 'DELETE' });
+      } catch (e) { on ? liked.delete(c.id) : liked.add(c.id); c.likes = Math.max(0, c.likes + (on ? -1 : 1)); paintActs(card, c); toast(e.message); }
+    }
+    async function toggleFollow(userId) {
+      if (needLogin('Войди, чтобы подписываться')) return;
+      if (userId === uid()) return toast('Это ты 🙂');
+      const on = !follows.has(userId);
+      on ? follows.add(userId) : follows.delete(userId); refreshVisibleState();
+      try {
+        if (on) await api('/rest/v1/clip_follows', { method: 'POST', body: { followee: userId }, headers: { Prefer: 'return=minimal,resolution=ignore-duplicates' } });
+        else await api(`/rest/v1/clip_follows?follower=eq.${uid()}&followee=eq.${userId}`, { method: 'DELETE' });
+        toast(on ? 'Ты подписался ✓' : 'Подписка отменена');
+      } catch (e) { on ? follows.delete(userId) : follows.add(userId); refreshVisibleState(); toast(e.message); }
+      return follows.has(userId);
+    }
+
+    // ================= ЛЕНТА =================
+    const feed = $('#feed');
+    let view = 'feed', source = { kind: 'all' }, list = [], loading = false, ended = false, muted = true;
+    const SEL = 'id,user_id,username,avatar,game,game_title,game_url,title,description,overlay,video_path,thumb_path,duration,likes,comments,created_at';
+
+    async function fetchPage() {
+      const off = list.length, lim = 8;
+      let q = `/rest/v1/clips?select=${SEL}&order=created_at.desc&limit=${lim}&offset=${off}`;
+      if (source.kind === 'user') q += `&user_id=eq.${source.user}`;
+      if (source.kind === 'following') {
+        if (!follows.size) return [];
+        q += `&user_id=in.(${[...follows].join(',')})`;
+      }
+      return api(q);
+    }
+    async function more() {
+      if (loading || ended) return;
+      loading = true;
+      try {
+        let rows = await fetchPage();
+        rows = rows.filter((r) => !list.some((x) => x.id === r.id));
+        if (rows.length < 8) ended = true;
+        await loadLiked(rows.map((r) => r.id));
+        for (const c of rows) { list.push(c); feed.appendChild(card(c)); }
+        if (!list.length) showEmpty();
+      } catch (e) { if (!list.length) showEmpty(e.message); else toast(e.message); ended = true; }
+      loading = false;
+    }
+    function showEmpty(err) {
+      feed.innerHTML = '';
+      const d = document.createElement('div'); d.className = 'empty';
+      const box = document.createElement('div');
+      const t = source.kind === 'following'
+        ? (uid() ? ['👥', 'Пока пусто', 'Подпишись на игроков в ленте «Для тебя» — их новые клипы появятся здесь.'] : ['👥', 'Подписки', 'Войди в аккаунт, чтобы видеть клипы тех, на кого подписан.'])
+        : err ? ['⚠️', 'Клипы не загрузились', err] : ['🎬', 'Клипов пока нет', 'Стань первым! Открой любую игру, нажми «● Клип», а потом опубликуй запись в «Мои записи».'];
+      box.innerHTML = `<div class="big-ic"></div><h2></h2><p></p>`;
+      box.querySelector('.big-ic').textContent = t[0]; box.querySelector('h2').textContent = t[1]; box.querySelector('p').textContent = t[2];
+      const b = document.createElement('button'); b.className = 'btn main';
+      if (source.kind === 'following' && !uid()) { b.textContent = '👤 Войти'; b.onclick = () => acc.open(); }
+      else { b.textContent = '🎮 Записать клип в игре'; b.onclick = () => (location.href = '../#games'); }
+      box.appendChild(b); d.appendChild(box); feed.appendChild(d);
+    }
+
+    function card(c) {
+      const el = document.createElement('section'); el.className = 'clip'; el.dataset.id = c.id;
+      const thumb = c.thumb_path ? pub(c.thumb_path) : '';
+      el.innerHTML = `<div class="blur"></div><div class="frame"><video playsinline loop preload="none" muted></video><div class="layer"></div><div class="tapzone"></div><div class="paused" hidden>▶</div></div>
+        <div class="acts"><div class="ava-wrap"><button class="act" data-a="author" aria-label="Профиль автора"></button><button class="follow" data-a="follow" type="button" aria-label="Подписаться">+</button></div>
+          <button class="act" data-a="like" type="button"><span class="ic">❤</span><span class="n"></span></button>
+          <button class="act" data-a="comments" type="button"><span class="ic">💬</span><span class="n"></span></button>
+          <button class="act" data-a="share" type="button"><span class="ic">↗</span><span>Поделиться</span></button></div>
+        <div class="info"><button class="author" data-a="author" type="button"></button><h2></h2><p></p></div>`;
+      if (thumb) { el.querySelector('.blur').style.backgroundImage = `url("${thumb}")`; el.querySelector('video').poster = thumb; }
+      const v = el.querySelector('video'); v.src = pub(c.video_path); v.muted = muted;
+      v.addEventListener('loadedmetadata', () => fit(el));
+      el.querySelector('[data-a=author]').appendChild(avaEl('', c.username, c.avatar));
+      $('.author', el).textContent = '@' + c.username;
+      $('h2', el).textContent = c.title;
+      const p = $('p', el); p.textContent = c.description; p.hidden = !c.description; p.addEventListener('click', () => p.classList.toggle('open'));
+      const gu = okGameUrl(c.game_url);
+      if (gu) { const a = document.createElement('a'); a.className = 'game'; a.href = '../' + gu; a.textContent = '🎮 ' + (c.game_title || 'Игра') + ' — играть'; $('.info', el).appendChild(a); }
+      drawOverlay($('.layer', el), c.overlay);
+      paintActs(el, c);
+      // одно касание — пауза, двойное — лайк
+      let lastTap = 0, tapT = 0;
+      $('.tapzone', el).addEventListener('click', (e) => {
+        const now = Date.now();
+        if (now - lastTap < 300) { clearTimeout(tapT); if (!liked.has(c.id)) toggleLike(c, el); heart(el, e); lastTap = 0; return; }
+        lastTap = now;
+        tapT = setTimeout(() => { if (v.paused) { v.play().catch(() => {}); } else v.pause(); $('.paused', el).hidden = !v.paused; }, 260);
+      });
+      el.addEventListener('click', (e) => {
+        const a = e.target.closest('[data-a]'); if (!a) return;
+        const k = a.dataset.a;
+        if (k === 'like') toggleLike(c, el);
+        else if (k === 'follow') toggleFollow(c.user_id);
+        else if (k === 'comments') openComments(c, el);
+        else if (k === 'author') openProfile(c.user_id, c.username, c.avatar);
+        else if (k === 'share') share(c);
+      });
+      requestAnimationFrame(() => fit(el));
+      io.observe(el);
+      return el;
+    }
+    function paintActs(el, c) {
+      const like = $('[data-a=like]', el);
+      like.classList.toggle('liked', liked.has(c.id)); $('.n', like).textContent = num(c.likes);
+      like.setAttribute('aria-label', (liked.has(c.id) ? 'Убрать лайк' : 'Лайк') + ', ' + c.likes);
+      $('[data-a=comments] .n', el).textContent = num(c.comments);
+      const f = $('[data-a=follow]', el), mine = c.user_id === uid(), on = follows.has(c.user_id);
+      f.hidden = mine; f.classList.toggle('on', on); f.textContent = on ? '✓' : '+'; f.setAttribute('aria-label', on ? 'Отписаться' : 'Подписаться');
+    }
+    function refreshVisibleState() { feed.querySelectorAll('.clip').forEach((el) => { const c = list.find((x) => x.id === el.dataset.id); if (c) paintActs(el, c); }); if (!$('#profile').hidden && profileUser) paintFollowBtn(); }
+    function heart(el, e) {
+      const h = document.createElement('div'); h.className = 'heart-pop'; h.textContent = '❤️';
+      const r = el.getBoundingClientRect(); h.style.left = (e.clientX - r.left) + 'px'; h.style.top = (e.clientY - r.top) + 'px';
+      el.appendChild(h); setTimeout(() => h.remove(), 850);
+    }
+    // рамка видео = размер самого видео, вписанного в экран; надписи кладутся поверх неё
+    function fit(el, stage) {
+      const frame = $('.frame', el), v = $('video', el);
+      const box = stage || el;
+      const W = box.clientWidth, H = box.clientHeight;
+      const ar = v.videoWidth && v.videoHeight ? v.videoWidth / v.videoHeight : 16 / 9;
+      let w = W, h = W / ar; if (h > H) { h = H; w = H * ar; }
+      frame.style.width = Math.round(w) + 'px'; frame.style.height = Math.round(h) + 'px';
+      frame.style.setProperty('--fh', h + 'px');
+      frame.querySelectorAll('.ov').forEach((o) => (o.style.fontSize = (parseFloat(o.dataset.s) / 100 * h) + 'px'));
+    }
+    function drawOverlay(layer, items) {
+      layer.innerHTML = '';
+      (Array.isArray(items) ? items : []).slice(0, 6).forEach((t) => layer.appendChild(ovEl(t)));
+    }
+    const COLORS = ['#ffffff', '#000000', '#ffd23f', '#ff4d6d', '#7ed957', '#4fd1ff', '#bca0ff', '#ff9f1c'];
+    function ovEl(t) {
+      const d = document.createElement('div'); d.className = 'ov' + (t.bg ? ' bg' : '');
+      d.textContent = String(t.t || '').slice(0, 80);
+      d.style.left = (Math.max(0, Math.min(1, +t.x || 0.5)) * 100) + '%'; d.style.top = (Math.max(0, Math.min(1, +t.y || 0.5)) * 100) + '%';
+      d.style.color = /^#[0-9a-f]{6}$/i.test(t.c) ? t.c : '#ffffff';
+      d.dataset.s = Math.max(3, Math.min(16, +t.s || 7));
+      return d;
+    }
+    addEventListener('resize', () => { feed.querySelectorAll('.clip').forEach((el) => fit(el)); if (!$('#editor').hidden) edFit(); });
+
+    // играет только клип на экране; соседние заранее подгружаются
+    let active = null;
+    const io = new IntersectionObserver((ents) => {
+      for (const en of ents) {
+        const v = $('video', en.target);
+        if (en.isIntersecting && en.intersectionRatio > 0.6) {
+          active = en.target; v.muted = muted; v.preload = 'auto';
+          v.play().then(() => { $('.paused', en.target).hidden = true; }).catch(() => { $('.paused', en.target).hidden = false; });
+          const nx = en.target.nextElementSibling; if (nx && nx.querySelector('video')) nx.querySelector('video').preload = 'auto';
+          if (list.length && en.target === feed.lastElementChild.previousElementSibling || en.target === feed.lastElementChild) more();
+          history.replaceState(null, '', '#c=' + en.target.dataset.id + (source.kind === 'user' ? '&u=' + source.user : source.kind === 'following' ? '&f=1' : ''));
+        } else { v.pause(); }
+      }
+    }, { root: feed, threshold: [0, 0.6, 1] });
+
+    $('#sound').addEventListener('click', () => {
+      muted = !muted;
+      feed.querySelectorAll('video').forEach((v) => (v.muted = muted));
+      if (!muted && active) $('video', active).play().catch(() => {});
+      paintSound();
+    });
+    function paintSound() { $('#sound').textContent = muted ? '🔇 Звук' : '🔊 Звук'; $('#sound').setAttribute('aria-label', muted ? 'Включить звук' : 'Выключить звук'); }
+    addEventListener('keydown', (e) => {
+      if (view === 'mine' || !$('#editor').hidden || !$('#comments').hidden || /input|textarea/i.test(document.activeElement.tagName)) return;
+      if (e.key === 'ArrowDown' || e.key === 'j') { e.preventDefault(); feed.scrollBy({ top: feed.clientHeight, behavior: 'smooth' }); }
+      if (e.key === 'ArrowUp' || e.key === 'k') { e.preventDefault(); feed.scrollBy({ top: -feed.clientHeight, behavior: 'smooth' }); }
+      if (e.key === ' ' && active) { e.preventDefault(); const v = $('video', active); v.paused ? v.play().catch(() => {}) : v.pause(); $('.paused', active).hidden = !v.paused; }
+      if (e.key === 'm') $('#sound').click();
+    });
+
+    async function share(c) {
+      const url = location.origin + location.pathname + '#c=' + c.id;
+      try { if (navigator.share) { await navigator.share({ title: c.title + ' — Клипы FreasyGames', url }); return; } } catch { return; }
+      try { await navigator.clipboard.writeText(url); toast('Ссылка на клип скопирована'); } catch { prompt('Ссылка на клип:', url); }
+    }
+
+    async function startFeed(src, firstId) {
+      source = src; list = []; ended = false; feed.innerHTML = ''; feed.scrollTop = 0;
+      if (firstId) {
+        try {
+          const r = await api(`/rest/v1/clips?select=${SEL}&id=eq.${encodeURIComponent(firstId)}`);
+          if (r[0]) { await loadLiked([r[0].id]); list.push(r[0]); feed.appendChild(card(r[0])); }
+        } catch {}
+      }
+      await more();
+    }
+
+    // ================= КОММЕНТАРИИ =================
+    let cmClip = null, cmCard = null;
+    async function openComments(c, el) {
+      cmClip = c; cmCard = el;
+      $('#cm-title').textContent = 'Комментарии · ' + num(c.comments);
+      $('#comments').hidden = false;
+      const listEl = $('#cm-list'); listEl.innerHTML = '<div class="hint" style="padding:16px 0">Загружаем…</div>';
+      try {
+        const rows = await api(`/rest/v1/clip_comments?select=id,user_id,username,body,created_at&clip_id=eq.${c.id}&order=created_at.asc&limit=300`);
+        listEl.innerHTML = '';
+        if (!rows.length) listEl.innerHTML = '<div class="hint" style="padding:22px 0;text-align:center">Комментариев пока нет — напиши первым!</div>';
+        rows.forEach((r) => listEl.appendChild(cmEl(r)));
+        listEl.scrollTop = listEl.scrollHeight;
+      } catch (e) { listEl.innerHTML = ''; const d = document.createElement('div'); d.className = 'hint'; d.textContent = e.message; listEl.appendChild(d); }
+    }
+    function cmEl(r) {
+      const d = document.createElement('div'); d.className = 'cm';
+      d.appendChild(avaEl('sm', r.username, null));
+      const b = document.createElement('div'); b.style.minWidth = '0'; b.style.flex = '1';
+      b.innerHTML = '<div class="who"><span></span><span></span></div><div class="body"></div>';
+      const who = b.querySelectorAll('.who span'); who[0].textContent = r.username; who[1].textContent = ago(r.created_at);
+      $('.body', b).textContent = r.body;
+      if (uid() && (r.user_id === uid() || cmClip && cmClip.user_id === uid())) {
+        const x = document.createElement('button'); x.type = 'button'; x.textContent = 'удалить';
+        x.onclick = async () => { try { await api(`/rest/v1/clip_comments?id=eq.${r.id}`, { method: 'DELETE' }); d.remove(); cmClip.comments = Math.max(0, cmClip.comments - 1); if (cmCard) paintActs(cmCard, cmClip); } catch (e) { toast(e.message); } };
+        $('.who', b).appendChild(x);
+      }
+      d.appendChild(b); return d;
+    }
+    $('#cm-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const inp = $('#cm-input'), body = inp.value.trim();
+      if (!body || !cmClip) return;
+      if (needLogin('Войди, чтобы комментировать')) return;
+      inp.disabled = true;
+      try {
+        const [r] = await api('/rest/v1/clip_comments?select=id,user_id,username,body,created_at', { method: 'POST', body: { clip_id: cmClip.id, body }, headers: { Prefer: 'return=representation' } });
+        const listEl = $('#cm-list'); if (listEl.querySelector('.hint')) listEl.innerHTML = '';
+        listEl.appendChild(cmEl(r)); listEl.scrollTop = listEl.scrollHeight; inp.value = '';
+        cmClip.comments++; if (cmCard) paintActs(cmCard, cmClip); $('#cm-title').textContent = 'Комментарии · ' + num(cmClip.comments);
+      } catch (err) { toast(/rate limit/i.test(err.message) ? 'Слишком часто, подожди немного' : err.message); }
+      inp.disabled = false; inp.focus();
+    });
+
+    // ================= ПРОФИЛЬ =================
+    let profileUser = null;
+    function paintFollowBtn() {
+      const b = $('#pf-follow'), on = follows.has(profileUser);
+      b.hidden = profileUser === uid(); b.textContent = on ? '✓ Ты подписан' : 'Подписаться'; b.classList.toggle('main', !on);
+    }
+    async function openProfile(userId, name, avatar) {
+      profileUser = userId;
+      $('#profile').hidden = false;
+      const a = $('#pf-ava'); a.replaceWith(Object.assign(avaEl('lg', name, avatar), { id: 'pf-ava' }));
+      $('#pf-name').textContent = '@' + (name || 'Игрок');
+      ['#pf-followers', '#pf-following', '#pf-likes'].forEach((s) => ($(s).textContent = '…'));
+      paintFollowBtn();
+      const grid = $('#pf-grid'); grid.innerHTML = '';
+      try {
+        const st = await api('/rest/v1/rpc/clip_profile', { method: 'POST', body: { uid: userId } });
+        $('#pf-followers').textContent = num(st.followers); $('#pf-following').textContent = num(st.following); $('#pf-likes').textContent = num(st.likes);
+        const rows = await api(`/rest/v1/clips?select=id,title,thumb_path,likes&user_id=eq.${userId}&order=created_at.desc&limit=60`);
+        if (!rows.length) grid.innerHTML = '<div class="hint" style="grid-column:1/-1;text-align:center;padding:16px">Клипов пока нет</div>';
+        rows.forEach((r) => {
+          const b = document.createElement('button'); b.type = 'button'; b.title = r.title;
+          if (r.thumb_path) b.style.backgroundImage = `url("${pub(r.thumb_path)}")`;
+          const s = document.createElement('span'); s.textContent = '❤ ' + num(r.likes); b.appendChild(s);
+          b.onclick = () => { $('#profile').hidden = true; setView('feed', { kind: 'user', user: userId }, r.id); };
+          grid.appendChild(b);
+        });
+      } catch (e) { grid.innerHTML = ''; const d = document.createElement('div'); d.className = 'hint'; d.style.gridColumn = '1/-1'; d.textContent = e.message; grid.appendChild(d); }
+    }
+    $('#pf-follow').addEventListener('click', async () => { const was = follows.has(profileUser); await toggleFollow(profileUser); paintFollowBtn(); const n = $('#pf-followers'); if (/^\d+$/.test(n.textContent)) n.textContent = Math.max(0, +n.textContent + (follows.has(profileUser) === was ? 0 : was ? -1 : 1)); });
+    $('#pf-watch').addEventListener('click', () => { $('#profile').hidden = true; setView('feed', { kind: 'user', user: profileUser }); });
+
+    document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { b.closest('.modal, .drawer').hidden = true; if (b.closest('#editor')) closeEditor(); }));
+    document.querySelectorAll('.drawer').forEach((d) => d.addEventListener('click', (e) => { if (e.target === d) d.hidden = true; }));
+    addEventListener('keydown', (e) => { if (e.key === 'Escape') { $('#comments').hidden = $('#profile').hidden = true; if (!$('#editor').hidden) closeEditor(); } });
+
+    // ================= МОИ ЗАПИСИ =================
+    const urls = [];
+    async function renderMine() {
+      urls.splice(0).forEach((u) => URL.revokeObjectURL(u));
+      const local = $('#local'); local.innerHTML = '';
+      let recs = [];
+      try { recs = await store.all(); } catch {}
+      if (!recs.length) local.innerHTML = '<div class="note" style="grid-column:1/-1">Записей пока нет. Открой любую игру и нажми кнопку <b>● Клип</b> — запись появится здесь.</div>';
+      for (const r of recs) {
+        const t = document.createElement('div'); t.className = 'tile';
+        t.innerHTML = `<button class="th" type="button" aria-label="Посмотреть запись"><span class="d"></span></button><div class="tx"><span></span><small></small></div><div class="bt"></div>`;
+        if (r.thumb) $('.th', t).style.backgroundImage = `url("${r.thumb}")`;
+        $('.d', t).textContent = fmtDur(r.dur);
+        if (r.published) { const s = document.createElement('span'); s.className = 'st'; s.textContent = 'Опубликован'; $('.th', t).appendChild(s); }
+        $('.tx span', t).textContent = r.gameTitle || 'Игра';
+        $('.tx small', t).textContent = new Date(r.created).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + ' · ' + Math.round(r.blob.size / 1e5) / 10 + ' МБ';
+        const bt = $('.bt', t);
+        const b1 = Object.assign(document.createElement('button'), { type: 'button', className: 'btn main sm', textContent: r.published ? '🚀 Ещё раз' : '🚀 Опубликовать' });
+        b1.onclick = () => openEditor(r);
+        const b2 = Object.assign(document.createElement('button'), { type: 'button', className: 'btn sm', textContent: '⬇' , title: 'Скачать' });
+        b2.setAttribute('aria-label', 'Скачать');
+        b2.onclick = () => { const u = URL.createObjectURL(r.blob); const a = document.createElement('a'); a.href = u; a.download = `klip-${r.game}-${new Date(r.created).toISOString().slice(0, 10)}.${/mp4/.test(r.type) ? 'mp4' : 'webm'}`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 3000); };
+        const b3 = Object.assign(document.createElement('button'), { type: 'button', className: 'btn red sm', textContent: '🗑', title: 'Удалить' });
+        b3.setAttribute('aria-label', 'Удалить запись');
+        b3.onclick = async () => { if (!confirm('Удалить эту запись с устройства?' + (r.published ? ' Опубликованный клип останется.' : ''))) return; await store.del(r.id); renderMine(); };
+        $('.th', t).onclick = () => openEditor(r);
+        bt.append(b1, b2, b3); local.appendChild(t);
+      }
+      renderPublished();
+    }
+    async function renderPublished() {
+      const box = $('#published'); box.innerHTML = '';
+      if (!uid()) { box.innerHTML = '<div class="note" style="grid-column:1/-1">Войди в аккаунт, чтобы публиковать клипы и видеть свои опубликованные.</div>'; return; }
+      try {
+        const rows = await api(`/rest/v1/clips?select=${SEL}&user_id=eq.${uid()}&order=created_at.desc&limit=100`);
+        if (!rows.length) { box.innerHTML = '<div class="note" style="grid-column:1/-1">Ты ещё ничего не опубликовал.</div>'; return; }
+        for (const c of rows) {
+          const t = document.createElement('div'); t.className = 'tile';
+          t.innerHTML = `<button class="th" type="button" aria-label="Смотреть клип"><span class="d"></span></button><div class="tx"><span></span><small></small></div><div class="bt"></div>`;
+          if (c.thumb_path) $('.th', t).style.backgroundImage = `url("${pub(c.thumb_path)}")`;
+          $('.d', t).textContent = fmtDur(c.duration);
+          $('.tx span', t).textContent = c.title;
+          $('.tx small', t).textContent = `❤ ${num(c.likes)} · 💬 ${num(c.comments)} · ${ago(c.created_at)}`;
+          $('.th', t).onclick = () => setView('feed', { kind: 'user', user: c.user_id }, c.id);
+          const del = Object.assign(document.createElement('button'), { type: 'button', className: 'btn red sm', textContent: '🗑 Удалить клип' });
+          del.onclick = async () => {
+            if (!confirm('Удалить клип «' + c.title + '» для всех? Лайки и комментарии тоже пропадут.')) return;
+            del.disabled = true;
+            try {
+              await api(`/rest/v1/clips?id=eq.${c.id}`, { method: 'DELETE' });
+              await storageDelete([c.video_path, c.thumb_path].filter(Boolean));
+              renderPublished(); toast('Клип удалён');
+            } catch (e) { toast(e.message); del.disabled = false; }
+          };
+          $('.bt', t).appendChild(del); box.appendChild(t);
+        }
+      } catch (e) { const d = document.createElement('div'); d.className = 'note'; d.style.gridColumn = '1/-1'; d.textContent = e.message; box.appendChild(d); }
+    }
+
+    // ---------- хранилище ----------
+    async function token() { await api('/auth/v1/user'); const s = S.get(); if (!s) throw new Error('Войди в аккаунт'); return s.access_token; }
+    function upload(path, blob, type, onProgress) {
+      return token().then((tk) => new Promise((ok, fail) => {
+        const x = new XMLHttpRequest();
+        x.open('POST', SB_URL + '/storage/v1/object/clips/' + path);
+        x.setRequestHeader('apikey', SB_KEY); x.setRequestHeader('Authorization', 'Bearer ' + tk);
+        x.setRequestHeader('Content-Type', type); x.setRequestHeader('x-upsert', 'false'); x.setRequestHeader('cache-control', '31536000');
+        if (onProgress) x.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
+        x.onload = () => {
+          if (x.status >= 200 && x.status < 300) return ok();
+          let m = ''; try { const d = JSON.parse(x.responseText); m = d.message || d.error || ''; } catch {}
+          if (/bucket not found/i.test(m)) m = 'Клипы ещё не включены на сервере';
+          else if (/exceeded|too large|maximum allowed size/i.test(m) || x.status === 413) m = 'Клип слишком большой для загрузки';
+          else if (/mime|content type/i.test(m)) m = 'Этот формат видео сервер не принимает';
+          fail(new Error(m || 'Ошибка загрузки ' + x.status));
+        };
+        x.onerror = () => fail(new Error('Нет связи с сервером. Проверь интернет'));
+        x.send(blob);
+      }));
+    }
+    async function storageDelete(paths) {
+      if (!paths.length) return;
+      const tk = await token();
+      await fetch(SB_URL + '/storage/v1/object/clips', { method: 'DELETE', headers: { apikey: SB_KEY, Authorization: 'Bearer ' + tk, 'Content-Type': 'application/json' }, body: JSON.stringify({ prefixes: paths }) }).catch(() => {});
+    }
+
+    // ================= РЕДАКТОР =================
+    let edRec = null, edUrl = null, edItems = [], edSel = -1;
+    const edStage = $('#ed-stage');
+    edStage.innerHTML = '<div class="frame"><video playsinline loop autoplay muted controls></video><div class="layer"></div></div>';
+    const edVideo = $('video', edStage), edLayer = $('.layer', edStage);
+    edVideo.addEventListener('loadedmetadata', () => edFit());
+    function edFit() { fit(edStage, edStage); }
+    const tc = $('#t-colors');
+    for (const c of COLORS) { const b = document.createElement('button'); b.type = 'button'; b.className = 'sw'; b.style.background = c; b.dataset.c = c; b.setAttribute('aria-label', 'Цвет ' + c); b.onclick = () => edSet({ c }); tc.appendChild(b); }
+
+    async function openEditor(r) {
+      if (needLogin('Войди, чтобы публиковать клипы')) return;
+      edRec = r; edItems = []; edSel = -1;
+      if (edUrl) URL.revokeObjectURL(edUrl);
+      edUrl = URL.createObjectURL(r.blob); edVideo.src = edUrl;
+      $('#e-title').value = r.draftTitle || ''; $('#e-desc').value = r.draftDesc || '';
+      if (Array.isArray(r.draftOverlay)) edItems = r.draftOverlay.map((x) => ({ ...x }));
+      counts(); edDraw(); $('#e-msg').textContent = ''; $('#e-msg').classList.remove('err'); $('#e-prog').hidden = true; $('#e-publish').disabled = false;
+      $('#editor').hidden = false; requestAnimationFrame(edFit);
+    }
+    function closeEditor() {
+      $('#editor').hidden = true; edVideo.pause();
+      if (edRec) { edRec.draftTitle = $('#e-title').value; edRec.draftDesc = $('#e-desc').value; edRec.draftOverlay = edItems; store.put(edRec).catch(() => {}); }
+    }
+    function edDraw() {
+      edLayer.innerHTML = '';
+      edItems.forEach((t, i) => {
+        const d = ovEl(t); if (i === edSel) d.classList.add('sel');
+        d.addEventListener('pointerdown', (e) => startDrag(e, i, d));
+        edLayer.appendChild(d);
+      });
+      edFit();
+      const s = edItems[edSel];
+      $('#t-edit').hidden = !s; $('#t-del').hidden = !s;
+      if (s) {
+        if (document.activeElement !== $('#t-text')) $('#t-text').value = s.t;
+        $('#t-size').value = s.s; $('#t-bg').checked = !!s.bg;
+        tc.querySelectorAll('.sw').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.c === s.c)));
+      }
+    }
+    function startDrag(e, i, d) {
+      e.preventDefault(); edSel = i;
+      edLayer.querySelectorAll('.ov').forEach((o) => o.classList.toggle('sel', o === d));
+      edDraw();
+      const el = edLayer.children[i]; el.setPointerCapture(e.pointerId);
+      const r = edLayer.getBoundingClientRect();
+      const mv = (ev) => { const t = edItems[i]; t.x = Math.max(0.02, Math.min(0.98, (ev.clientX - r.left) / r.width)); t.y = Math.max(0.03, Math.min(0.97, (ev.clientY - r.top) / r.height)); el.style.left = t.x * 100 + '%'; el.style.top = t.y * 100 + '%'; };
+      const up = () => { el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up); };
+      el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+    }
+    function edSet(p) { const s = edItems[edSel]; if (!s) return; Object.assign(s, p); edDraw(); }
+    $('#t-add').addEventListener('click', () => {
+      if (edItems.length >= 6) return toast('Не больше 6 надписей');
+      edItems.push({ t: 'Мой клип!', x: 0.5, y: 0.2 + 0.12 * (edItems.length % 5), s: 7, c: '#ffffff', bg: false });
+      edSel = edItems.length - 1; edDraw(); $('#t-text').focus(); $('#t-text').select();
+    });
+    $('#t-del').addEventListener('click', () => { if (edSel < 0) return; edItems.splice(edSel, 1); edSel = -1; edDraw(); });
+    $('#t-text').addEventListener('input', (e) => edSet({ t: e.target.value.slice(0, 80) }));
+    $('#t-size').addEventListener('input', (e) => edSet({ s: +e.target.value }));
+    $('#t-bg').addEventListener('change', (e) => edSet({ bg: e.target.checked }));
+    function counts() { $('#e-title-c').textContent = $('#e-title').value.length + '/80'; $('#e-desc-c').textContent = $('#e-desc').value.length + '/500'; }
+    $('#e-title').addEventListener('input', counts); $('#e-desc').addEventListener('input', counts);
+
+    $('#e-publish').addEventListener('click', async () => {
+      const msg = $('#e-msg'), set = (t, err) => { msg.textContent = t; msg.classList.toggle('err', !!err); };
+      const title = $('#e-title').value.trim(), description = $('#e-desc').value.trim();
+      if (!title) { set('Придумай название клипа', true); $('#e-title').focus(); return; }
+      if (needLogin('Войди, чтобы публиковать клипы')) return;
+      const r = edRec; if (!r) return;
+      if (r.blob.size > 15 * 1024 * 1024) return set('Клип больше 15 МБ — запиши покороче', true);
+      const btn = $('#e-publish'); btn.disabled = true;
+      const prog = $('#e-prog'), bar = $('i', prog); prog.hidden = false; bar.style.width = '2%';
+      try {
+        const me = uid(), id = (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+        const type = /mp4/.test(r.type) ? 'video/mp4' : 'video/webm', ext = type === 'video/mp4' ? 'mp4' : 'webm';
+        const vPath = `${me}/${id}.${ext}`, tPath = r.thumb ? `${me}/${id}.jpg` : null;
+        set('Загружаем видео…');
+        await upload(vPath, r.blob, type, (p) => (bar.style.width = Math.max(2, p * 90) + '%'));
+        if (tPath) { const tb = await (await fetch(r.thumb)).blob(); await upload(tPath, tb, 'image/jpeg').catch(() => {}); }
+        bar.style.width = '95%'; set('Публикуем…');
+        const overlay = edItems.filter((t) => String(t.t).trim()).map((t) => ({ t: String(t.t).slice(0, 80), x: +t.x.toFixed(3), y: +t.y.toFixed(3), s: +t.s, c: t.c, bg: !!t.bg }));
+        const [row] = await api('/rest/v1/clips?select=id', { method: 'POST', headers: { Prefer: 'return=representation' }, body: {
+          game: String(r.game || 'game').replace(/[^a-z0-9-]/g, '').slice(0, 40) || 'game', game_title: String(r.gameTitle || '').slice(0, 60), game_url: okGameUrl(r.gameUrl) || '',
+          title, description, overlay, video_path: vPath, thumb_path: tPath, duration: Math.min(30, r.dur || 0) } }).catch(async (e) => { await storageDelete([vPath, tPath].filter(Boolean)); throw e; });
+        bar.style.width = '100%';
+        r.published = row.id; r.draftTitle = title; r.draftDesc = description; r.draftOverlay = edItems;
+        await store.put(r).catch(() => {});
+        set('Клип опубликован! 🎉');
+        setTimeout(() => { $('#editor').hidden = true; edVideo.pause(); setView('feed', { kind: 'all' }, row.id); }, 900);
+      } catch (e) { set(/rate limit/i.test(e.message) ? 'Слишком много клипов за час — попробуй позже' : e.message, true); btn.disabled = false; prog.hidden = true; }
+    });
+
+    // ================= ВИДЫ =================
+    const tabs = [...document.querySelectorAll('.tab')];
+    function setView(v, src, firstId) {
+      view = v === 'following' ? 'feed' : v;
+      const tabName = v === 'following' || (src && src.kind === 'following') ? 'following' : v === 'mine' ? 'mine' : (src && src.kind === 'user') ? '' : 'feed';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.view === tabName)));
+      const mine = v === 'mine';
+      $('#mine').hidden = !mine; feed.hidden = mine; $('#sound').hidden = mine;
+      feed.querySelectorAll('video').forEach((x) => x.pause());
+      if (mine) { history.replaceState(null, '', '#mine'); renderMine(); return; }
+      startFeed(v === 'following' ? { kind: 'following' } : src || { kind: 'all' }, firstId);
+      if (!firstId) history.replaceState(null, '', v === 'following' ? '#f=1' : src && src.kind === 'user' ? '#u=' + src.user : location.pathname + location.search);
+    }
+    tabs.forEach((t) => t.addEventListener('click', () => setView(t.dataset.view)));
+
+    paintSound();
+    (async () => {
+      await loadFollows();
+      const h = new URLSearchParams(location.hash.slice(1));
+      if (location.hash === '#mine') setView('mine');
+      else if (h.get('f')) setView('following', null, h.get('c'));
+      else if (h.get('u') && /^[0-9a-f-]{36}$/i.test(h.get('u'))) setView('feed', { kind: 'user', user: h.get('u') }, h.get('c'));
+      else setView('feed', { kind: 'all' }, h.get('c'));
+    })();
+  })();
+  </script>
+</body>
+</html>
