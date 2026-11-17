@@ -65,16 +65,17 @@ window.FreasyAccount = (opts) => {
 
   const style = document.createElement('style');
   style.textContent = `
-  .fa-modal{position:fixed;inset:0;z-index:300;display:grid;place-items:center;padding:64px 16px 16px;overflow-y:auto;background:#0b0c18d0;backdrop-filter:blur(4px);font-family:Manrope,system-ui,sans-serif;color:#f8f7ff;user-select:text}
+  .fa-modal{position:fixed;inset:0;z-index:300;display:grid;place-items:center;padding:64px 16px 16px;overflow-y:auto;background:#0b0c18d0;backdrop-filter:blur(4px);font-family:Manrope,system-ui,sans-serif;color:var(--fg-text,#f8f7ff);user-select:text}
   .fa-modal[hidden]{display:none}
-  .fa-sheet{width:min(380px,100%);background:#1d1e31;border:1px solid #b79aff80;border-radius:24px;padding:22px;box-shadow:0 30px 80px #0009;display:flex;flex-direction:column;gap:10px;text-align:left}
-  .fa-sheet h2{margin:0 0 4px;font-size:24px;display:flex;justify-content:space-between;align-items:center;color:#f8f7ff;text-shadow:none}
-  .fa-sheet input{font:inherit;font-size:15px;color:#f8f7ff;background:#15162a;border:1px solid #ffffff24;border-radius:12px;padding:11px 12px}
-  .fa-sheet button{font:inherit;font-weight:800;font-size:15px;border:0;border-radius:12px;padding:11px;cursor:pointer;background:#bca0ff;color:#171225;box-shadow:none;min-width:0}
-  .fa-sheet button.alt{background:#2d2e48;color:#f8f7ff}
-  .fa-sheet .fa-x{background:none;color:#d1cde5;font-size:22px;padding:0 6px}
+  .fa-sheet{width:min(380px,100%);background:var(--fg-card,#1d1e31);border:1px solid var(--fg-accent-a,#b79aff80);border-radius:24px;padding:22px;box-shadow:0 30px 80px #0009;display:flex;flex-direction:column;gap:10px;text-align:left}
+  .fa-sheet h2{margin:0 0 4px;font-size:24px;display:flex;justify-content:space-between;align-items:center;color:var(--fg-text,#f8f7ff);text-shadow:none}
+  .fa-sheet input{font:inherit;font-size:15px;color:var(--fg-text,#f8f7ff);background:var(--fg-shot,#15162a);border:1px solid var(--fg-line-2,#ffffff24);border-radius:12px;padding:11px 12px}
+  .fa-sheet button{font:inherit;font-weight:800;font-size:15px;border:0;border-radius:12px;padding:11px;cursor:pointer;background:var(--fg-accent,#bca0ff);color:var(--fg-on-accent,#171225);box-shadow:none;min-width:0}
+  .fa-sheet button.alt{background:var(--fg-offer,#2d2e48);color:var(--fg-text,#f8f7ff)}
+  .fa-sheet .fa-x{background:none;color:var(--fg-soft,#d1cde5);font-size:22px;padding:0 6px}
+  .fa-settings{display:block;text-align:center;font-weight:800;font-size:15px;border-radius:12px;padding:11px;text-decoration:none;background:var(--fg-accent,#bca0ff);color:var(--fg-on-accent,#171225)}
   .fa-msg{min-height:18px;font-size:13px;color:#ffd27a}
-  .fa-note{font-size:12px;color:#89879e;line-height:1.5}`;
+  .fa-note{font-size:12px;color:var(--fg-dim,#89879e);line-height:1.5}`;
   document.head.appendChild(style);
   const box = document.createElement('div');
   box.className = 'fa-modal'; box.hidden = true;
@@ -88,6 +89,7 @@ window.FreasyAccount = (opts) => {
       <div class="fa-note">${opts.note || 'Один аккаунт для всех игр FreasyGames 2D и 3D: с ним играешь, попадаешь в таблицы лидеров и общаешься в чате.'}</div></div></div>
     <div class="fa-in"><div style="display:flex;flex-direction:column;gap:10px">
       <div class="fa-hello" style="font-size:16px;font-weight:800"></div>
+      ${opts.settingsUrl ? `<a class="fa-settings" href="${opts.settingsUrl}">⚙️ Настройки: аватарка, пароль, тема</a>` : ''}
       <button type="button" class="alt" data-k="logout">Выйти из аккаунта</button></div></div>
   </div>`;
   document.body.appendChild(box);
