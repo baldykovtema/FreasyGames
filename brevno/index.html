@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../shared/session.js?v=2"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Бревно — FreasyGames</title>
+<meta name="description" content="Бревно на FreasyGames: метай ножи во вращающееся бревно, не задевай уже воткнутые, сбивай яблоки и раскалывай бревно за бревном.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">🪵 Новая игра</div>
+    <h1><span>Бревно</span></h1>
+    <p>Бревно крутится — касайся экрана, чтобы метнуть нож. Воткни все ножи, и бревно расколется.</p>
+    <p>Нож, попавший в другой нож, отскакивает — и игра окончена. Яблоки на бревне дают +3, а каждое пятое бревно — крепкий дуб.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · лучшее бревно: <b id="levelStart">—</b></p>
+    <button class="play" id="go" type="button">Начать ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Касание, клик или пробел — бросок</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow">Нож отскочил</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">очков</p>
+    <p>Бревно: <b id="levelOver">1</b> · яблок: <b id="applesOver">0</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · лучшее бревно: <b id="bestLevelOver">—</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), g = cv.getContext('2d');
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const pointsWord = (n) => plural(n, 'очко', 'очка', 'очков');
+
+  // A fixed 480 × 800 field scaled to the screen: the same game everywhere.
+  const FW = 480, FH = 800, CX = 240, CY = 340, KNIFE = 112, DEPTH = 20, GAP = 0.16, SPEED = 2600, READY_Y = 700;
+  let W = 0, H = 0, dpr = 1, scale = 1, ox = 0, oy = 0;
+  let state = 'start', level, score, apples, applesRun, left, stuck, fruit, flying, bounced, rot, rt, R, boss, pattern, parts, chunks, popups, bump = 0, shake = 0, flash = 0, banner = 0, breakT = 0, time = 0, playTime = 0, throwCd = 0;
+  let best = +store.get('brevno-best', 0) || 0, bestLevel = +store.get('brevno-best-level', 0) || 0;
+  let runs = {}; try { runs = JSON.parse(store.get('brevno-runs', '{}')) || {}; } catch { runs = {}; }
+  let muted = store.get('brevno-muted', '0') === '1';
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'square', v = 0.06, slide = 1, delay = 0) {
+    if (muted || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  function noise(dur, vol) {
+    if (!ac || muted) return;
+    const len = Math.floor(ac.sampleRate * dur), buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2);
+    const s = ac.createBufferSource(), gn = ac.createGain(); s.buffer = buf; gn.gain.value = vol; s.connect(gn).connect(ac.destination); s.start();
+  }
+  const sfx = {
+    throw: () => tone(900, 0.06, 'sine', 0.04, 0.5),
+    thud: () => { noise(0.07, 0.25); tone(160, 0.08, 'triangle', 0.12, 0.7); },
+    apple: () => [0, 7, 12].forEach((s, i) => tone(700 * Math.pow(2, s / 12), 0.1, 'triangle', 0.08, 1, i * 0.05)),
+    clang: () => { tone(1800, 0.25, 'square', 0.05, 0.8); tone(2400, 0.3, 'sine', 0.06, 0.9); },
+    split: () => { noise(0.4, 0.4); [392, 523, 659, 784].forEach((f, i) => tone(f, 0.16, 'triangle', 0.08, 1, 0.1 + i * 0.08)); },
+  };
+
+  // ——— Levels ———
+  // How fast the log turns at time t (radians per second); each pattern feels different.
+  const PATTERNS = [
+    (t) => 2.1,
+    (t) => -2.4,
+    (t) => 2.8 * Math.sin(t * 1.1) + 0.5,
+    (t) => (Math.floor(t / 2.4) % 2 ? -1 : 1) * 3.0,
+    (t) => 1 + 3.4 * Math.pow(Math.max(0, Math.sin(t * 1.8)), 2),
+    (t) => (t % 2 < 0.45 ? 0.2 : 3.5),
+    (t) => -(1.6 + 2.2 * Math.abs(Math.sin(t * 0.9))),
+  ];
+  function buildLevel() {
+    boss = level % 5 === 0;
+    R = boss ? 108 : 96;
+    left = boss ? 10 : Math.min(10, 5 + Math.floor((level - 1) / 2));
+    pattern = boss ? (t) => (Math.floor(t / 1.6) % 2 ? -1 : 1) * (2.4 + 1.6 * Math.abs(Math.sin(t * 1.7))) : PATTERNS[(level - 1) % PATTERNS.length];
+    stuck = []; fruit = []; flying = null; bounced = null; rot = Math.random() * 6; rt = 0;
+    // Knives already in the log, spread so there is always room.
+    const pre = boss ? 3 : Math.min(4, Math.floor(level / 2));
+    for (let i = 0; i < pre; i++) stuck.push({ a: (i / pre) * Math.PI * 2 + Math.random() * 0.6, pre: true });
+    const nApples = boss ? 2 : (level % 3 === 0 ? 2 : level > 1 ? 1 : 0);
+    for (let i = 0; i < nApples; i++) {
+      for (let k = 0; k < 40; k++) { const a = Math.random() * Math.PI * 2; if (!stuck.some((s) => angDiff(s.a, a) < 0.45) && !fruit.some((f) => angDiff(f.a, a) < 0.6)) { fruit.push({ a }); break; } }
+    }
+    banner = 1.4; breakT = 0;
+  }
+  const angDiff = (a, b) => { let d = (a - b) % (Math.PI * 2); if (d < 0) d += Math.PI * 2; return Math.min(d, Math.PI * 2 - d); };
+  function reset() { level = 1; score = 0; apples = 0; applesRun = 0; parts = []; chunks = []; popups = []; playTime = 0; buildLevel(); }
+
+  function burst(x, y, col, n = 14, sp = 220) { for (let i = 0; i < n; i++) { const a = Math.random() * 7, v = 40 + Math.random() * sp; parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, col, r: 2 + Math.random() * 4 }); } }
+  function popup(x, y, text, col = '#f8f7ff', big = false) { popups.push({ x, y, text, col, life: 1, big }); }
+
+  function throwKnife() {
+    if (state !== 'play' || lb.isOpen() || flying || bounced || breakT > 0 || left <= 0 || throwCd > 0) return;
+    unlockAudio(); flying = { y: READY_Y }; left--; throwCd = 0.08; sfx.throw();
+  }
+
+  function step(dt) {
+    if (state !== 'play' || lb.isOpen()) return;
+    playTime += dt; rt += dt; banner = Math.max(0, banner - dt); throwCd = Math.max(0, throwCd - dt);
+    rot += pattern(rt) * Math.min(1.6, 1 + (level - 1) * 0.035) * dt;
+    if (flying) {
+      flying.y -= SPEED * dt;
+      if (flying.y <= CY + R) {
+        const a = Math.PI / 2 - rot;
+        if (stuck.some((s) => angDiff(s.a, a) < GAP)) {
+          // Clang: the knife bounces off and spins away.
+          bounced = { x: CX, y: CY + R + 4, vx: (Math.random() < 0.5 ? -1 : 1) * 160, vy: 380, rot: 0, spin: (Math.random() < 0.5 ? -1 : 1) * 14, t: 0 };
+          flying = null; sfx.clang(); shake = 0.5; flash = 1; burst(CX, CY + R, '#ffffff', 10, 160);
+        } else {
+          stuck.push({ a }); flying = null; bump = 1; score++; sfx.thud(); burst(CX, CY + R, '#c98b4c', 8, 140);
+          for (const f of fruit) if (!f.got && angDiff(f.a, a) < 0.24) {
+            f.got = true; apples++; applesRun++; score += 3; sfx.apple();
+            const wa = f.a + rot, ax = CX + Math.cos(wa) * (R + 18), ay = CY + Math.sin(wa) * (R + 18);
+            burst(ax, ay, '#ff5f6d', 16); popup(ax, ay, '+3', '#ff9ea8');
+            chunks.push({ apple: true, x: ax, y: ay, vx: Math.cos(wa) * 200, vy: Math.sin(wa) * 200 - 200, rot: 0, spin: 6, life: 1.5 });
+          }
+          if (left <= 0) breakLog();
+        }
+      }
+    }
+    if (bounced) {
+      bounced.t += dt; bounced.vy += 1400 * dt; bounced.x += bounced.vx * dt; bounced.y += bounced.vy * dt; bounced.rot += bounced.spin * dt;
+      if (bounced.t > 0.9) return gameOver();
+    }
+    if (breakT > 0) { breakT -= dt; if (breakT <= 0) { level++; buildLevel(); } }
+  }
+  function breakLog() {
+    const bonus = boss ? 15 : 5;
+    score += bonus; sfx.split(); shake = 0.35; breakT = 1.1;
+    popup(CX, CY - R - 30, boss ? `Дуб расколот! +${bonus}` : `Бревно ${level}! +${bonus}`, '#5df2a5', true);
+    // The log splits into pieces and the knives fall out.
+    for (let i = 0; i < 4; i++) { const a = rot + i * Math.PI / 2 + Math.PI / 4; chunks.push({ piece: i, x: CX, y: CY, vx: Math.cos(a) * 260, vy: Math.sin(a) * 260 - 220, rot, spin: (Math.random() - 0.5) * 8, life: 1.6, r: R }); }
+    for (const s of stuck) { const wa = s.a + rot; chunks.push({ knife: true, x: CX + Math.cos(wa) * (R - DEPTH), y: CY + Math.sin(wa) * (R - DEPTH), vx: Math.cos(wa) * 220 + (Math.random() - 0.5) * 100, vy: Math.sin(wa) * 220 - 260, rot: wa - Math.PI / 2, spin: (Math.random() - 0.5) * 12, life: 1.6 }); }
+    for (const f of fruit) if (!f.got) { const wa = f.a + rot; chunks.push({ apple: true, x: CX + Math.cos(wa) * (R + 18), y: CY + Math.sin(wa) * (R + 18), vx: Math.cos(wa) * 200, vy: -200, rot: 0, spin: 5, life: 1.5 }); }
+    stuck = []; fruit = []; burst(CX, CY, '#e0a86a', 40, 360); burst(CX, CY, '#7a4a22', 20, 260);
+  }
+
+  // ——— Drawing ———
+  function round(x, y, w, h, r) { g.beginPath(); if (g.roundRect) g.roundRect(x, y, w, h, r); else g.rect(x, y, w, h); }
+  // A knife with its tip at (0,0) and the handle going down (+y).
+  function drawKnife(x, y, ang, alpha = 1) {
+    g.save(); g.translate(x, y); g.rotate(ang); g.globalAlpha = alpha;
+    const bl = g.createLinearGradient(-7, 0, 7, 0); bl.addColorStop(0, '#f4f4ff'); bl.addColorStop(0.5, '#c9cbe0'); bl.addColorStop(1, '#8e90a8');
+    g.fillStyle = bl; g.beginPath(); g.moveTo(0, 0); g.lineTo(7, 16); g.lineTo(7, 68); g.lineTo(-7, 68); g.lineTo(-7, 16); g.closePath(); g.fill();
+    g.fillStyle = '#ffffff90'; g.fillRect(-1, 12, 2, 52);
+    g.fillStyle = '#3a2f55'; round(-10, 66, 20, 7, 3); g.fill();
+    g.fillStyle = '#bca0ff'; round(-7, 72, 14, KNIFE - 72, 6); g.fill();
+    g.fillStyle = '#7b67fc'; for (let i = 0; i < 3; i++) g.fillRect(-7, 82 + i * 9, 14, 3);
+    g.restore(); g.globalAlpha = 1;
+  }
+  function drawApple(x, y, r = 15, ang = 0) {
+    g.save(); g.translate(x, y); g.rotate(ang);
+    const gr = g.createRadialGradient(-r * 0.4, -r * 0.4, 1, 0, 0, r); gr.addColorStop(0, '#ff9ea8'); gr.addColorStop(0.4, '#e63946'); gr.addColorStop(1, '#9e1b2b');
+    g.fillStyle = gr; g.beginPath(); g.arc(-r * 0.3, 0, r * 0.8, 0, 7); g.arc(r * 0.3, 0, r * 0.8, 0, 7); g.fill();
+    g.fillStyle = '#5a3a1a'; g.fillRect(-1.5, -r * 1.05, 3, r * 0.5);
+    g.fillStyle = '#4caf50'; g.beginPath(); g.ellipse(r * 0.35, -r * 0.9, r * 0.35, r * 0.15, -0.5, 0, 7); g.fill();
+    g.restore();
+  }
+  function drawLog(x, y, r, ang, clip) {
+    g.save(); g.translate(x, y); g.rotate(ang);
+    if (clip !== undefined) { g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, r + 2, clip * Math.PI / 2, (clip + 1) * Math.PI / 2); g.closePath(); g.clip(); }
+    g.fillStyle = boss ? '#4a2f1e' : '#6b4226'; g.beginPath(); g.arc(0, 0, r, 0, 7); g.fill();
+    const inner = g.createRadialGradient(-r * 0.2, -r * 0.2, 2, 0, 0, r * 0.88);
+    inner.addColorStop(0, boss ? '#c9925e' : '#f2c98e'); inner.addColorStop(1, boss ? '#8a5a33' : '#c98b4c');
+    g.fillStyle = inner; g.beginPath(); g.arc(0, 0, r * 0.86, 0, 7); g.fill();
+    g.strokeStyle = boss ? '#6b4226aa' : '#a0683a99'; g.lineWidth = 2.5;
+    for (let k = 1; k <= 4; k++) { g.beginPath(); g.ellipse(r * 0.03 * k, 0, r * 0.18 * k, r * 0.17 * k, 0.3, 0, 7); g.stroke(); }
+    g.fillStyle = '#5a361d'; g.beginPath(); g.arc(r * 0.05, 0, 4, 0, 7); g.fill();
+    // bark notches
+    g.strokeStyle = '#3d2412'; g.lineWidth = 3;
+    for (let i = 0; i < 18; i++) { const a = i / 18 * Math.PI * 2; g.beginPath(); g.moveTo(Math.cos(a) * r * 0.9, Math.sin(a) * r * 0.9); g.lineTo(Math.cos(a) * r, Math.sin(a) * r); g.stroke(); }
+    if (boss) { g.strokeStyle = '#ffd23f'; g.lineWidth = 3; g.beginPath(); g.arc(0, 0, r + 3, 0, 7); g.stroke(); }
+    g.restore();
+  }
+  function draw() {
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const bg = g.createRadialGradient(W / 2, H * 0.3, 0, W / 2, H * 0.3, Math.max(W, H) * 0.8);
+    bg.addColorStop(0, '#3a2a5e'); bg.addColorStop(0.5, '#1a1830'); bg.addColorStop(1, '#0e0f1c');
+    g.fillStyle = bg; g.fillRect(0, 0, W, H);
+    const sh = shake > 0 ? (Math.random() - 0.5) * 16 * shake : 0;
+    g.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * (ox + sh), dpr * oy);
+    const by = CY - bump * 7;
+    // log, knives and apples
+    if (breakT <= 0) {
+      g.fillStyle = '#00000040'; g.beginPath(); g.ellipse(CX, by + R + 26, R * 0.9, 12, 0, 0, 7); g.fill();
+      for (const s of stuck) { const wa = s.a + rot; drawKnife(CX + Math.cos(wa) * (R - DEPTH), by + Math.sin(wa) * (R - DEPTH), wa - Math.PI / 2); }
+      for (const f of fruit) if (!f.got) { const wa = f.a + rot; drawApple(CX + Math.cos(wa) * (R + 14), by + Math.sin(wa) * (R + 14), 15, wa + Math.PI / 2); }
+      drawLog(CX, by, R, rot);
+    }
+    for (const c of chunks) {
+      g.globalAlpha = Math.min(1, c.life);
+      if (c.knife) drawKnife(c.x, c.y, c.rot); else if (c.apple) drawApple(c.x, c.y, 15, c.rot); else drawLog(c.x, c.y, c.r, c.rot, c.piece);
+      g.globalAlpha = 1;
+    }
+    // knife in flight / ready / bounced
+    if (flying) drawKnife(CX, flying.y, 0);
+    else if (state === 'play' && left > 0 && !bounced && breakT <= 0) drawKnife(CX, READY_Y + Math.sin(time * 4) * 3, 0);
+    if (bounced) drawKnife(bounced.x, bounced.y, bounced.rot);
+    for (const p of parts) { g.globalAlpha = Math.max(0, p.life); g.fillStyle = p.col; g.fillRect(p.x, p.y, p.r, p.r); } g.globalAlpha = 1;
+    for (const p of popups) { g.globalAlpha = Math.min(1, p.life * 2); g.fillStyle = p.col; g.font = `800 ${p.big ? 26 : 20}px Manrope, system-ui`; g.textAlign = 'center'; g.fillText(p.text, p.x, p.y - (1 - p.life) * 40); } g.globalAlpha = 1;
+    if (state !== 'start') {
+      // knives left, bottom-left
+      for (let i = 0; i < left; i++) {
+        g.save(); g.translate(30, FH - 40 - i * 26); g.rotate(-Math.PI / 4); g.fillStyle = '#d9dbee'; g.fillRect(-3, -14, 6, 16); g.fillStyle = '#bca0ff'; g.fillRect(-3, 2, 6, 10); g.restore();
+      }
+      g.textAlign = 'center'; g.fillStyle = '#fff'; g.font = '800 44px Manrope, system-ui'; g.fillText(score, CX, 70);
+      g.font = '800 14px Manrope, system-ui'; g.fillStyle = boss ? '#ffd23f' : '#d9c9ff'; g.fillText(boss ? `ДУБ · БРЕВНО ${level}` : `БРЕВНО ${level}`, CX, 92);
+      g.textAlign = 'right'; g.fillStyle = '#ff9ea8'; g.font = '800 18px Manrope, system-ui'; g.fillText('🍎 ' + apples, FW - 20, 70);
+      // level dots: every fifth is the oak
+      const base = Math.floor((level - 1) / 5) * 5;
+      for (let i = 0; i < 5; i++) { const n = base + i + 1; g.fillStyle = n < level ? '#bca0ff' : n === level ? '#fff' : '#ffffff30'; if (i === 4) g.fillStyle = n <= level ? '#ffd23f' : '#ffd23f40'; g.beginPath(); g.arc(CX - 48 + i * 24, 112, i === 4 ? 7 : 5, 0, 7); g.fill(); }
+      if (banner > 0 && breakT <= 0) { g.globalAlpha = Math.min(1, banner); g.fillStyle = boss ? '#ffd23f' : '#fff'; g.font = '800 36px Manrope, system-ui'; g.textAlign = 'center'; g.fillText(boss ? 'Крепкий дуб!' : 'Бревно ' + level, CX, CY + R + 100); g.globalAlpha = 1; }
+    }
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (flash > 0) { g.fillStyle = `rgba(255,80,110,${flash * 0.25})`; g.fillRect(0, 0, W, H); }
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.033, (now - last) / 1000)); last = now; time += dt;
+    step(dt);
+    if (state === 'start') { rt += dt; rot += pattern(rt) * dt; demoT -= dt; if (demoT <= 0) { demoT = 0.7; const a = Math.PI / 2 - rot; if (!stuck.some((s) => angDiff(s.a, a) < 0.5)) { stuck.push({ a }); bump = 1; if (stuck.length > 9) stuck.splice(0, 1); } } }
+    for (const p of parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 600 * dt; p.life -= dt * 1.5; } parts = parts.filter((p) => p.life > 0);
+    for (const c of chunks) { c.x += c.vx * dt; c.y += c.vy * dt; c.vy += 1100 * dt; c.rot += c.spin * dt; c.life -= dt; } chunks = chunks.filter((c) => c.life > 0);
+    for (const p of popups) p.life -= dt * 0.9; popups = popups.filter((p) => p.life > 0);
+    bump = Math.max(0, bump - dt * 8); shake = Math.max(0, shake - dt); flash = Math.max(0, flash - dt * 2.5);
+    draw();
+    requestAnimationFrame(frame);
+  }
+  let demoT = 0.7;
+
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr;
+    scale = Math.min(W / FW, H / FH); ox = (W - FW * scale) / 2; oy = (H - FH * scale) / 2;
+  }
+
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('levelStart').textContent = $('bestLevelOver').textContent = bestLevel || '—';
+  }
+  function start() { unlockAudio(); reset(); state = 'play'; chanceUsed = false; chance.hide(); $('start').hidden = true; $('over').hidden = true; }
+  // Once a game, an ad gives the same log again from the start, with the score kept.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'brevno-continue', label: '🎬 Ещё попытка за рекламу', onReward: () => {
+    chanceUsed = true; score -= stuck.filter((s) => !s.pre).length; buildLevel(); state = 'play'; $('over').hidden = true;
+  } });
+  function gameOver() {
+    state = 'over';
+    const run = { new_score: score, new_level: level, new_time: Math.floor(playTime) }, record = score > best;
+    if (record) { best = score; store.set('brevno-best', best); runs.score = run; }
+    if (level > bestLevel) { bestLevel = level; store.set('brevno-best-level', bestLevel); runs.level = run; }
+    store.set('brevno-runs', JSON.stringify(runs));
+    lb.submit(run);
+    $('final').textContent = score;
+    $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + pointsWord(score);
+    $('levelOver').textContent = level; $('applesOver').textContent = applesRun;
+    showBests(); $('over').hidden = false;
+    if (!chanceUsed) chance.show();
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'brevno',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за одну игру.', format: (v) => `${v} ${pointsWord(v)}` },
+      { id: 'level', title: 'Брёвна', column: 'best_level', order: 'desc', note: 'Самое дальнее бревно за одну игру.', format: (v) => `бревно ${v}` },
+    ],
+    bests: () => [runs.score, runs.level].filter(Boolean),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); throwKnife(); });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && e.target.closest && e.target.closest('.screen button')) return;
+    if (e.code === 'Space' || e.code === 'Enter' || e.code === 'ArrowUp') {
+      e.preventDefault();
+      if (state === 'play') { if (!e.repeat) throwKnife(); }
+      else if (!e.repeat && (!$('start').hidden || !$('over').hidden)) start();
+    }
+  });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('brevno-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  addEventListener('resize', resize);
+  resize(); reset(); showBests();
+  // #preview: a game in progress, for the site's screenshot.
+  if (location.hash === '#preview') {
+    $('start').hidden = true; state = 'play'; level = 4; buildLevel(); banner = 0; score = 41; apples = 3;
+    for (const a of [0.3, 1.4, 2.5, 3.9]) stuck.push({ a }); left = 3; flying = { y: 470 };
+    const freeze = step; step = (dt) => { rot += 0.6 * dt; }; void freeze;
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

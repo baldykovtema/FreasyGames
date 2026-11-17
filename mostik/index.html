@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../shared/session.js?v=2"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Мостик — FreasyGames</title>
+<meta name="description" content="Мостик на FreasyGames: держи, чтобы вырастить мостик, отпусти — и он упадёт на соседнюю колонну. Попадай в центр за двойные очки.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">🌉 Новая игра</div>
+    <h1><span>Мостик</span></h1>
+    <p>Держи палец или кнопку — мостик растёт. Отпусти — он упадёт вперёд. Длина должна быть ровно такой, чтобы дойти до следующей колонны.</p>
+    <p>Попал в красную серединку — очки за серию идут вверх. Короткий или длинный мостик — падение.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · лучшая серия: <b id="streakStart">—</b></p>
+    <button class="play" id="go" type="button">Начать ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Зажми мышь, палец или пробел, отпусти в нужный момент</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow" id="overWhy">Мостик не дотянулся</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">очков</p>
+    <p>Колонн пройдено: <b id="stepsOver">0</b> · серия в центр: <b id="streakOver">—</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · лучшая серия: <b id="bestStreakOver">—</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), g = cv.getContext('2d');
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const pointsWord = (n) => plural(n, 'очко', 'очка', 'очков');
+
+  // The world is 720 units tall; its width follows the screen, but gaps never get wider than 460,
+  // so a wide monitor gives no advantage in the leaderboard.
+  const FH = 720, TOPY = 470, HERO = 34, GROW = 430, FALL = 7.5, WALK = 330;
+  let W = 0, H = 0, dpr = 1, scale = 1, FW = 480;
+  let state = 'start', phase = 'wait', bridges = [], cols, cur, stick, hero, camX, camTo, score, steps, streak, bestStreakRun, playTime, parts, popups, shake = 0, flash = 0, time = 0;
+  let best = +store.get('mostik-best', 0) || 0, bestStreak = +store.get('mostik-best-streak', 0) || 0;
+  let runs = {}; try { runs = JSON.parse(store.get('mostik-runs', '{}')) || {}; } catch { runs = {}; }
+  let muted = store.get('mostik-muted', '0') === '1', holding = false;
+
+  // ——— Sound ———
+  let ac = null, growOsc = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'square', v = 0.06, slide = 1, delay = 0) {
+    if (muted || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  // A rising hum while the bridge grows.
+  function growSound(on) {
+    if (growOsc) { try { growOsc.g.gain.setTargetAtTime(0.0001, ac.currentTime, 0.03); growOsc.o.stop(ac.currentTime + 0.1); } catch {} growOsc = null; }
+    if (!on || muted || !ac) return;
+    const o = ac.createOscillator(), gn = ac.createGain(); o.type = 'triangle'; o.frequency.setValueAtTime(180, ac.currentTime); o.frequency.linearRampToValueAtTime(900, ac.currentTime + 2.2);
+    gn.gain.value = 0.035; o.connect(gn).connect(ac.destination); o.start(); growOsc = { o, g: gn };
+  }
+  const sfx = {
+    drop: () => tone(140, 0.12, 'square', 0.08, 0.6),
+    step: () => tone(260 + Math.random() * 60, 0.03, 'sine', 0.04),
+    land: () => tone(520, 0.1, 'triangle', 0.07),
+    perfect: (n) => [0, 4, 7].forEach((s, i) => tone(660 * Math.pow(2, (s + Math.min(n, 8)) / 12), 0.12, 'triangle', 0.08, 1, i * 0.05)),
+    fall: () => tone(420, 0.7, 'sawtooth', 0.06, 0.2),
+  };
+
+  // ——— Columns ———
+  // Every next column is narrower on average and further away; the red middle is always 10 wide.
+  function nextCol(prev) {
+    const k = Math.min(1, steps / 40);
+    const w = Math.round(Math.max(22, (110 - k * 70) * (0.55 + Math.random() * 0.6)));
+    // The whole next column must fit on the screen next to the current one.
+    const minGap = 50 + k * 40, maxGap = Math.max(minGap + 10, Math.min(460, FW * 0.8 - prev.w - w - 10));
+    const gap = Math.round(minGap + Math.random() * Math.max(10, maxGap - minGap));
+    return { x: prev.x + prev.w + gap, w };
+  }
+  function reset() {
+    steps = 0; score = 0; streak = 0; bestStreakRun = 0; playTime = 0; parts = []; popups = [];
+    bridges = [];
+    cols = [{ x: 0, w: 120 }]; cols.push(nextCol(cols[0])); cols.push(nextCol(cols[1]));
+    cur = 0; phase = 'wait';
+    hero = { x: cols[0].w - HERO / 2 - 4, y: TOPY, vy: 0, tilt: 0 };
+    stick = { len: 0, ang: -Math.PI / 2, x: cols[0].w };
+    camX = camTo = 0;
+  }
+  const leftEdge = () => FW * 0.18;
+  function aimCam() { camTo = cols[cur].x + cols[cur].w - leftEdge() - cols[cur].w; }
+
+  function burst(x, y, col, n = 14, sp = 200) { for (let i = 0; i < n; i++) { const a = Math.random() * 7, v = 40 + Math.random() * sp; parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 80, life: 1, col, r: 3 + Math.random() * 3 }); } }
+  function popup(x, y, text, col = '#f8f7ff', big = false) { popups.push({ x, y, text, col, life: 1, big }); }
+
+  function press() {
+    if (state !== 'play' || phase !== 'wait' || lb.isOpen()) return;
+    unlockAudio(); phase = 'grow'; holding = true; stick = { len: 0, ang: -Math.PI / 2, x: cols[cur].x + cols[cur].w }; growSound(true);
+  }
+  function release() {
+    holding = false;
+    if (phase !== 'grow') return;
+    phase = 'fall'; growSound(false);
+  }
+
+  function step(dt) {
+    if (state !== 'play' || lb.isOpen()) return;
+    playTime += dt;
+    const next = cols[cur + 1];
+    if (phase === 'grow') {
+      stick.len = Math.min(FW * 1.4, stick.len + GROW * dt * (1 + Math.min(1, steps / 60) * 0.35));
+      if (!holding) phase = 'fall';
+    } else if (phase === 'fall') {
+      stick.ang += FALL * dt * (0.4 + (stick.ang + Math.PI / 2));
+      if (stick.ang >= 0) {
+        stick.ang = 0; sfx.drop(); shake = 0.15;
+        const end = stick.x + stick.len;
+        stick.hit = end >= next.x && end <= next.x + next.w;
+        const mid = next.x + next.w / 2;
+        stick.perfect = stick.hit && Math.abs(end - mid) <= 5;
+        hero.target = stick.hit ? next.x + next.w - HERO / 2 - 4 : end + HERO / 2;
+        phase = 'walk';
+        if (stick.perfect) {
+          streak++; bestStreakRun = Math.max(bestStreakRun, streak);
+          const bonus = Math.min(5, streak);
+          score += bonus; sfx.perfect(streak); burst(mid, TOPY, '#ff5f7a', 18); flash = 0.5;
+          popup(mid, TOPY - 40, streak > 1 ? `В центр ×${streak}! +${bonus}` : `В центр! +${bonus}`, '#ffd23f', true);
+        } else if (stick.hit) streak = 0;
+      }
+    } else if (phase === 'walk') {
+      const before = hero.x;
+      hero.x = Math.min(hero.target, hero.x + WALK * dt);
+      if (Math.floor(before / 22) !== Math.floor(hero.x / 22)) sfx.step();
+      if (hero.x >= hero.target) {
+        if (stick.hit) {
+          steps++; score++; cur++; sfx.land(); bridges.push({ x: stick.x, len: stick.len }); if (bridges.length > 8) bridges.shift(); popup(hero.x, TOPY - 60, '+1');
+          cols.push(nextCol(cols[cols.length - 1]));
+          if (cols.length > 8) { cols.shift(); cur--; }
+          aimCam(); phase = 'slide';
+        } else { phase = 'drop'; hero.vy = 0; stick.down = 0; sfx.fall(); streak = 0; }
+      }
+    } else if (phase === 'slide') {
+      if (Math.abs(camX - camTo) < 1) { camX = camTo; phase = 'wait'; stick = { len: 0, ang: -Math.PI / 2, x: cols[cur].x + cols[cur].w }; }
+    } else if (phase === 'drop') {
+      hero.vy += 1800 * dt; hero.y += hero.vy * dt; hero.tilt += dt * 5;
+      stick.ang = Math.min(Math.PI / 2, stick.ang + dt * 6);
+      if (hero.y > FH + 120) { shake = 0.4; return gameOver(stick.len < cols[cur + 1].x - stick.x ? 'Мостик не дотянулся' : 'Мостик слишком длинный'); }
+    }
+  }
+
+  // ——— Drawing ———
+  const hills = Array.from({ length: 3 }, (_, l) => Array.from({ length: 14 }, (_, i) => 60 + Math.sin(i * 1.7 + l * 3) * 40 + Math.random() * 40));
+  function drawHills(layer, par, col, base) {
+    const span = 180, off = (camX * par) % span, h = hills[layer];
+    g.fillStyle = col; g.beginPath(); g.moveTo(0, FH);
+    for (let i = -1; i < FW / span + 3; i++) {
+      const idx = ((i + Math.floor(camX * par / span)) % h.length + h.length) % h.length;
+      g.lineTo(i * span - off, base - h[idx]);
+      g.lineTo(i * span - off + span / 2, base - h[idx] * 0.55);
+    }
+    g.lineTo(FW + span * 2, FH); g.closePath(); g.fill();
+  }
+  function round(x, y, w, h, r) { g.beginPath(); if (g.roundRect) g.roundRect(x, y, w, h, r); else g.rect(x, y, w, h); }
+  function drawHero(x, y, tilt) {
+    g.save(); g.translate(x, y); g.rotate(tilt);
+    const bob = phase === 'walk' ? Math.abs(Math.sin(time * 18)) * 3 : 0;
+    g.fillStyle = '#00000040'; g.beginPath(); g.ellipse(0, 0, 15, 4, 0, 0, 7); g.fill();
+    // legs
+    g.fillStyle = '#2a2140';
+    const lg = phase === 'walk' ? Math.sin(time * 18) * 5 : 0;
+    g.fillRect(-8 + lg, -10, 6, 10); g.fillRect(3 - lg, -10, 6, 10);
+    // body
+    g.fillStyle = '#bca0ff'; round(-HERO / 2, -HERO - 6 - bob, HERO, HERO - 2, 10); g.fill();
+    g.fillStyle = '#ffffff30'; round(-HERO / 2 + 4, -HERO - 2 - bob, HERO - 8, 6, 3); g.fill();
+    // headband
+    g.fillStyle = '#ff5f7a'; g.fillRect(-HERO / 2, -HERO + 2 - bob, HERO, 6);
+    g.beginPath(); g.moveTo(-HERO / 2, -HERO + 3 - bob); g.lineTo(-HERO / 2 - 12, -HERO - 2 - bob + Math.sin(time * 9) * 3); g.lineTo(-HERO / 2 - 10, -HERO + 8 - bob); g.fill();
+    // eye
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(7, -HERO + 14 - bob, 5, 0, 7); g.fill();
+    g.fillStyle = '#171225'; g.beginPath(); g.arc(9, -HERO + 14 - bob, 2.4, 0, 7); g.fill();
+    g.restore();
+  }
+  function draw() {
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const sky = g.createLinearGradient(0, 0, 0, H); sky.addColorStop(0, '#2b1f5c'); sky.addColorStop(0.55, '#7a3f8f'); sky.addColorStop(1, '#ff9a6b');
+    g.fillStyle = sky; g.fillRect(0, 0, W, H);
+    const sh = shake > 0 ? (Math.random() - 0.5) * 14 * shake : 0;
+    g.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * sh, dpr * (H - FH * scale));
+    // sun
+    g.fillStyle = '#ffd9a0'; g.globalAlpha = 0.85; g.beginPath(); g.arc(FW * 0.72 - camX * 0.02, 260, 70, 0, 7); g.fill(); g.globalAlpha = 1;
+    drawHills(0, 0.1, '#5a3a7e', 560); drawHills(1, 0.25, '#3c2862', 620); drawHills(2, 0.45, '#24183f', 680);
+    g.save(); g.translate(-camX, 0);
+    // columns
+    for (const c of cols) {
+      const grad = g.createLinearGradient(0, TOPY, 0, FH); grad.addColorStop(0, '#1a1430'); grad.addColorStop(1, '#0c0a18');
+      g.fillStyle = grad; g.fillRect(c.x, TOPY, c.w, FH - TOPY + 20);
+      g.fillStyle = '#bca0ff'; g.fillRect(c.x, TOPY, c.w, 5);
+      g.fillStyle = '#ff5f7a'; g.fillRect(c.x + c.w / 2 - 5, TOPY, 10, 6);
+    }
+    for (const b of bridges) { g.fillStyle = '#ffd23f'; g.fillRect(b.x, TOPY - 3, b.len, 5); g.fillStyle = '#c99a00'; g.fillRect(b.x, TOPY + 1, b.len, 2); }
+    // stick
+    if (stick.len > 0) {
+      g.save(); g.translate(stick.x, TOPY); g.rotate(stick.ang);
+      g.fillStyle = '#ffd23f'; g.fillRect(0, -3, stick.len, 5); g.fillStyle = '#c99a00'; g.fillRect(0, 1, stick.len, 2);
+      g.restore();
+    }
+    drawHero(hero.x, hero.y, hero.tilt);
+    for (const p of parts) { g.globalAlpha = Math.max(0, p.life); g.fillStyle = p.col; g.fillRect(p.x, p.y, p.r, p.r); } g.globalAlpha = 1;
+    for (const p of popups) { g.globalAlpha = Math.min(1, p.life * 2); g.fillStyle = p.col; g.font = `800 ${p.big ? 24 : 20}px Manrope, system-ui`; g.textAlign = 'center'; g.fillText(p.text, p.x, p.y - (1 - p.life) * 40); } g.globalAlpha = 1;
+    g.restore();
+    // HUD
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (state !== 'start') {
+      g.textAlign = 'center'; g.fillStyle = '#fff'; g.font = '800 56px Manrope, system-ui'; g.fillText(score, W / 2, 112);
+      g.font = '800 14px Manrope, system-ui'; g.fillStyle = '#ffd9f0';
+      g.fillText(streak > 0 ? `СЕРИЯ В ЦЕНТР ×${streak}` : `КОЛОНН ${steps}`, W / 2, 136);
+      if (state === 'play' && phase === 'wait' && steps === 0) {
+        g.globalAlpha = 0.6 + 0.4 * Math.sin(time * 5); g.font = '800 18px Manrope, system-ui'; g.fillStyle = '#fff';
+        g.fillText('Зажми и держи — мостик растёт', W / 2, H * 0.32); g.globalAlpha = 1;
+      }
+    }
+    if (flash > 0) { g.fillStyle = `rgba(255,210,63,${flash * 0.18})`; g.fillRect(0, 0, W, H); }
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.033, (now - last) / 1000)); last = now; time += dt;
+    step(dt);
+    if (state === 'start') demo(dt);
+    camX += (camTo - camX) * Math.min(1, dt * 7);
+    for (const p of parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 500 * dt; p.life -= dt * 1.4; } parts = parts.filter((p) => p.life > 0);
+    for (const p of popups) p.life -= dt * 0.9; popups = popups.filter((p) => p.life > 0);
+    shake = Math.max(0, shake - dt); flash = Math.max(0, flash - dt * 2);
+    draw();
+    requestAnimationFrame(frame);
+  }
+  // Behind the start card the hero crosses by himself, always perfectly.
+  let demoWait = 0.6;
+  function demo(dt) {
+    const keep = state; state = 'play';
+    if (phase === 'wait') { demoWait -= dt; if (demoWait <= 0) { phase = 'grow'; holding = true; stick = { len: 0, ang: -Math.PI / 2, x: cols[cur].x + cols[cur].w }; } }
+    if (phase === 'grow') { const need = cols[cur + 1].x + cols[cur + 1].w / 2 - stick.x; if (stick.len >= need - 4) { stick.len = need; holding = false; demoWait = 0.5; } }
+    if (phase === 'drop') { reset(); demoWait = 0.6; }
+    step(dt); state = keep;
+  }
+
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr;
+    scale = H / FH; FW = W / scale;
+    if (cols) aimCam();
+  }
+
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('streakStart').textContent = $('bestStreakOver').textContent = bestStreak ? '×' + bestStreak : '—';
+  }
+  function start() { unlockAudio(); reset(); aimCam(); camX = camTo; state = 'play'; chanceUsed = false; chance.hide(); $('start').hidden = true; $('over').hidden = true; }
+  // Once a game, an ad puts the hero back on the column he fell from.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'mostik-continue', label: '🎬 Продолжить за рекламу', onReward: () => {
+    chanceUsed = true; hero = { x: cols[cur].x + cols[cur].w - HERO / 2 - 4, y: TOPY, vy: 0, tilt: 0 };
+    stick = { len: 0, ang: -Math.PI / 2, x: cols[cur].x + cols[cur].w }; phase = 'wait'; state = 'play'; $('over').hidden = true;
+  } });
+  function gameOver(why) {
+    state = 'over'; growSound(false);
+    const run = { new_score: score, new_streak: bestStreakRun, new_steps: steps, new_time: Math.floor(playTime) }, record = score > best;
+    if (record) { best = score; store.set('mostik-best', best); runs.score = run; }
+    if (bestStreakRun > bestStreak) { bestStreak = bestStreakRun; store.set('mostik-best-streak', bestStreak); runs.streak = run; }
+    store.set('mostik-runs', JSON.stringify(runs));
+    lb.submit(run);
+    setTimeout(() => {
+      if (state !== 'over') return;
+      $('overWhy').textContent = why;
+      $('final').textContent = score;
+      $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + pointsWord(score);
+      $('stepsOver').textContent = steps; $('streakOver').textContent = bestStreakRun ? '×' + bestStreakRun : '—';
+      showBests(); $('over').hidden = false;
+      if (!chanceUsed) chance.show();
+    }, 500);
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'mostik',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за одну игру.', format: (v) => `${v} ${pointsWord(v)}` },
+      { id: 'streak', title: 'Серия', column: 'best_streak', order: 'desc', note: 'Больше всего попаданий в центр подряд.', format: (v) => `×${v}` },
+    ],
+    bests: () => [runs.score, runs.streak].filter(Boolean),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); press(); });
+  addEventListener('pointerup', release); addEventListener('pointercancel', release);
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && e.target.closest && e.target.closest('.screen button')) return;
+    if (e.code === 'Space' || e.code === 'Enter') {
+      e.preventDefault();
+      if (state === 'play') { if (!e.repeat) press(); }
+      else if (!e.repeat && (!$('start').hidden || !$('over').hidden)) start();
+    }
+  });
+  addEventListener('keyup', (e) => { if (e.code === 'Space' || e.code === 'Enter') release(); });
+  addEventListener('blur', release);
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('mostik-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  addEventListener('resize', resize);
+  resize(); reset(); aimCam(); camX = camTo; showBests();
+  // #preview: a game in progress, for the site's screenshot.
+  if (location.hash === '#preview') {
+    $('start').hidden = true; state = 'play'; steps = 11; score = 23; streak = 3; bestStreakRun = 3;
+    phase = 'grow'; stick = { len: (cols[1].x - cols[0].w) + cols[1].w * 0.4, ang: -0.6, x: cols[0].w };
+    step = () => {};
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

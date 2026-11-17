@@ -5,7 +5,7 @@
 <script src="../shared/session.js?v=2" data-catalog></script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0d0f1c">
-  <meta name="description" content="FreasyGames 3D — бесплатные 3D-игры прямо в браузере: RCFCG 3D, Растения против Зомби 3D, Мемный Кот: Прыг 3D, Отель «Полночь», Трасса 3D, Шариковый рекорд 3D, Лиана 3D, Слияние звёзд 3D и Звёздная башня 3D.">
+  <meta name="description" content="FreasyGames 3D — бесплатные 3D-игры прямо в браузере: RCFCG 3D, Растения против Зомби 3D, Мемный Кот: Прыг 3D, Отель «Полночь», Трасса 3D, Шариковый рекорд 3D, Лиана 3D, Слияние звёзд 3D, Звёздная башня 3D, Кирпичики 3D и Нарезка 3D.">
   <title>FreasyGames 3D</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -282,6 +282,10 @@
     .art .pct.spacep { color: #7ef9ff; font-size: 13px; }
     .art.jump3d::after, .art.space3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, #181a2e); pointer-events: none; }
     .art.cube3d { background: url(../images/kubomir.jpg) center / cover; }
+    .art.bricks3d { background: #0d0f1c url(../images/kirpichiki3d.jpg) 50% 28% / 165% auto no-repeat; }
+    .art.fruit3d { background: url(../images/narezka3d.jpg) center / cover; }
+    .art.bricks3d::after, .art.fruit3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, var(--card)); pointer-events: none; }
+    .art .pct.brickp { color: #7cc4ff; font-size: 13px; } .art .pct.fruitp { color: #ffd23f; font-size: 13px; }
     .art.cube3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, #181a2e); pointer-events: none; }
     .art .pct.cubep { color: #7fe0c8; font-size: 13px; }
     .slot h3 { margin: 0 0 6px; font-size: 20px; letter-spacing: -.03em; }
@@ -322,7 +326,7 @@
     <section class="wrap hero">
       <span class="eyebrow">Только 3D</span>
       <h1>Freasy<span class="three">Games 3D</span></h1>
-      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже шестнадцать игр, и будут ещё.</p>
+      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже восемнадцать игр, и будут ещё.</p>
       <a class="hero-action" href="#games">Смотреть игры ↓</a>
       <div class="hint">Двигай мышкой или пальцем — сцена повернётся</div>
     </section>
@@ -382,6 +386,10 @@
         <div class="slot game" data-game="3d-patrul" data-tags="Шутер, Космос, Таблица лидеров"><a class="slot-link" href="patrul/" aria-label="Играть: Звёздный патруль 3D"></a><div class="art space3d" aria-hidden="true">
           <span class="planet"></span><span class="foe a"></span><span class="foe b"></span><span class="laser"></span><span class="ship"></span><span class="pct spacep">Волна 5</span></div>
           <span class="tag live">Играть</span><h3>Звёздный патруль 3D</h3><p>Объёмные корабли, босс с пушками и звёзды, летящие навстречу. Те же волны, магазин кораблей и рекорды, что в 2D.</p></div>
+        <div class="slot game" data-game="3d-kirpichiki" data-tags="Аркада, Таблица лидеров"><a class="slot-link" href="kirpichiki/" aria-label="Играть: Кирпичики 3D"></a><div class="art bricks3d" aria-hidden="true"><span class="pct brickp">Комбо ×3</span></div>
+          <span class="tag live">Играть</span><h3>Кирпичики 3D</h3><p>Объёмные кирпичи на светящемся поле, мяч отбрасывает тень, камера смотрит из-за платформы. Те же уровни, бонусы и рекорды, что в 2D.</p></div>
+        <div class="slot game" data-game="3d-narezka" data-tags="Аркада, Таблица лидеров"><a class="slot-link" href="narezka/" aria-label="Играть: Нарезка 3D"></a><div class="art fruit3d" aria-hidden="true"><span class="pct fruitp">Комбо ×4</span></div>
+          <span class="tag live">Играть</span><h3>Нарезка 3D</h3><p>Объёмные фрукты крутятся над деревянной доской и распадаются на половинки с сочным срезом. Те же бомбы, комбо и рекорды, что в 2D.</p></div>
         <div class="slot game" data-game="3d-kubomir" data-tags="Песочница, Онлайн"><a class="slot-link" href="../kubomir/" aria-label="Играть: Кубомир"></a><div class="art cube3d" aria-hidden="true"><span class="pct cubep">🌐 онлайн</span></div>
           <span class="tag live">Играть</span><h3>Кубомир</h3><p>Бесконечный мир из кубиков: шахты, крафт, механизмы, три измерения и стражи. Сохранения и игра по сети.</p></div>
       </div>

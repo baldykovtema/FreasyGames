@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../../shared/session.js?v=2"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0d0f1c">
+<title>Кирпичики 3D — FreasyGames 3D</title>
+<meta name="description" content="Кирпичики 3D на FreasyGames: объёмные кирпичи, светящийся мяч и платформа. Разбивай кирпичи, лови бонусы и проходи уровни. Таблица лидеров общая с 2D.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>
+  #ov { pointer-events: none; }
+  .score { position: fixed; top: 60px; left: 0; right: 0; display: flex; justify-content: center; gap: 22px; align-items: flex-end; pointer-events: none; text-shadow: 0 6px 30px #0008; }
+  .score[hidden] { display: none; }
+  .score div { text-align: center; }
+  .score b { display: block; font-size: 40px; font-weight: 800; letter-spacing: -.05em; line-height: 1; }
+  .score span { color: #bca0ff; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+  .score .lives { color: #ff9ec2; font-size: 22px; letter-spacing: 2px; }
+  .score .combo { color: #ffd23f; }
+  @media (max-height: 520px) and (orientation: landscape) { .score { top: 8px; } .score b { font-size: 28px; } }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="ov"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames 3D</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+<div class="score" id="hudScore" hidden>
+  <div><b id="hudPts">0</b><span id="hudLevel">уровень 1</span></div>
+  <div><b class="lives" id="hudLives">●●●</b><span class="combo" id="hudCombo">&nbsp;</span></div>
+</div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">🧱 3D</div>
+    <h1>Кирпичики <span>3D</span></h1>
+    <p>Отбивай мяч платформой и разбей все кирпичи. Яркие кирпичи крепче, а из звёздных выпадают бонусы.</p>
+    <p>Чем больше кирпичей подряд без касания платформы, тем больше комбо. Жизней три. Рекорды общие с 2D.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · лучший уровень: <b id="bestLevelStart">—</b></p>
+    <button class="play" id="go" type="button">Начать ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Мышь, палец или ← →. Пробел или касание — запустить мяч</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow">Мячи кончились</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">очков</p>
+    <p>Уровень: <b id="levelOver">1</b> · кирпичей разбито: <b id="bricksOver">0</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · лучший уровень: <b id="bestLevelOver">—</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<script src="../../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), ov = $('ov'), g = ov.getContext('2d');
+  // Game logic is the 2D game's, in the same field units; only the picture is 3D.
+  // The field is taller on phones and wider sideways; it changes only between levels.
+  const COLS = 10, BH = 24, TOP = 110;
+  let FW = 480, FH = 760, BW = (FW - 40) / COLS;
+  function shapeField() {
+    const A = innerWidth / Math.max(1, innerHeight);
+    if (A < 0.85) { FW = 480; FH = 760; } else { FW = 600; FH = 720; }
+    BW = (FW - 40) / COLS;
+    if (paddle) { paddle.y = FH - 56; paddle.x = Math.min(paddle.x, FW - paddle.w / 2 - 6); }
+  }
+  const HP_COL = ['#7cc4ff', '#bca0ff', '#ff9ec2', '#ffd23f'];
+  const DROP_COL = { wide: '#7cc4ff', multi: '#ffd23f', slow: '#5df2a5', life: '#ff9ec2' };
+  const DROP_ICON = { wide: '↔', multi: '●●', slow: '⏱', life: '♥' };
+  let state = 'start', level = 1, score = 0, lives = 3, combo = 0, bricksBroken = 0, playTime = 0;
+  let paddle, balls, bricks, drops, parts, popups, shake = 0, flash = 0, wideT = 0, slowT = 0, banner = 0, time = 0;
+  let best = +store.get('kirpichiki-best', 0) || 0, bestLevel = +store.get('kirpichiki-best-level', 0) || 0;
+  let runs = {}; try { runs = JSON.parse(store.get('kirpichiki-runs', '{}')) || {}; } catch { runs = {}; }
+  let muted = store.get('kirpichiki-muted', '0') === '1', keys = {}, pointerX = null;
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'square', v = 0.06, slide = 1) {
+    if (muted || !ac) return;
+    const t = ac.currentTime, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  const sfx = {
+    paddle: () => tone(330, 0.08, 'triangle', 0.08),
+    brick: (c) => tone(520 + Math.min(c, 8) * 70, 0.07, 'square', 0.05),
+    hard: () => tone(240, 0.06, 'square', 0.05),
+    wall: () => tone(200, 0.04, 'sine', 0.05),
+    power: () => [500, 750, 1000].forEach((f, i) => setTimeout(() => tone(f, 0.1, 'triangle', 0.07), i * 60)),
+    lose: () => tone(300, 0.5, 'sawtooth', 0.06, 0.25),
+    clear: () => [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => tone(f, 0.16, 'triangle', 0.08), i * 90)),
+  };
+
+  // ——— Levels (as in 2D) ———
+  const SHAPES = [
+    (x, y) => y < 5,
+    (x, y) => y < 7 && Math.abs(x - 4.5) <= y * 0.8 + 0.5,
+    (x, y) => y < 7 && (x + y) % 2 === 0,
+    (x, y) => y < 8 && (y % 2 === 0 || x === 0 || x === 9),
+    (x, y) => { const dx = Math.abs(x - 4.5), h = [[1, 1, 0, 0, 0], [2, 2, 1, 0, 0], [2, 2, 2, 1, 0], [2, 2, 2, 2, 1], [1, 2, 2, 2, 2], [0, 1, 2, 2, 2], [0, 0, 1, 2, 2], [0, 0, 0, 1, 1]]; return y < 8 && (h[y] || [])[Math.floor(4.5 - dx)] > 0; },
+    (x, y) => y < 8 && (x < 3 || x > 6 || y < 2 || y > 5),
+    (x, y) => y < 8 && ((x * 7 + y * 13 + level * 5) % 5) !== 0,
+  ];
+  function buildLevel() {
+    shapeField(); resize();
+    bricks = [];
+    const shape = SHAPES[(level - 1) % SHAPES.length];
+    for (let y = 0; y < 8; y++) for (let x = 0; x < COLS; x++) {
+      if (!shape(x, y)) continue;
+      let hp = 1; const r = ((x * 31 + y * 17 + level * 7) % 100) / 100;
+      if (level >= 2 && r < 0.15 + level * 0.04) hp = 2;
+      if (level >= 4 && r < 0.05 + level * 0.025) hp = 3;
+      if (level >= 7 && r < 0.03 + level * 0.01) hp = 4;
+      bricks.push({ x: 20 + x * BW, y: TOP + y * BH, w: BW - 4, h: BH - 4, hp, max: hp, hit: 0, bonus: (x * 13 + y * 7 + level) % 9 === 0 });
+    }
+    buildBricks3d();
+  }
+  const baseSpeed = () => Math.min(640, 360 + level * 24);
+  function newBall(stuck) { return { x: paddle.x, y: paddle.y - 14, vx: 0, vy: 0, r: 8, stuck }; }
+  function reset() {
+    level = 1; score = 0; lives = 3; combo = 0; bricksBroken = 0; playTime = 0; wideT = 0; slowT = 0;
+    paddle = { x: FW / 2, y: FH - 56, w: 96 };
+    balls = [newBall(true)]; drops = []; parts = []; popups = []; buildLevel(); banner = 1.6;
+  }
+  function launch() {
+    for (const b of balls) if (b.stuck) { const a = -Math.PI / 2 + (Math.random() - 0.5) * 0.7, s = baseSpeed(); b.vx = Math.cos(a) * s; b.vy = Math.sin(a) * s; b.stuck = false; }
+  }
+  function burst(x, y, col, n = 12, sp = 160) { for (let i = 0; i < n; i++) { const a = Math.random() * 7, v = Math.random() * sp; parts.push({ x, y, h: 0.6, vh: 2 + Math.random() * 6, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, col }); } }
+  function popup(x, y, text, col = '#f8f7ff') { popups.push({ x, y, text, col, life: 1 }); }
+
+  function hitBrick(br, b) {
+    br.hp--; br.hit = 0.15; combo++;
+    const pts = 10 * Math.min(5, combo);
+    score += pts;
+    if (br.hp > 0) { sfx.hard(); return; }
+    sfx.brick(combo); bricksBroken++; burst(br.x + br.w / 2, br.y + br.h / 2, HP_COL[br.max - 1], 14);
+    if (combo >= 3) popup(br.x + br.w / 2, br.y, '×' + Math.min(5, combo), '#ffd23f');
+    if (br.bonus) { const kinds = ['wide', 'multi', 'slow', 'life']; drops.push({ x: br.x + br.w / 2, y: br.y + br.h / 2, kind: kinds[(bricksBroken + level) % kinds.length] }); }
+  }
+
+  function step(dt) {
+    if (state !== 'play' || lb.isOpen()) return;
+    playTime += dt; banner = Math.max(0, banner - dt);
+    const pw = wideT > 0 ? 150 : 96; paddle.w += (pw - paddle.w) * Math.min(1, dt * 10);
+    const dir = (keys.ArrowRight || keys.KeyD ? 1 : 0) - (keys.ArrowLeft || keys.KeyA ? 1 : 0);
+    if (dir) { paddle.x += dir * 620 * dt; pointerX = null; } else if (pointerX !== null) paddle.x += (pointerX - paddle.x) * Math.min(1, dt * 18);
+    paddle.x = Math.max(paddle.w / 2 + 6, Math.min(FW - paddle.w / 2 - 6, paddle.x));
+    wideT = Math.max(0, wideT - dt); slowT = Math.max(0, slowT - dt);
+    const sp = baseSpeed() * (slowT > 0 ? 0.65 : 1);
+    for (const b of balls) {
+      if (b.stuck) { b.x = paddle.x; b.y = paddle.y - 14; continue; }
+      const cur = Math.hypot(b.vx, b.vy) || 1; b.vx *= sp / cur; b.vy *= sp / cur;
+      const n = Math.ceil(sp * dt / 5);
+      for (let i = 0; i < n && !b.out; i++) {
+        b.x += b.vx * dt / n; b.y += b.vy * dt / n;
+        if (b.x < b.r + 6) { b.x = b.r + 6; b.vx = Math.abs(b.vx); sfx.wall(); }
+        if (b.x > FW - b.r - 6) { b.x = FW - b.r - 6; b.vx = -Math.abs(b.vx); sfx.wall(); }
+        if (b.y < b.r + 70) { b.y = b.r + 70; b.vy = Math.abs(b.vy); sfx.wall(); }
+        if (b.vy > 0 && b.y + b.r >= paddle.y - 7 && b.y < paddle.y + 8 && Math.abs(b.x - paddle.x) <= paddle.w / 2 + b.r) {
+          const k = Math.max(-1, Math.min(1, (b.x - paddle.x) / (paddle.w / 2))), a = -Math.PI / 2 + k * 1.05;
+          b.vx = Math.cos(a) * sp; b.vy = Math.sin(a) * sp; b.y = paddle.y - 7 - b.r; combo = 0; sfx.paddle(); paddleBump = 1;
+        }
+        for (const br of bricks) {
+          if (br.hp <= 0) continue;
+          if (b.x + b.r < br.x || b.x - b.r > br.x + br.w || b.y + b.r < br.y || b.y - b.r > br.y + br.h) continue;
+          const ox1 = b.x + b.r - br.x, ox2 = br.x + br.w - (b.x - b.r), oy1 = b.y + b.r - br.y, oy2 = br.y + br.h - (b.y - b.r);
+          if (Math.min(ox1, ox2) < Math.min(oy1, oy2)) { if (ox1 < ox2) { b.vx = -Math.abs(b.vx); b.x -= ox1; } else { b.vx = Math.abs(b.vx); b.x += ox2; } }
+          else if (oy1 < oy2) { b.vy = -Math.abs(b.vy); b.y -= oy1; } else { b.vy = Math.abs(b.vy); b.y += oy2; }
+          hitBrick(br, b); break;
+        }
+        if (b.y > FH + 20) b.out = true;
+      }
+    }
+    balls = balls.filter((b) => !b.out);
+    if (!balls.length) {
+      lives--; combo = 0; sfx.lose(); shake = 0.4; flash = 1;
+      if (lives <= 0) return gameOver();
+      balls = [newBall(true)]; wideT = 0; slowT = 0;
+    }
+    bricks = bricks.filter((br) => br.hp > 0 || br.hit > 0);
+    for (const br of bricks) br.hit = Math.max(0, br.hit - dt);
+    for (const d of drops) {
+      d.y += 170 * dt;
+      if (d.y > paddle.y - 14 && d.y < paddle.y + 14 && Math.abs(d.x - paddle.x) < paddle.w / 2 + 14) {
+        d.got = true; sfx.power();
+        if (d.kind === 'wide') { wideT = 12; popup(d.x, d.y - 20, 'Шире!', '#7cc4ff'); }
+        if (d.kind === 'slow') { slowT = 9; popup(d.x, d.y - 20, 'Медленнее', '#5df2a5'); }
+        if (d.kind === 'life') { lives = Math.min(5, lives + 1); popup(d.x, d.y - 20, '+1 жизнь', '#ff9ec2'); }
+        if (d.kind === 'multi') {
+          const src = balls.find((b) => !b.stuck) || balls[0];
+          for (const a of [-0.5, 0.5]) { const nb = { ...src, stuck: false, out: false }; const ang = Math.atan2(src.vy || -1, src.vx || 0) + a; nb.vx = Math.cos(ang) * sp; nb.vy = -Math.abs(Math.sin(ang) * sp);
+            if (-nb.vy < sp * 0.5) { nb.vy = -sp * 0.5; nb.vx = Math.sign(nb.vx || 1) * sp * Math.sqrt(0.75); }
+            balls.push(nb); }
+          popup(d.x, d.y - 20, '+2 мяча', '#ffd23f');
+        }
+      }
+    }
+    drops = drops.filter((d) => !d.got && d.y < FH + 20);
+    if (!bricks.some((br) => br.hp > 0)) {
+      score += 100 * level; popup(FW / 2, FH / 2, `Уровень ${level} пройден! +${100 * level}`, '#5df2a5');
+      level++; sfx.clear(); buildLevel(); balls = [newBall(true)]; drops = []; banner = 1.6; combo = 0;
+    }
+  }
+
+  // ——— 3D ———
+  const U = 1 / 20;
+  const P = (x, y, h = 0) => new THREE.Vector3((x - FW / 2) * U, h, (y - FH / 2) * U);
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); } catch (e) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="screen"><div class="box"><h1><span>3D</span> не запускается</h1><p>Браузер не поддерживает WebGL.</p><a class="play" style="display:block;text-decoration:none" href="../../kirpichiki/">Кирпичики 2D ↗</a></div></div>');
+    throw e;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const scene = new THREE.Scene(); scene.background = new THREE.Color('#0d0f1c'); scene.fog = new THREE.Fog('#0d0f1c', 60, 130);
+  const camera = new THREE.PerspectiveCamera(42, 1, 0.3, 300);
+  scene.add(new THREE.HemisphereLight('#d6caff', '#1a1235', 0.7));
+  const sun = new THREE.DirectionalLight('#ffffff', 0.75); sun.position.set(-10, 30, 14); sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024); Object.assign(sun.shadow.camera, { left: -22, right: 22, top: 24, bottom: -24, near: 1, far: 80 }); scene.add(sun); scene.add(sun.target);
+
+  // stars around
+  const skyG = new THREE.BufferGeometry(), skyP = [];
+  for (let i = 0; i < 900; i++) { const a = Math.random() * Math.PI * 2, r = 70 + Math.random() * 40; skyP.push(Math.cos(a) * r, -20 + Math.random() * 70, Math.sin(a) * r); }
+  skyG.setAttribute('position', new THREE.Float32BufferAttribute(skyP, 3));
+  scene.add(new THREE.Points(skyG, new THREE.PointsMaterial({ color: '#e7dcff', size: 0.4 })));
+
+  // The field: a floor with a grid, glowing side and top walls; rebuilt when its size changes.
+  let fieldKey = '', fieldGroup = null;
+  const wallMat = new THREE.MeshStandardMaterial({ color: '#7b67fc', emissive: '#4a36c8', emissiveIntensity: 0.8, roughness: 0.35 });
+  function buildField() {
+    if (fieldGroup) scene.remove(fieldGroup);
+    fieldGroup = new THREE.Group(); scene.add(fieldGroup);
+    const fw = FW * U, fd = (FH - 70) * U, cz = ((70 + FH) / 2 - FH / 2) * U;
+    const c = document.createElement('canvas'); c.width = 512; c.height = Math.round(512 * fd / fw); const x = c.getContext('2d');
+    const gr = x.createLinearGradient(0, 0, 0, c.height); gr.addColorStop(0, '#221d45'); gr.addColorStop(1, '#15152a');
+    x.fillStyle = gr; x.fillRect(0, 0, c.width, c.height);
+    x.strokeStyle = '#ffffff12'; x.lineWidth = 2; const step = c.width / 12;
+    for (let i = 1; i < 12; i++) { x.beginPath(); x.moveTo(i * step, 0); x.lineTo(i * step, c.height); x.stroke(); }
+    for (let j = step; j < c.height; j += step) { x.beginPath(); x.moveTo(0, j); x.lineTo(c.width, j); x.stroke(); }
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(fw, fd), new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(c), roughness: 0.85 }));
+    floor.rotation.x = -Math.PI / 2; floor.position.z = cz; floor.receiveShadow = true; fieldGroup.add(floor);
+    const base = new THREE.Mesh(new THREE.BoxGeometry(fw + 1.4, 1.5, fd + 1.4), new THREE.MeshStandardMaterial({ color: '#141327', roughness: 0.8 }));
+    base.position.set(0, -0.76, cz + 0.2); fieldGroup.add(base);
+    const t = 0.5, hh = 1.2;
+    for (const [w, d, px, pz] of [[t, fd + t, -fw / 2 + 6 * U - t / 2, cz - t / 2], [t, fd + t, fw / 2 - 6 * U + t / 2, cz - t / 2], [fw - 12 * U + 2 * t, t, 0, (70 - FH / 2) * U - t / 2]]) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, hh, d), wallMat); m.position.set(px, hh / 2, pz); m.castShadow = true; fieldGroup.add(m);
+    }
+    // the open bottom edge: a red glow line where balls are lost
+    const edge = new THREE.Mesh(new THREE.BoxGeometry(fw - 12 * U, 0.08, 0.12), new THREE.MeshBasicMaterial({ color: '#ff5f7a' }));
+    edge.position.set(0, 0.04, (FH / 2 - 6) * U); fieldGroup.add(edge);
+    fieldKey = FW + 'x' + FH;
+  }
+
+  // bricks
+  const brickGroup = new THREE.Group(); scene.add(brickGroup);
+  const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+  const starGeo = new THREE.OctahedronGeometry(0.32);
+  const starMat = new THREE.MeshStandardMaterial({ color: '#ffd23f', emissive: '#ffb000', emissiveIntensity: 0.8, metalness: 0.3, roughness: 0.3 });
+  function buildBricks3d() {
+    for (const m of brickGroup.children.slice()) { brickGroup.remove(m); m.material.dispose(); }
+    for (const br of bricks) {
+      const m = new THREE.Mesh(boxGeo, new THREE.MeshStandardMaterial({ color: HP_COL[br.hp - 1], roughness: 0.35, metalness: 0.1, emissive: '#000000' }));
+      m.castShadow = true; m.receiveShadow = true;
+      m.scale.set(br.w * U, 0.9, br.h * U);
+      m.position.copy(P(br.x + br.w / 2, br.y + br.h / 2, 0.45));
+      if (br.bonus) { const s = new THREE.Mesh(starGeo, starMat); s.position.y = 0.95; s.scale.set(1 / (br.w * U), 1 / 0.9, 1 / (br.h * U)); m.add(s); m.userData.star = s; }
+      br.mesh = m; brickGroup.add(m);
+    }
+  }
+
+  // paddle: a bar with round ends
+  const padGroup = new THREE.Group(); scene.add(padGroup);
+  const padMat = new THREE.MeshStandardMaterial({ color: '#c9b2ff', emissive: '#7b67fc', emissiveIntensity: 0.55, roughness: 0.25, metalness: 0.2 });
+  const padMid = new THREE.Mesh(new THREE.BoxGeometry(1, 0.7, 0.8), padMat); padMid.castShadow = true; padGroup.add(padMid);
+  const capGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.7, 20);
+  const capL = new THREE.Mesh(capGeo, padMat), capR = new THREE.Mesh(capGeo, padMat); capL.castShadow = capR.castShadow = true; padGroup.add(capL, capR);
+  const padLight = new THREE.PointLight('#a178f8', 0.8, 7); padLight.position.y = 1; padGroup.add(padLight);
+  let paddleBump = 0;
+
+  // balls
+  const ballGeo = new THREE.SphereGeometry(0.4, 20, 14);
+  const ballMat = new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#ffffff', emissiveIntensity: 0.65, roughness: 0.2 });
+  const ballMeshes = [];
+  const ballLight = new THREE.PointLight('#ffffff', 0.9, 8); scene.add(ballLight);
+  function ballMesh(i) { if (!ballMeshes[i]) { const m = new THREE.Mesh(ballGeo, ballMat); m.castShadow = true; scene.add(m); ballMeshes[i] = m; } return ballMeshes[i]; }
+
+  // bonus capsules
+  const pillGeo = new THREE.CylinderGeometry(0.5, 0.5, 1.7, 18); pillGeo.rotateZ(Math.PI / 2);
+  const pillMats = {}; for (const k in DROP_COL) pillMats[k] = new THREE.MeshStandardMaterial({ color: DROP_COL[k], emissive: DROP_COL[k], emissiveIntensity: 0.35, roughness: 0.3 });
+  const dropMeshes = [];
+  function dropMesh(i) { if (!dropMeshes[i]) { const m = new THREE.Mesh(pillGeo, pillMats.wide); m.castShadow = true; scene.add(m); dropMeshes[i] = m; } return dropMeshes[i]; }
+
+  // particles
+  const MAXP = 400, pGeo = new THREE.BufferGeometry(), pPos = new Float32Array(MAXP * 3), pCol = new Float32Array(MAXP * 3);
+  pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3)); pGeo.setAttribute('color', new THREE.BufferAttribute(pCol, 3));
+  const ptsM = new THREE.Points(pGeo, new THREE.PointsMaterial({ size: 0.26, vertexColors: true, transparent: true, depthWrite: false })); ptsM.frustumCulled = false; scene.add(ptsM);
+  const tmpC = new THREE.Color(), white = new THREE.Color('#ffffff');
+
+  // Camera: from behind the paddle and above, as close as it can be with the whole field in view.
+  const camDir = new THREE.Vector3(), camTarget = new THREE.Vector3();
+  let camDist = 40;
+  function fitCamera() {
+    const A = innerWidth / Math.max(1, innerHeight), tilt = (A < 0.85 ? 60 : 50) * Math.PI / 180;
+    camDir.set(0, Math.sin(tilt), Math.cos(tilt));
+    camTarget.copy(P(FW / 2, FH * 0.56));
+    camera.aspect = A; camera.fov = A < 0.85 ? 50 : 42; camera.updateProjectionMatrix();
+    const corners = [P(0, 70, 1.2), P(FW, 70, 1.2), P(0, FH, 0), P(FW, FH, 0)];
+    const topLimit = 1 - 2 * Math.min(0.24, 130 / innerHeight);
+    let lo = 5, hi = 200;
+    camera.clearViewOffset();
+    for (let i = 0; i < 30; i++) {
+      const d = (lo + hi) / 2;
+      camera.position.copy(camTarget).addScaledVector(camDir, d); camera.lookAt(camTarget); camera.updateMatrixWorld();
+      const ok = corners.every((c) => { const v = c.clone().project(camera); return Math.abs(v.x) < 0.94 && v.y < topLimit && v.y > -0.96; });
+      if (ok) hi = d; else lo = d;
+    }
+    camDist = hi;
+    // On tall screens the field is narrower than the space: center it between the HUD and the bottom edge.
+    camera.position.copy(camTarget).addScaledVector(camDir, camDist); camera.lookAt(camTarget); camera.updateMatrixWorld();
+    const ys = corners.map((c) => c.clone().project(camera).y), mid = (Math.max(...ys) + Math.min(...ys)) / 2, want = (topLimit - 0.96) / 2;
+    camera.setViewOffset(innerWidth, innerHeight, 0, (want - mid) / 2 * innerHeight, innerWidth, innerHeight);
+  }
+
+  let W = 0, H = 0, dpr = 1;
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    if (state !== 'play') shapeField();
+    renderer.setSize(W, H, false);
+    ov.width = W * dpr; ov.height = H * dpr;
+    if (fieldKey !== FW + 'x' + FH) buildField();
+    fitCamera();
+  }
+  const raycaster = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hitV = new THREE.Vector3();
+  function toField(cx, cy) {
+    raycaster.setFromCamera({ x: cx / W * 2 - 1, y: -(cy / H) * 2 + 1 }, camera);
+    if (!raycaster.ray.intersectPlane(plane, hitV)) return pointerX;
+    return hitV.x / U + FW / 2;
+  }
+  function screenOf(x, y, h = 1) { const v = P(x, y, h).project(camera); return [(v.x + 1) / 2 * W, (1 - v.y) / 2 * H, v.z < 1]; }
+
+  function draw() {
+    // camera, with a slight follow of the paddle and a slow sway on the start screen
+    const sway = state === 'start' ? Math.sin(time * 0.4) * 0.12 : (paddle.x - FW / 2) / FW * (W < H ? 0.03 : 0.08);
+    const dir = camDir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), sway);
+    camera.position.copy(camTarget).addScaledVector(dir, camDist);
+    if (shake > 0) camera.position.add(new THREE.Vector3((Math.random() - 0.5) * shake * 1.4, (Math.random() - 0.5) * shake, 0));
+    camera.lookAt(camTarget);
+    sun.target.position.copy(camTarget);
+
+    for (const br of bricks) {
+      const m = br.mesh; if (!m) continue;
+      const dying = br.hp <= 0, k = dying ? br.hit / 0.15 : 1;
+      m.visible = k > 0.01;
+      m.material.color.set(HP_COL[Math.max(0, br.hp - 1)] || '#ffffff');
+      m.material.emissive.copy(br.hit > 0 ? white : tmpC.set(HP_COL[Math.max(0, br.hp - 1)] || '#ffffff')).multiplyScalar(br.hit > 0 ? 0.9 : 0.12);
+      m.scale.set(br.w * U * (0.4 + 0.6 * k), 0.9 * k, br.h * U * (0.4 + 0.6 * k));
+      if (m.userData.star) { m.userData.star.visible = !dying; m.userData.star.rotation.y = time * 2; }
+    }
+    for (const m of brickGroup.children) if (!bricks.some((b) => b.mesh === m)) m.visible = false;
+
+    // paddle
+    const pw = paddle.w * U, bumpY = paddleBump * 0.18;
+    padGroup.position.copy(P(paddle.x, paddle.y, 0.35 - bumpY));
+    padMid.scale.x = Math.max(0.01, pw - 0.8); capL.position.x = -(pw / 2 - 0.4); capR.position.x = pw / 2 - 0.4;
+    padMat.emissiveIntensity = 0.55 + (wideT > 0 ? 0.3 : 0);
+
+    balls.forEach((b, i) => { const m = ballMesh(i); m.visible = true; m.position.copy(P(b.x, b.y, 0.45)); });
+    for (let i = balls.length; i < ballMeshes.length; i++) ballMeshes[i].visible = false;
+    if (balls[0]) ballLight.position.copy(P(balls[0].x, balls[0].y, 1.2));
+    ballMat.color.set(slowT > 0 ? '#bfffe0' : '#ffffff'); ballMat.emissive.set(slowT > 0 ? '#5df2a5' : '#ffffff');
+
+    drops.forEach((d, i) => { const m = dropMesh(i); m.visible = true; m.material = pillMats[d.kind]; m.position.copy(P(d.x, d.y, 0.6)); m.rotation.x = time * 5; });
+    for (let i = drops.length; i < dropMeshes.length; i++) dropMeshes[i].visible = false;
+
+    let n = 0;
+    for (const p of parts) {
+      if (n >= MAXP) break;
+      const v = P(p.x, p.y, p.h); pPos.set([v.x, v.y, v.z], n * 3); tmpC.set(p.col).multiplyScalar(Math.max(0, p.life)); pCol.set([tmpC.r, tmpC.g, tmpC.b], n * 3); n++;
+    }
+    pGeo.setDrawRange(0, n); pGeo.attributes.position.needsUpdate = true; pGeo.attributes.color.needsUpdate = true;
+    renderer.render(scene, camera);
+
+    // Overlay: bonus icons, popups, banners, the red flash.
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    for (const d of drops) { const [sx, sy] = screenOf(d.x, d.y, 1.3); g.font = '800 15px Manrope, system-ui'; g.fillStyle = '#171225'; g.strokeStyle = '#ffffffcc'; g.lineWidth = 4; g.strokeText(DROP_ICON[d.kind], sx, sy); g.fillText(DROP_ICON[d.kind], sx, sy); }
+    for (const p of popups) { const [sx, sy] = screenOf(p.x, p.y, 1.5); g.globalAlpha = Math.max(0, p.life); g.fillStyle = p.col; g.font = '800 18px Manrope, system-ui'; g.fillText(p.text, sx, sy - (1 - p.life) * 40); } g.globalAlpha = 1;
+    if (state === 'play' && balls.some((b) => b.stuck)) {
+      const [sx, sy] = screenOf(paddle.x, paddle.y - 90, 0.5);
+      g.globalAlpha = 0.6 + 0.4 * Math.sin(performance.now() / 200); g.fillStyle = '#d9c9ff'; g.font = '800 18px Manrope, system-ui';
+      g.fillText('Касание или пробел — запустить', sx, sy); g.globalAlpha = 1;
+    }
+    if (banner > 0 && state === 'play') { const [sx, sy] = screenOf(FW / 2, FH * 0.55, 1); g.globalAlpha = Math.min(1, banner); g.fillStyle = '#f8f7ff'; g.font = '800 44px Manrope, system-ui'; g.fillText('Уровень ' + level, sx, sy); g.globalAlpha = 1; }
+    if (flash > 0) { g.fillStyle = `rgba(255,80,110,${flash * 0.25})`; g.fillRect(0, 0, W, H); }
+
+    $('hudScore').hidden = state === 'start';
+    $('hudPts').textContent = score; $('hudLevel').textContent = 'уровень ' + level;
+    $('hudLives').textContent = '●'.repeat(Math.max(0, lives)) || '—';
+    $('hudCombo').innerHTML = combo >= 2 ? 'комбо ×' + Math.min(5, combo) : '&nbsp;';
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.033, (now - last) / 1000)); last = now; time += dt;
+    step(dt);
+    for (const p of parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.97; p.vy *= 0.97; p.h = Math.max(0.1, p.h + p.vh * dt); p.vh -= 18 * dt; p.life -= dt * 1.4; } parts = parts.filter((p) => p.life > 0);
+    for (const p of popups) { p.life -= dt * 0.9; } popups = popups.filter((p) => p.life > 0);
+    shake = Math.max(0, shake - dt); flash = Math.max(0, flash - dt * 2.5); paddleBump = Math.max(0, paddleBump - dt * 6);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  const pointsWord = (n) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? 'очко' : a >= 2 && a <= 4 && (b < 12 || b > 14) ? 'очка' : 'очков'; };
+  function showBests() {
+    $('bestStart').textContent = best; $('bestOver').textContent = best;
+    $('bestLevelStart').textContent = bestLevel || '—'; $('bestLevelOver').textContent = bestLevel || '—';
+  }
+  function start() { unlockAudio(); state = 'start'; reset(); state = 'play'; chanceUsed = false; chance.hide(); $('start').hidden = true; $('over').hidden = true; }
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'kirpichiki-life', label: '🎬 +1 жизнь за рекламу', onReward: () => {
+    chanceUsed = true; lives = 1; balls = [newBall(true)]; wideT = 0; slowT = 0; state = 'play'; $('over').hidden = true;
+  } });
+  function gameOver() {
+    state = 'over';
+    const run = { new_score: score, new_level: level, new_time: Math.floor(playTime) }, record = score > best;
+    if (record) { best = score; store.set('kirpichiki-best', best); runs.score = run; }
+    if (level > bestLevel) { bestLevel = level; store.set('kirpichiki-best-level', bestLevel); runs.level = run; }
+    store.set('kirpichiki-runs', JSON.stringify(runs));
+    lb.submit(run);
+    setTimeout(() => {
+      $('final').textContent = score;
+      $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + pointsWord(score);
+      $('levelOver').textContent = level; $('bricksOver').textContent = bricksBroken;
+      showBests(); $('over').hidden = false;
+      if (!chanceUsed) chance.show();
+    }, 700);
+  }
+
+  // The leaderboard is shared with Кирпичики 2D.
+  const lb = FreasyLeaderboard({
+    key: 'kirpichiki',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за одну игру (2D и 3D).', format: (v) => `${v} ${pointsWord(v)}` },
+      { id: 'level', title: 'Уровень', column: 'best_level', order: 'desc', note: 'Самый дальний уровень за одну игру (2D и 3D).', format: (v) => `уровень ${v}` },
+    ],
+    bests: () => [runs.score, runs.level].filter(Boolean),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  cv.addEventListener('pointermove', (e) => { pointerX = toField(e.clientX, e.clientY); });
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); unlockAudio(); pointerX = toField(e.clientX, e.clientY); if (state === 'play') launch(); });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    keys[e.code] = true;
+    if ((e.code === 'Space' || e.code === 'Enter') && e.target.closest && e.target.closest('.screen button')) return;
+    if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); if (state === 'play') launch(); else if (!e.repeat && (!$('start').hidden || !$('over').hidden)) start(); }
+    if (e.code.startsWith('Arrow')) e.preventDefault();
+  });
+  addEventListener('keyup', (e) => { keys[e.code] = false; });
+  addEventListener('blur', () => { keys = {}; });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('kirpichiki-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  addEventListener('resize', resize);
+  shapeField(); resize(); reset(); showBests();
+  // #preview: a game in progress, for the catalog.
+  if (location.hash === '#preview') { $('start').hidden = true; level = 3; buildLevel(); state = 'play'; launch(); for (let i = 0; i < 160; i++) { pointerX = balls[0] ? balls[0].x : FW / 2; step(1 / 60); } bricks.slice(0, 18).forEach((b) => { b.hp = 0; }); score = 1840; combo = 3; banner = 0; }
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

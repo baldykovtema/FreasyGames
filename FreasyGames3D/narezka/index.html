@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../../shared/session.js?v=2"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0d0f1c">
+<title>Нарезка 3D — FreasyGames 3D</title>
+<meta name="description" content="Нарезка 3D на FreasyGames: объёмные фрукты крутятся в воздухе и распадаются на половинки с сочным срезом. Режь одним росчерком, собирай комбо и не задень бомбу. Таблица лидеров общая с 2D.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>#ov { pointer-events: none; }</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="ov"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames 3D</a><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">🍉 3D</div>
+    <h1>Нарезка <span>3D</span></h1>
+    <p>Объёмные фрукты взлетают снизу — проведи по ним пальцем или мышью, и они распадутся на половинки. Несколько фруктов одним росчерком дают комбо.</p>
+    <p>Не задень чёрную бомбу и не упусти фрукт: каждый промах — минус жизнь, всего их три. Рекорды общие с 2D.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · лучшее комбо: <b id="comboStart">—</b></p>
+    <button class="play" id="go" type="button">Начать ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Свайп пальцем или движение мыши с зажатой кнопкой</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow" id="overWhy">Жизни кончились</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">очков</p>
+    <p>Нарезано: <b id="slicedOver">0</b> · лучшее комбо: <b id="comboOver">—</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · рекорд комбо: <b id="bestComboOver">—</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<script src="../../shared/rewards.js"></script>
+<script>
+(() => {
+  const cv = document.getElementById('c'), ov = document.getElementById('ov'), ctx = ov.getContext('2d');
+  const $ = (id) => document.getElementById(id);
+  let W = 0, H = 0, DPR = 1, S = 1;
+
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  let best = Number(store.get('narezka-best', 0)) || 0, bestCombo = Number(store.get('narezka-best-combo', 0)) || 0;
+  const runs = (() => { try { return JSON.parse(store.get('narezka-runs', '{}')) || {}; } catch { return {}; } })();
+  let muted = store.get('narezka-muted', '0') === '1';
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const pointsWord = (n) => plural(n, 'очко', 'очка', 'очков');
+
+  // The same fruit as in 2D. Game logic works in screen pixels, as in 2D; the 3D scene is laid out so one unit is one pixel.
+  const FRUITS = [
+    { name: 'арбуз', skin: '#2fa84f', stripe: '#1d7a37', flesh: '#ff4d6d', seeds: '#2b1a1a', c: '#ff5f7a', r: 1.2 },
+    { name: 'апельсин', skin: '#ff9f1c', flesh: '#ffc15e', seeds: '#fff3d6', c: '#ffa53d', r: 0.95, dots: true },
+    { name: 'яблоко', skin: '#e63946', flesh: '#fff1d6', seeds: '#5a3a1a', c: '#ff8a8a', r: 0.95, leaf: true },
+    { name: 'лимон', skin: '#ffe14d', flesh: '#fff6a8', seeds: '#fffbe0', c: '#ffe14d', r: 0.85, oval: true },
+    { name: 'слива', skin: '#8e5bd6', flesh: '#e3c8ff', seeds: '#6a3a1a', c: '#b78cff', r: 0.9, leaf: true },
+    { name: 'киви', skin: '#8a6a3f', flesh: '#8bd450', seeds: '#1c1c1c', c: '#9be36b', r: 0.85, oval: true },
+    { name: 'персик', skin: '#ff9c7a', flesh: '#ffd3a8', seeds: '#a0522d', c: '#ffb08f', r: 0.95, leaf: true },
+  ];
+  let state = 'start', items, halves, drops, popups, trail, score, lives, sliced, combo, bestRun, playTime, spawnIn, lastT = 0, shake = 0, flash = 0, pointer = null;
+
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    ov.width = Math.round(W * DPR); ov.height = Math.round(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    S = Math.min(W, H);
+    if (typeof resize3d === 'function') resize3d();
+  }
+  function reset() {
+    for (const it of items || []) drop3d(it);
+    for (const h of halves || []) drop3d(h);
+    items = []; halves = []; drops = []; popups = []; trail = [];
+    score = 0; lives = 3; sliced = 0; combo = 0; bestRun = 0; playTime = 0; spawnIn = 0.8; shake = 0;
+  }
+
+  const G = () => H * 1.25;
+  function throwOne(bomb) {
+    const size = Math.max(34, S * 0.075);
+    const f = bomb ? { bomb: true, c: '#ff5f5f', r: 1 } : FRUITS[Math.floor(Math.random() * FRUITS.length)];
+    const x = W * (0.15 + Math.random() * 0.7);
+    const peak = H * (0.18 + Math.random() * 0.32);
+    const vy = -Math.sqrt(2 * G() * (H + size - peak));
+    const vx = (W / 2 - x) * (0.25 + Math.random() * 0.5) / 1.6;
+    // In 3D a fruit turns around all three axes, not only in the screen plane.
+    items.push({ x, y: H + size, vx, vy, r: size * f.r, f, c: f.c, bomb, rot: Math.random() * 6, spin: (Math.random() - 0.5) * 6, rx: Math.random() * 6, srx: (Math.random() - 0.5) * 4, ry: Math.random() * 6, sry: (Math.random() - 0.5) * 4 });
+  }
+  function spawnWave() {
+    const n = 1 + Math.floor(Math.random() * Math.min(5, 2 + playTime / 14));
+    const bombChance = playTime < 8 ? 0 : Math.min(0.28, 0.08 + playTime * 0.003);
+    for (let i = 0; i < n; i++) setTimeout(() => { if (state === 'play') throwOne(Math.random() < bombChance); }, i * 140);
+    spawnIn = Math.max(0.6, 1.4 - playTime * 0.015) + Math.random() * 0.4;
+  }
+
+  function start() {
+    reset(); state = 'play'; chanceUsed = false; chance.hide();
+    $('start').hidden = true; $('over').hidden = true;
+    unlockAudio();
+  }
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'narezka-life', label: '🎬 +1 жизнь за рекламу', onReward: () => {
+    chanceUsed = true; lives = 1; combo = 0; for (const it of items) drop3d(it); items = []; spawnIn = 0.8; state = 'play'; $('over').hidden = true;
+  } });
+
+  function endSwipe() {
+    if (combo >= 3) {
+      const bonus = combo * 2;
+      score += bonus;
+      popups.push({ x: pointer ? pointer.x : W / 2, y: pointer ? pointer.y : H / 2, text: `КОМБО ×${combo}! +${bonus}`, color: '#ffd23f', life: 1.2, big: true });
+      sound('combo', combo);
+    }
+    bestRun = Math.max(bestRun, combo);
+    combo = 0;
+  }
+
+  function slice(it, ax, ay, bx, by) {
+    it.dead = true;
+    if (it.bomb) { boom(it); return; }
+    sliced += 1; combo += 1; score += 1;
+    const ang = Math.atan2(by - ay, bx - ax);
+    for (const side of [-1, 1]) halves.push({ x: it.x, y: it.y, vx: it.vx + Math.cos(ang + side * Math.PI / 2) * 120, vy: it.vy * 0.3 - 80, r: it.r, f: it.f, rot: 0, spin: side * (1.5 + Math.random()), side, ang, life: 1.4, tilt: 0 });
+    for (let i = 0; i < 18; i++) { const a = Math.random() * 7, v = 60 + Math.random() * 300; drops.push({ x: it.x, y: it.y, z: (Math.random() - 0.3) * it.r * 2, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, vz: (Math.random() - 0.2) * 300, life: 1, c: it.c }); }
+    popups.push({ x: it.x, y: it.y, text: '+1', color: '#ffffff', life: 0.7 });
+    sound('slice', combo);
+  }
+  function boom(it) {
+    for (let i = 0; i < 60; i++) { const a = Math.random() * 7, v = 80 + Math.random() * 520; drops.push({ x: it.x, y: it.y, z: 0, vx: Math.cos(a) * v, vy: Math.sin(a) * v, vz: (Math.random() - 0.3) * 600, life: 1.2, c: i % 2 ? '#ffb24d' : '#ff5f5f' }); }
+    shake = 0.6; flash = 1; sound('boom'); boomFlash = 1;
+    lives = 0; gameOver('Бомба!');
+  }
+
+  function segHits(ax, ay, bx, by, cx, cy, r) {
+    const dx = bx - ax, dy = by - ay, len = dx * dx + dy * dy || 1;
+    const t = Math.max(0, Math.min(1, ((cx - ax) * dx + (cy - ay) * dy) / len));
+    const px = ax + t * dx - cx, py = ay + t * dy - cy;
+    return px * px + py * py <= r * r;
+  }
+  function moveTo(x, y) {
+    const now = performance.now();
+    if (pointer) {
+      const fast = Math.hypot(x - pointer.x, y - pointer.y) > 2;
+      if (state === 'play' && fast) for (const it of items) if (!it.dead && segHits(pointer.x, pointer.y, x, y, it.x, it.y, it.r * 0.9)) slice(it, pointer.x, pointer.y, x, y);
+    }
+    pointer = { x, y };
+    trail.push({ x, y, t: now });
+  }
+
+  function spinItem(it, dt) { it.rot += it.spin * dt; it.rx += it.srx * dt; it.ry += it.sry * dt; }
+  function step(dt) {
+    playTime += dt;
+    spawnIn -= dt;
+    if (spawnIn <= 0) spawnWave();
+    const g = G();
+    for (const it of items) {
+      it.vy += g * dt; it.x += it.vx * dt; it.y += it.vy * dt; spinItem(it, dt);
+      if (it.vy > 0 && it.y > H + it.r * 1.5 && !it.dead) {
+        it.dead = true;
+        if (!it.bomb) {
+          lives -= 1; flash = 0.6; sound('miss');
+          popups.push({ x: Math.max(40, Math.min(W - 40, it.x)), y: H - 40, text: 'Упустил!', color: '#ff7a8a', life: 1 });
+          if (lives <= 0) { gameOver('Жизни кончились'); return; }
+        }
+      }
+    }
+    for (const it of items) if (it.dead) drop3d(it);
+    items = items.filter((it) => !it.dead);
+  }
+
+  function gameOver(why) {
+    if (state !== 'play') return;
+    endSwipe();
+    state = 'over';
+    const seconds = Math.floor(playTime), record = score > best;
+    const run = { new_score: score, new_combo: bestRun, new_sliced: sliced, new_time: seconds };
+    if (record) { best = score; store.set('narezka-best', best); runs.score = run; }
+    if (bestRun > bestCombo) { bestCombo = bestRun; store.set('narezka-best-combo', bestCombo); runs.combo = run; }
+    store.set('narezka-runs', JSON.stringify(runs));
+    lb.submit(run);
+    setTimeout(() => {
+      if (state !== 'over') return;
+      $('overWhy').textContent = why;
+      $('final').textContent = score;
+      $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + pointsWord(score);
+      $('slicedOver').textContent = sliced;
+      $('comboOver').textContent = bestRun >= 2 ? `×${bestRun}` : '—';
+      showBests();
+      $('over').hidden = false;
+      if (!chanceUsed) chance.show();
+    }, 1000);
+  }
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('comboStart').textContent = $('bestComboOver').textContent = bestCombo >= 2 ? `×${bestCombo}` : '—';
+  }
+
+  let ac = null;
+  function unlockAudio() { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (ac && ac.state === 'suspended') ac.resume(); }
+  function tone(f, dur, type, vol, slide = 1, delay = 0) {
+    if (!ac || muted) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t);
+    if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + dur);
+    gn.gain.setValueAtTime(vol, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function noise(dur, vol) {
+    if (!ac || muted) return;
+    const len = Math.floor(ac.sampleRate * dur), buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const s = ac.createBufferSource(), gn = ac.createGain(); s.buffer = buf; gn.gain.value = vol; s.connect(gn).connect(ac.destination); s.start();
+  }
+  function sound(kind, n = 0) {
+    if (kind === 'slice') { noise(0.08, 0.15); tone(700 + Math.min(n, 10) * 60, 0.09, 'triangle', 0.07, 1.6); }
+    else if (kind === 'combo') { [0, 4, 7, 12].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.14, 'square', 0.05, 1, i * 0.06)); }
+    else if (kind === 'miss') { tone(220, 0.3, 'sawtooth', 0.08, 0.5); }
+    else if (kind === 'boom') { noise(0.6, 0.5); tone(90, 0.6, 'sine', 0.35, 0.4); }
+  }
+
+  // ——— 3D ———
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); } catch (e) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="screen"><div class="box"><h1><span>3D</span> не запускается</h1><p>Браузер не поддерживает WebGL.</p><a class="play" style="display:block;text-decoration:none" href="../../narezka/">Нарезка 2D ↗</a></div></div>');
+    throw e;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  const scene = new THREE.Scene(); scene.background = new THREE.Color('#120d10');
+  const camera = new THREE.PerspectiveCamera(35, 1, 10, 5000);
+  scene.add(new THREE.HemisphereLight('#fff1e0', '#3a2140', 0.75));
+  const sun = new THREE.DirectionalLight('#ffffff', 0.85); sun.position.set(-0.5, 1, 1.2); scene.add(sun);
+  const rim = new THREE.DirectionalLight('#bca0ff', 0.45); rim.position.set(1, -0.3, 0.6); scene.add(rim);
+  const boomLight = new THREE.PointLight('#ff7a3d', 0, 2000); boomLight.position.z = 200; scene.add(boomLight);
+  let boomFlash = 0;
+
+  const tex = (w, h, paint) => { const c = document.createElement('canvas'); c.width = w; c.height = h; paint(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.anisotropy = 4; return t; };
+  // The wooden board behind the fruit.
+  const boardTex = tex(1024, 1024, (x, w, h) => {
+    const pw = w / 6;
+    for (let i = 0; i < 6; i++) {
+      const base = ['#5b3a24', '#4e311f', '#634029', '#553622', '#4a2e1c', '#5e3c26'][i];
+      x.fillStyle = base; x.fillRect(i * pw, 0, pw, h);
+      for (let k = 0; k < 40; k++) { x.strokeStyle = `rgba(30,15,8,${0.12 + Math.random() * 0.15})`; x.lineWidth = 1 + Math.random() * 2; const gx = i * pw + Math.random() * pw; x.beginPath(); x.moveTo(gx, 0); x.bezierCurveTo(gx + 10, h * 0.3, gx - 10, h * 0.7, gx + Math.random() * 8, h); x.stroke(); }
+      x.fillStyle = '#00000066'; x.fillRect(i * pw, 0, 3, h);
+    }
+    for (let k = 0; k < 8; k++) { const cx = Math.random() * w, cy = Math.random() * h; x.strokeStyle = '#2a170c55'; x.lineWidth = 2; for (let r = 4; r < 22; r += 5) { x.beginPath(); x.ellipse(cx, cy, r * 0.6, r, 0, 0, 7); x.stroke(); } }
+  });
+  const board = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshStandardMaterial({ map: boardTex, roughness: 0.9 }));
+  board.position.z = -500; scene.add(board);
+  // a soft dark vignette over the board
+  const vig = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, map: tex(256, 256, (x, w, h) => {
+    const gr = x.createRadialGradient(w / 2, h * 0.4, w * 0.15, w / 2, h / 2, w * 0.72); gr.addColorStop(0, 'rgba(10,8,20,0)'); gr.addColorStop(1, 'rgba(10,8,20,0.6)'); x.fillStyle = gr; x.fillRect(0, 0, w, h);
+  }) }));
+  vig.position.z = -499; scene.add(vig);
+
+  // Fruit materials: skin (with stripes or dots) and the cut face with flesh and seeds.
+  const unit = new THREE.SphereGeometry(1, 32, 22);
+  const dome = new THREE.SphereGeometry(1, 32, 12, 0, Math.PI * 2, 0, Math.PI / 2);
+  const capGeo = new THREE.CircleGeometry(0.985, 40); capGeo.rotateX(Math.PI / 2);
+  for (const f of FRUITS) {
+    const skinMap = f.stripe ? tex(256, 128, (x, w, h) => { x.fillStyle = f.skin; x.fillRect(0, 0, w, h); x.fillStyle = f.stripe; for (let i = 0; i < 12; i++) { x.beginPath(); for (let y = 0; y <= h; y += 4) x.lineTo(i * w / 12 + Math.sin(y * 0.15 + i) * 4, y); for (let y = h; y >= 0; y -= 4) x.lineTo(i * w / 12 + 9 + Math.sin(y * 0.15 + i) * 4, y); x.fill(); } })
+      : f.dots ? tex(256, 128, (x, w, h) => { x.fillStyle = f.skin; x.fillRect(0, 0, w, h); x.fillStyle = '#ffffff22'; for (let i = 0; i < 400; i++) { x.beginPath(); x.arc(Math.random() * w, Math.random() * h, 1.2, 0, 7); x.fill(); } })
+      : null;
+    f.skinMat = new THREE.MeshStandardMaterial({ color: skinMap ? '#ffffff' : f.skin, map: skinMap, roughness: f.name === 'киви' || f.name === 'персик' ? 0.85 : 0.38, metalness: 0.02 });
+    f.domeMat = new THREE.MeshStandardMaterial({ color: skinMap ? '#ffffff' : f.skin, map: skinMap, roughness: 0.5, side: THREE.DoubleSide });
+    f.capMat = new THREE.MeshStandardMaterial({ roughness: 0.55, map: tex(256, 256, (x, w, h) => {
+      x.fillStyle = f.stripe || f.skin; x.beginPath(); x.arc(w / 2, h / 2, w / 2, 0, 7); x.fill();
+      if (f.stripe) { x.fillStyle = '#e8f5d0'; x.beginPath(); x.arc(w / 2, h / 2, w * 0.46, 0, 7); x.fill(); }
+      const gr = x.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w * 0.43); gr.addColorStop(0, '#ffffff55'); gr.addColorStop(0.35, f.flesh); gr.addColorStop(1, f.flesh);
+      x.fillStyle = gr; x.beginPath(); x.arc(w / 2, h / 2, w * 0.43, 0, 7); x.fill();
+      x.fillStyle = f.seeds;
+      const n = f.name === 'киви' ? 26 : 8, rr = f.name === 'киви' ? 0.26 : 0.22;
+      for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2; x.beginPath(); x.ellipse(w / 2 + Math.cos(a) * w * rr, h / 2 + Math.sin(a) * h * rr, w * 0.018, w * 0.04, a, 0, 7); x.fill(); }
+    }) });
+  }
+  const stemMat = new THREE.MeshStandardMaterial({ color: '#5a3a1a', roughness: 0.8 }), leafMat = new THREE.MeshStandardMaterial({ color: '#4caf50', roughness: 0.6, side: THREE.DoubleSide });
+  const stemGeo = new THREE.CylinderGeometry(0.05, 0.06, 0.32, 6), leafGeo = new THREE.SphereGeometry(1, 10, 6);
+  function addLeaf(group) {
+    const st = new THREE.Mesh(stemGeo, stemMat); st.position.y = 1.08; group.add(st);
+    const lf = new THREE.Mesh(leafGeo, leafMat); lf.scale.set(0.3, 0.05, 0.13); lf.position.set(0.25, 1.06, 0); lf.rotation.z = 0.5; group.add(lf);
+  }
+  // bomb
+  const bombMat = new THREE.MeshStandardMaterial({ color: '#2a2a38', roughness: 0.3, metalness: 0.6 });
+  const bandMat = new THREE.MeshStandardMaterial({ color: '#ff5f5f', emissive: '#ff2a2a', emissiveIntensity: 0.9, roughness: 0.4 });
+  const fuseGeo = new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(new THREE.Vector3(0, 0.9, 0), new THREE.Vector3(0.25, 1.35, 0), new THREE.Vector3(0.6, 1.2, 0)), 10, 0.07, 6);
+  const fuseMat = new THREE.MeshStandardMaterial({ color: '#c9a26a', roughness: 0.9 });
+  const sparkMat = new THREE.MeshBasicMaterial({ color: '#ffd23f' });
+  const bandGeo = new THREE.TorusGeometry(1.0, 0.09, 8, 40);
+  function makeItem(it) {
+    const g = new THREE.Group();
+    if (it.bomb) {
+      g.add(new THREE.Mesh(unit, bombMat));
+      const band = new THREE.Mesh(bandGeo, bandMat); band.rotation.x = Math.PI / 2; g.add(band);
+      const band2 = new THREE.Mesh(bandGeo, bandMat); g.add(band2);
+      g.add(new THREE.Mesh(fuseGeo, fuseMat));
+      const spark = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6), sparkMat); spark.position.set(0.62, 1.22, 0); g.add(spark); g.userData.spark = spark;
+    } else {
+      const body = new THREE.Mesh(unit, it.f.skinMat); if (it.f.oval) body.scale.set(1.18, 1, 1); g.add(body);
+      if (it.f.leaf) addLeaf(g);
+    }
+    g.scale.setScalar(it.r);
+    return g;
+  }
+  function makeHalf(h) {
+    const outer = new THREE.Group(), inner = new THREE.Group();
+    const d = new THREE.Mesh(dome, h.f.domeMat), c = new THREE.Mesh(capGeo, h.f.capMat);
+    inner.add(d, c); outer.add(inner);
+    if (h.f.oval) inner.scale.set(1.18, 1, 1);
+    outer.userData.inner = inner;
+    // Which way this half moves away from the cut, in 3D (y is up there).
+    const dir = h.ang + h.side * Math.PI / 2, wx = Math.cos(dir), wy = -Math.sin(dir);
+    h.base = Math.atan2(-wx, wy);
+    outer.scale.setScalar(h.r);
+    return outer;
+  }
+  function drop3d(o) { if (o && o.m) { scene.remove(o.m); o.m = null; } }
+
+  // juice drops
+  const MAXP = 600, pGeo = new THREE.BufferGeometry(), pPos = new Float32Array(MAXP * 3), pCol = new Float32Array(MAXP * 3);
+  pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3)); pGeo.setAttribute('color', new THREE.BufferAttribute(pCol, 3));
+  const dropTex = tex(64, 64, (x, w) => { const gr = x.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); gr.addColorStop(0, '#fff'); gr.addColorStop(0.5, '#ffffffcc'); gr.addColorStop(1, '#ffffff00'); x.fillStyle = gr; x.fillRect(0, 0, w, w); });
+  const ptsM = new THREE.Points(pGeo, new THREE.PointsMaterial({ size: 12, map: dropTex, vertexColors: true, transparent: true, depthWrite: false })); ptsM.frustumCulled = false; scene.add(ptsM);
+  const tmpC = new THREE.Color();
+
+  let D = 1000;
+  function resize3d() {
+    renderer.setSize(W, H, false);
+    camera.aspect = W / H;
+    D = (H / 2) / Math.tan((camera.fov * Math.PI) / 360);
+    camera.position.set(0, 0, D); camera.far = D + 3000; camera.updateProjectionMatrix(); camera.lookAt(0, 0, 0);
+    // the board fills the view at its depth, with room for the shake
+    const k = (D + 500) / D * 1.1; board.scale.set(W * k, H * k, 1); vig.scale.set(W * k, H * k, 1);
+  }
+  const wx = (x) => x - W / 2, wy = (y) => H / 2 - y;
+
+  function draw(now) {
+    const sh = shake > 0 ? [(Math.random() - 0.5) * 22 * shake, (Math.random() - 0.5) * 22 * shake] : [0, 0];
+    camera.position.set(sh[0], -sh[1], D); camera.lookAt(sh[0] * 0.5, -sh[1] * 0.5, 0);
+    boomLight.intensity = boomFlash * 3;
+
+    for (const it of items) {
+      if (it.dead) continue;
+      if (!it.m) { it.m = makeItem(it); scene.add(it.m); }
+      it.m.position.set(wx(it.x), wy(it.y), 0);
+      it.m.rotation.set(it.rx, it.ry, -it.rot);
+      if (it.bomb) { it.m.rotation.set(Math.sin(it.rx) * 0.4, it.ry, -it.rot * 0.3); const s = it.m.userData.spark; s.scale.setScalar(0.7 + Math.random() * 0.9); s.material.color.set(Math.random() < 0.5 ? '#ffd23f' : '#ff7a3d'); bandMat.emissiveIntensity = 0.6 + Math.sin(now / 90) * 0.4; }
+    }
+    for (const h of halves) {
+      if (!h.m) { h.m = makeHalf(h); scene.add(h.m); }
+      h.m.position.set(wx(h.x), wy(h.y), 10);
+      h.m.rotation.z = h.base - h.rot;
+      h.m.userData.inner.rotation.x = -h.tilt;
+      const k = Math.min(1, h.life);
+      h.m.scale.setScalar(h.r * (0.6 + 0.4 * k));
+    }
+
+    let n = 0;
+    for (const d of drops) {
+      if (n >= MAXP) break;
+      pPos.set([wx(d.x), wy(d.y), d.z + 30], n * 3); tmpC.set(d.c).multiplyScalar(Math.max(0, Math.min(1, d.life))); pCol.set([tmpC.r, tmpC.g, tmpC.b], n * 3); n++;
+    }
+    pGeo.setDrawRange(0, n); pGeo.attributes.position.needsUpdate = true; pGeo.attributes.color.needsUpdate = true;
+    renderer.render(scene, camera);
+
+    // Overlay: the blade trail, popups, score and lives — as in 2D.
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.clearRect(0, 0, W, H);
+    ctx.save();
+    if (shake > 0) ctx.translate(sh[0], sh[1]);
+    const fresh = trail.filter((p) => now - p.t < 160);
+    if (fresh.length > 1) {
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      for (let i = 1; i < fresh.length; i++) {
+        const k = 1 - (now - fresh[i].t) / 160;
+        ctx.strokeStyle = `rgba(235,225,255,${k})`; ctx.lineWidth = 2 + k * 8;
+        ctx.shadowColor = '#bca0ff'; ctx.shadowBlur = 16;
+        ctx.beginPath(); ctx.moveTo(fresh[i - 1].x, fresh[i - 1].y); ctx.lineTo(fresh[i].x, fresh[i].y); ctx.stroke();
+      }
+      ctx.shadowBlur = 0;
+    }
+    for (const p of popups) {
+      ctx.globalAlpha = Math.max(0, Math.min(1, p.life * 2)); ctx.fillStyle = p.color; ctx.font = `800 ${p.big ? 28 : 18}px Manrope`; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+      ctx.shadowColor = '#000a'; ctx.shadowBlur = 8;
+      ctx.fillText(p.text, p.x, p.y - 20 - (1 - p.life) * 40); ctx.shadowBlur = 0;
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+    if (state !== 'start') {
+      ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.shadowColor = '#000a'; ctx.shadowBlur = 14;
+      ctx.fillStyle = '#ffffff'; ctx.font = '800 56px Manrope'; ctx.fillText(score, W / 2, 104);
+      ctx.font = '800 22px Manrope'; ctx.fillStyle = '#ff7a8a';
+      ctx.fillText('♥'.repeat(Math.max(0, lives)) + '♡'.repeat(Math.max(0, 3 - lives)), W / 2, 134);
+      if (combo > 1) { ctx.fillStyle = '#ffd23f'; ctx.font = '800 14px Manrope'; ctx.fillText(`РОСЧЕРК ×${combo}`, W / 2, 158); }
+      ctx.shadowBlur = 0;
+    }
+    if (flash > 0) { ctx.fillStyle = `rgba(255,95,95,${(flash * 0.25).toFixed(3)})`; ctx.fillRect(0, 0, W, H); }
+  }
+
+  function moveParts(dt) {
+    const g = G();
+    for (const h of halves) { h.vy += g * dt; h.x += h.vx * dt; h.y += h.vy * dt; h.rot += h.spin * dt; h.tilt = Math.min(1.15, h.tilt + dt * 3); h.life -= dt * 0.7; }
+    for (const h of halves) if (h.life <= 0 || h.y > H + 200) drop3d(h);
+    halves = halves.filter((h) => h.life > 0 && h.y < H + 200);
+    for (const d of drops) { d.vy += g * 0.5 * dt; d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt; d.life -= dt * 1.3; }
+    drops = drops.filter((d) => d.life > 0);
+    for (const p of popups) p.life -= dt * 1.2;
+    popups = popups.filter((p) => p.life > 0);
+  }
+
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.05, (now - lastT) / 1000 || 0)); lastT = now;
+    if (state === 'play') step(dt);
+    else if (state === 'start') demo(dt, now);
+    moveParts(dt);
+    trail = trail.filter((p) => now - p.t < 200);
+    shake = Math.max(0, shake - dt); flash = Math.max(0, flash - dt * 2.5); boomFlash = Math.max(0, boomFlash - dt * 2);
+    draw(now);
+    requestAnimationFrame(frame);
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'narezka',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за одну игру (2D и 3D).', format: (v) => `${v} ${pointsWord(v)}` },
+      { id: 'combo', title: 'Комбо', column: 'best_combo', order: 'desc', note: 'Больше всего фруктов одним росчерком (2D и 3D).', format: (v) => `×${v}` },
+    ],
+    bests: () => [runs.score, runs.combo].filter(Boolean),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  let down = false;
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); down = true; if (state === 'play') unlockAudio(); pointer = null; trail = []; moveTo(e.clientX, e.clientY); });
+  cv.addEventListener('pointermove', (e) => {
+    if (!down && e.pointerType !== 'mouse') return;
+    if (!down) { pointer = { x: e.clientX, y: e.clientY }; return; }
+    const list = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+    for (const c of (list.length ? list : [e])) moveTo(c.clientX, c.clientY);
+  });
+  const up = () => { if (down) { down = false; endSwipe(); pointer = null; } };
+  addEventListener('pointerup', up); addEventListener('pointercancel', up);
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.target.closest && e.target.closest('.box button, a')) return;
+    if ((e.code === 'Space' || e.code === 'Enter') && state !== 'play' && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); }
+  });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('narezka-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+  document.addEventListener('visibilitychange', () => { lastT = performance.now(); });
+
+  addEventListener('resize', resize);
+  resize(); reset(); showBests();
+  // Demo behind the start card: fruit flies up and an invisible blade slices some of it near the top.
+  setInterval(() => { if (state === 'start' && items.length < 6) throwOne(false); }, 550);
+  function demo(dt, now) {
+    const g = G();
+    for (const it of items) {
+      it.vy += g * dt; it.x += it.vx * dt; it.y += it.vy * dt; spinItem(it, dt);
+      if (!it.demoCut && Math.abs(it.vy) < H * 0.25 && Math.random() < 0.05) {
+        it.demoCut = true;
+        if (Math.random() < 0.6) {
+          const a = Math.random() * Math.PI, dx = Math.cos(a) * it.r * 1.8, dy = Math.sin(a) * it.r * 1.8;
+          for (let i = 0; i <= 8; i++) trail.push({ x: it.x - dx + (dx * 2 * i) / 8, y: it.y - dy + (dy * 2 * i) / 8, t: now - 80 + i * 10 });
+          slice(it, it.x - dx, it.y - dy, it.x + dx, it.y + dy);
+        }
+      }
+    }
+    for (const it of items) if (it.dead || it.y > H + 200) drop3d(it);
+    items = items.filter((it) => !it.dead && it.y < H + 200);
+  }
+  // #preview: fruit in the air and two halves, for the catalog.
+  if (location.hash === '#preview') {
+    $('start').hidden = true; state = 'over'; score = 37; lives = 2; combo = 0;
+    const put = (fi, fx, fy, rx, ry) => { throwOne(false); const it = items[items.length - 1]; it.f = FRUITS[fi]; it.c = it.f.c; it.r = Math.max(34, S * 0.075) * it.f.r; it.x = W * fx; it.y = H * fy; it.vx = 0; it.vy = 0; it.spin = it.srx = it.sry = 0; it.rx = rx; it.ry = ry; it.rot = 0.3; return it; };
+    put(0, 0.3, 0.45, 0.3, 0.6); put(6, 0.72, 0.36, -0.2, 0.4); put(1, 0.55, 0.62, 0.5, 1.2);
+    const cut = put(4, 0.48, 0.3, 0, 0); slice(cut, cut.x - 60, cut.y - 50, cut.x + 60, cut.y + 50);
+    items = items.filter((it) => !it.dead);
+    for (const h of halves) { h.tilt = 1.0; h.x += h.side * 40; h.y += 10; h.vx = h.vy = 0; h.spin = 0; h.life = 1.4; }
+    for (const d of drops) { d.x += d.vx * 0.15; d.y += d.vy * 0.15; d.z += d.vz * 0.15; d.vx = d.vy = d.vz = 0; }
+    popups = [];
+    const bomb = put(0, 0.86, 0.6, 0, 0); bomb.bomb = true; bomb.f = { bomb: true, c: '#ff5f5f', r: 1 }; bomb.r = Math.max(34, S * 0.075);
+    for (let i = 0; i < 12; i++) trail.push({ x: W * 0.36 + i * 16, y: H * 0.2 + i * 12, t: 0 });
+    moveParts = () => { for (const p of popups) p.life -= 0; };
+    frame = function freeze(now) { trail.forEach((p, i) => { p.t = now - 150 + i * 12; }); draw(now); requestAnimationFrame(freeze); };
+    state = 'play'; score = 37;
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../shared/chat-boot.js?v=5"></script>
+</body>
+</html>
