@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../shared/session.js?v=2"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#14162a">
+<title>Неоград — FreasyGames</title>
+<meta name="description" content="Неоград на FreasyGames: открытый город у моря. Машины, самолёты и вертолёты, перестрелки и полицейские погони, миникарта, задания, тайники и игра по сети — на компьютере и телефоне.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root { --ui: #14162add; --line: #ffffff26; --acc: #ff4fa0; --acc2: #ffd447; --txt: #f8f7ff; --mut: #aeacc4; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #14162a; color: var(--txt); font-family: Manrope, system-ui, sans-serif; user-select: none; -webkit-user-select: none; touch-action: none; }
+  #gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  [hidden] { display: none !important; }
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+  #cross { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 2px #000; }
+  body:not([data-mode="foot"]) #cross { display: none; }
+  #topR { position: absolute; top: max(10px, env(safe-area-inset-top)); right: max(10px, env(safe-area-inset-right)); text-align: right; text-shadow: 0 2px 3px #000; }
+  #money { font-size: 26px; font-weight: 800; color: #7dff8a; }
+  #stars { font-size: 22px; color: #fff; letter-spacing: 2px; } #stars i { font-style: normal; color: #ffffff30; } #stars.blink { animation: bl .6s infinite; }
+  @keyframes bl { 50% { opacity: .35; } }
+  .bar { width: 170px; height: 9px; background: #0008; border-radius: 5px; overflow: hidden; margin: 4px 0 0 auto; border: 1px solid #fff3; } .bar i { display: block; height: 100%; }
+  #hpBar { background: linear-gradient(90deg, #ff4f6d, #ff8a8a); } #arBar { background: linear-gradient(90deg, #3a7be8, #7cc4ff); }
+  #weapon, #speed { font-size: 14px; font-weight: 700; margin-top: 4px; }
+  #mmWrap { position: absolute; left: max(10px, env(safe-area-inset-left)); bottom: max(10px, env(safe-area-inset-bottom)); width: 170px; height: 170px; border-radius: 50%; overflow: hidden; border: 3px solid #14162a; box-shadow: 0 4px 18px #0008; }
+  #minimap { width: 100%; height: 100%; }
+  #mission { position: absolute; top: max(12px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); max-width: min(520px, 60vw); text-align: center; font-weight: 800; font-size: 15px; background: var(--ui); border: 1px solid var(--line); border-radius: 12px; padding: 8px 14px; }
+  #mission b { color: var(--acc2); }
+  #toasts { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .toast { background: var(--ui); border: 1px solid var(--line); border-radius: 10px; padding: 7px 14px; font-weight: 700; font-size: 14px; animation: tf 2.6s forwards; white-space: nowrap; }
+  @keyframes tf { 0% { opacity: 0; transform: translateY(8px); } 10%, 80% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+  #big { position: absolute; left: 0; right: 0; top: 34%; text-align: center; text-shadow: 0 3px 8px #000; animation: tf 3.2s forwards; }
+  #bigTitle { font-size: clamp(30px, 6vw, 56px); font-weight: 800; color: var(--acc2); letter-spacing: -.02em; } #bigSub { font-size: 18px; font-weight: 700; }
+  #hurt { position: fixed; inset: 0; pointer-events: none; z-index: 4; box-shadow: inset 0 0 140px #ff0000; opacity: 0; transition: opacity .25s; }
+  #topL { position: absolute; top: max(10px, env(safe-area-inset-top)); left: max(10px, env(safe-area-inset-left)); display: flex; gap: 6px; }
+  #topL button { pointer-events: auto; border: 1px solid var(--line); background: var(--ui); border-radius: 10px; padding: 7px 12px; font-weight: 800; }
+  .nametag { position: fixed; z-index: 3; transform: translate(-50%, -100%); font-size: 12px; font-weight: 800; background: #0009; padding: 2px 7px; border-radius: 6px; pointer-events: none; white-space: nowrap; }
+  /* сенсорное управление */
+  #touch { position: fixed; inset: 0; z-index: 4; display: none; }
+  .touch #touch { display: block; }
+  #stick { position: absolute; width: 130px; height: 130px; margin: -65px; border-radius: 50%; border: 2px solid #fff5; background: #ffffff12; display: none; pointer-events: none; }
+  #knob { position: absolute; left: 38px; top: 38px; width: 54px; height: 54px; border-radius: 50%; background: #ffffff70; }
+  .tb { position: absolute; width: 66px; height: 66px; border-radius: 50%; border: 1px solid #fff6; background: #14162a99; font-size: 15px; font-weight: 800; display: grid; place-items: center; backdrop-filter: blur(4px); text-align: center; line-height: 1.1; }
+  .tb.on { background: #ff4fa0cc; } .tb.hot { background: #ffd447cc; color: #2a1d05; }
+  #tFire { right: max(16px, env(safe-area-inset-right)); bottom: calc(110px + env(safe-area-inset-bottom)); width: 84px; height: 84px; font-size: 26px; }
+  #tJump { right: calc(max(16px, env(safe-area-inset-right)) + 96px); bottom: calc(40px + env(safe-area-inset-bottom)); }
+  #tEnter { right: calc(max(16px, env(safe-area-inset-right)) + 10px); bottom: calc(24px + env(safe-area-inset-bottom)); }
+  #tWeapon { right: calc(max(16px, env(safe-area-inset-right)) + 100px); bottom: calc(126px + env(safe-area-inset-bottom)); width: 54px; height: 54px; font-size: 20px; }
+  #tUp { right: max(16px, env(safe-area-inset-right)); bottom: calc(190px + env(safe-area-inset-bottom)); } #tDown { right: max(16px, env(safe-area-inset-right)); bottom: calc(110px + env(safe-area-inset-bottom)); }
+  body:not([data-mode="foot"]) #tFire, body:not([data-mode="foot"]) #tWeapon { display: none; }
+  body[data-mode="foot"] #tUp, body[data-mode="foot"] #tDown, body[data-mode="car"] #tUp, body[data-mode="car"] #tDown { display: none; }
+  body[data-mode="plane"] #tJump { display: none; }
+  .touch #mmWrap { width: 130px; height: 130px; bottom: auto; top: calc(max(10px, env(safe-area-inset-top)) + 44px); }
+  /* окна */
+  .screen { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 16px; background: #0b0c18c4; backdrop-filter: blur(3px); overflow: auto; }
+  .panel { width: min(540px, 100%); max-height: calc(100vh - 32px); overflow: auto; background: #1c1e36f2; border: 1px solid var(--line); border-radius: 18px; padding: 18px; box-shadow: 0 20px 60px #0009; }
+  h1 { margin: 0 0 4px; font-size: 48px; letter-spacing: -.03em; background: linear-gradient(90deg, #ff4fa0, #ffd447); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  h2 { margin: 0 0 10px; font-size: 22px; }
+  p { color: var(--mut); line-height: 1.45; margin: 6px 0; }
+  .btn { display: block; width: 100%; padding: 12px 14px; margin: 8px 0; border-radius: 12px; border: 0; background: linear-gradient(90deg, #ff4fa0, #ff8a5a); color: #fff; font-weight: 800; font-size: 16px; }
+  .btn.sec { background: #ffffff14; border: 1px solid var(--line); }
+  input[type=text], select { width: 100%; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: #0f1122; color: var(--txt); font: inherit; user-select: text; -webkit-user-select: text; }
+  label { display: block; font-size: 13px; color: var(--mut); margin: 10px 0 4px; }
+  .item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 12px; background: #ffffff0b; border: 1px solid var(--line); margin: 6px 0; }
+  .item div { flex: 1; } .item small { display: block; color: var(--mut); font-size: 12px; }
+  .item button { border: 0; border-radius: 9px; padding: 8px 11px; background: #ff4fa0; color: #fff; font-weight: 800; white-space: nowrap; }
+  .item button:disabled { background: #ffffff14; color: var(--mut); cursor: default; }
+  .help li { margin: 4px 0; color: var(--mut); font-size: 14px; } .help b { color: var(--txt); }
+  #bigmap { width: 100%; height: auto; border-radius: 12px; display: block; }
+  .back { position: fixed; top: max(10px, env(safe-area-inset-top)); left: max(10px, env(safe-area-inset-left)); z-index: 25; color: var(--txt); text-decoration: none; font-weight: 800; font-size: 14px; background: var(--ui); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+  body.playing .fw-btn, body.playing .fc-btn { top: max(8px, env(safe-area-inset-top)) !important; bottom: auto !important; right: auto !important; width: 38px !important; height: 38px !important; }
+  body.playing .fw-btn { left: 118px !important; } body.playing .fc-btn { left: 162px !important; }
+  @media (max-width: 600px) { #money { font-size: 20px; } .bar { width: 120px; } #mission { font-size: 13px; max-width: 54vw; top: 56px; } h1 { font-size: 38px; } }
+</style>
+</head>
+<body data-mode="foot">
+<canvas id="gl"></canvas>
+<div id="hurt"></div>
+<div id="tags"></div>
+
+<div id="hud" hidden>
+  <div id="cross"></div>
+  <div id="topL"><button type="button" id="pauseBtn">☰</button><button type="button" id="mapBtn">🗺</button></div>
+  <div id="topR"><div id="money">$0</div><div id="stars"></div><div class="bar"><i id="hpBar"></i></div><div class="bar" id="arWrap"><i id="arBar"></i></div><div id="weapon"></div><div id="speed"></div></div>
+  <div id="mission" hidden></div>
+  <div id="mmWrap"><canvas id="minimap" width="200" height="200"></canvas></div>
+  <div id="toasts"></div>
+  <div id="big" hidden><div id="bigTitle"></div><div id="bigSub"></div></div>
+</div>
+
+<div id="touch">
+  <div id="stick"><div id="knob"></div></div>
+  <button class="tb" id="tFire" type="button" aria-label="Стрелять">🎯</button>
+  <button class="tb" id="tJump" type="button" aria-label="Прыжок или тормоз">⤒</button>
+  <button class="tb" id="tEnter" type="button" aria-label="Сесть или выйти">🚗</button>
+  <button class="tb" id="tWeapon" type="button" aria-label="Сменить оружие">🔁</button>
+  <button class="tb" id="tUp" type="button" aria-label="Газ или вверх">▲</button>
+  <button class="tb" id="tDown" type="button" aria-label="Сбросить газ или вниз">▼</button>
+</div>
+
+<a class="back" id="backLink" href="../">← FreasyGames</a>
+
+<div class="screen" id="menu">
+  <div class="panel">
+    <h1>Неоград</h1>
+    <p>Город у моря, где всё можно: угоняй машины, летай на самолёте и вертолёте, выполняй задания, ищи тайники и уходи от полиции. Можно играть вместе с друзьями.</p>
+    <button class="btn" type="button" id="playBtn">Играть ↗</button>
+    <button class="btn sec" type="button" id="newBtn" hidden>Начать заново</button>
+    <button class="btn sec" type="button" id="onlineBtn">🌐 Играть по сети</button>
+    <button class="btn sec" type="button" id="settingsBtn">⚙ Настройки</button>
+    <button class="btn sec" type="button" id="helpBtn">❓ Управление</button>
+  </div>
+</div>
+<div class="screen" id="online" hidden>
+  <div class="panel">
+    <h2>Игра по сети</h2>
+    <p>Все, кто зайдёт в одну комнату, окажутся в одном городе: видят друг друга, машины, самолёты и выстрелы — и могут друг друга ранить. Деньги и задания у каждого свои.</p>
+    <label for="roomName">Комната</label><input type="text" id="roomName" maxlength="20" value="общая">
+    <button class="btn" type="button" id="roomGo">Войти ↗</button>
+    <button class="btn sec" type="button" data-close>Назад</button>
+    <p id="onlineNote" style="font-size:12px"></p>
+  </div>
+</div>
+<div class="screen" id="settings" hidden>
+  <div class="panel">
+    <h2>Настройки</h2>
+    <label for="setSens">Чувствительность взгляда</label><input type="range" id="setSens" min="2" max="20" value="8" style="width:100%">
+    <label for="setQ">Графика</label><select id="setQ"><option value="1">Обычная</option><option value="0">Быстрая (меньше машин и людей)</option></select>
+    <label><input type="checkbox" id="setSound" checked> Звук</label>
+    <label><input type="checkbox" id="setTouch"> Сенсорные кнопки</label>
+    <button class="btn" type="button" data-close>Готово</button>
+  </div>
+</div>
+<div class="screen" id="help" hidden>
+  <div class="panel">
+    <h2>Управление</h2>
+    <ul class="help">
+      <li><b>Пешком:</b> WASD — идти, Shift — бег, пробел — прыжок, мышь — смотреть, левая кнопка — стрелять, правая — прицел, Q/E или колесо — оружие.</li>
+      <li><b>Машина:</b> F — сесть или выйти, W/S — газ и тормоз, A/D — руль, пробел — ручник.</li>
+      <li><b>Самолёт:</b> W/S — газ, стрелки — нос и крен. Разгонись по полосе до ~110 км/ч и потяни нос вверх.</li>
+      <li><b>Вертолёт:</b> пробел — вверх, C или Shift — вниз, W/S — вперёд и назад, A/D — поворот.</li>
+      <li><b>Телефон:</b> левая половина — джойстик, правая — взгляд, 🎯 — стрелять (по ней можно водить прицелом), 🚗 — сесть или выйти, ▲▼ — газ и высота.</li>
+      <li><b>Карта:</b> M или 🗺. Жёлтые столбы — задания, красные — оружейная, синие — больница. Оранжевые кубики — тайники.</li>
+      <li><b>Розыск:</b> стрельба и нападения поднимают звёзды. Спрячься подальше от полиции, и звёзды погаснут.</li>
+    </ul>
+    <button class="btn" type="button" data-close>Понятно</button>
+  </div>
+</div>
+<div class="screen" id="pause" hidden>
+  <div class="panel">
+    <h2>Пауза</h2>
+    <p id="pauseInfo"></p>
+    <button class="btn" type="button" id="resumeBtn">Продолжить ↗</button>
+    <button class="btn sec" type="button" id="pMap">🗺 Карта</button>
+    <button class="btn sec" type="button" id="pSettings">⚙ Настройки</button>
+    <button class="btn sec" type="button" id="pCancel">✕ Отменить задание</button>
+    <button class="btn sec" type="button" id="quitBtn">💾 Сохранить и выйти в меню</button>
+  </div>
+</div>
+<div class="screen" id="dead" hidden>
+  <div class="panel" style="text-align:center">
+    <h2>Ты попал в больницу</h2>
+    <p id="deadWhy"></p>
+    <p>Лечение стоит 10% денег. Розыск снимается.</p>
+    <button class="btn" type="button" id="respawnBtn">Выписаться ↗</button>
+  </div>
+</div>
+<div class="screen" id="brief" hidden>
+  <div class="panel">
+    <h2 id="briefTitle"></h2>
+    <p id="briefText"></p>
+    <p id="briefReward" style="color:#7dff8a;font-weight:800"></p>
+    <button class="btn" type="button" id="briefGo">Взяться ↗</button>
+    <button class="btn sec" type="button" data-close>Позже</button>
+  </div>
+</div>
+<div class="screen" id="shop" hidden>
+  <div class="panel">
+    <h2>Оружейная</h2>
+    <p>У тебя: <b id="shopMoney" style="color:#7dff8a"></b></p>
+    <div id="shopList"></div>
+    <button class="btn" type="button" data-close>Выйти</button>
+  </div>
+</div>
+<div class="screen" id="mapScreen" hidden>
+  <div class="panel" style="width:min(820px,100%)">
+    <h2>Карта Неограда</h2>
+    <canvas id="bigmap"></canvas>
+    <button class="btn" type="button" data-close>Закрыть</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="js/city.js"></script>
+<script src="js/models.js"></script>
+<script src="js/game.js"></script>
+<script src="js/missions.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/net.js"></script>
+<script src="js/main.js"></script>
+<script src="../shared/chat-boot.js?v=5"></script>
+</body>
+</html>
