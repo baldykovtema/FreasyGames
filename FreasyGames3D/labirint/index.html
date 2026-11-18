@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/clips.js?v=1"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0d0f1c">
+<title>Лабиринт 3D — FreasyGames 3D</title>
+<meta name="description" content="Лабиринт 3D на FreasyGames: каждый раз новый объёмный лабиринт в темноте, светлячок освещает коридоры. Успей к двери, собирай звёзды и часы. Таблица лидеров общая с 2D.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>
+  #ov { pointer-events: none; }
+  .score { position: fixed; top: 60px; left: 0; right: 0; text-align: center; pointer-events: none; text-shadow: 0 6px 30px #000a; }
+  .score[hidden] { display: none; }
+  .score b { display: block; font-size: 48px; font-weight: 800; letter-spacing: -.05em; line-height: 1; }
+  .score b.low { color: #ff7a8a; }
+  .score span { color: #bca0ff; font-size: 14px; font-weight: 800; letter-spacing: .08em; }
+  @media (max-height: 520px) and (orientation: landscape) { .score { top: 8px; } .score b { font-size: 30px; } }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="ov"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames 3D</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+<div class="score" id="hudScore" hidden><b id="hudTime">0 с</b><span id="hudInfo">УРОВЕНЬ 1 · ⭐ 0</span></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">🧭 3D</div>
+    <h1>Лабиринт <span>3D</span></h1>
+    <p>Каждый раз — новый лабиринт, и в нём темно: путь освещает только светлячок. Доведи его до двери-выхода, пока не кончилось время.</p>
+    <p>Звёзды дают очки, зелёные часики — лишние секунды. С каждым уровнем лабиринт больше. Рекорды общие с 2D.</p>
+    <p>Рекорд: <b id="bestStart">0</b> ур. · больше всего звёзд: <b id="starsStart">0</b></p>
+    <button class="play" id="go" type="button">Начать ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Стрелки или WASD · на телефоне — свайп в нужную сторону</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow">Время вышло</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">уровней</p>
+    <p>Звёзд собрано: <b id="starsOver">0</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> ур. · больше всего звёзд: <b id="bestStarsOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<script src="../../shared/rewards.js"></script>
+<script>
+(() => {
+  const cv = document.getElementById('c'), ov = document.getElementById('ov'), ctx = ov.getContext('2d');
+  const $ = (id) => document.getElementById(id);
+  let W = 0, H = 0, DPR = 1;
+
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  let best = Number(store.get('labirint-best', 0)) || 0, bestStars = Number(store.get('labirint-best-stars', 0)) || 0;
+  const runs = (() => { try { return JSON.parse(store.get('labirint-runs', '{}')) || {}; } catch { return {}; } })();
+  let muted = store.get('labirint-muted', '0') === '1';
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const levelsWord = (n) => plural(n, 'уровень', 'уровня', 'уровней');
+  const starsWord = (n) => plural(n, 'звезда', 'звезды', 'звёзд');
+
+  // ——— The maze game, as in 2D ———
+  const DIRS = [[0, -1, 1, 4], [1, 0, 2, 8], [0, 1, 4, 1], [-1, 0, 8, 2]];
+  let state = 'start', level, cols, rows, walls, hero, exit, pickups, sparks, popups, timeLeft, stars, played, lastT = 0, flash = 0, wait = 0, time = 0;
+  let heldDir = null, queued = null;
+
+  function makeMaze(c, r) {
+    const g = new Array(c * r).fill(15), seen = new Uint8Array(c * r), stack = [0];
+    seen[0] = 1;
+    while (stack.length) {
+      const cur = stack[stack.length - 1], x = cur % c, y = Math.floor(cur / c);
+      const next = DIRS.map((d, i) => [x + d[0], y + d[1], i]).filter(([nx, ny]) => nx >= 0 && ny >= 0 && nx < c && ny < r && !seen[ny * c + nx]);
+      if (!next.length) { stack.pop(); continue; }
+      const [nx, ny, i] = next[Math.floor(Math.random() * next.length)], n = ny * c + nx;
+      g[cur] &= ~DIRS[i][2]; g[n] &= ~DIRS[i][3]; seen[n] = 1; stack.push(n);
+    }
+    for (let k = 0; k < Math.floor(c * r * 0.06); k++) {
+      const x = 1 + Math.floor(Math.random() * (c - 2)), y = 1 + Math.floor(Math.random() * (r - 2)), i = Math.floor(Math.random() * 4), d = DIRS[i];
+      g[y * c + x] &= ~d[2]; g[(y + d[1]) * c + x + d[0]] &= ~d[3];
+    }
+    return g;
+  }
+  function distances(c, r, g, from) {
+    const dist = new Int32Array(c * r).fill(-1), q = [from]; dist[from] = 0;
+    for (let h = 0; h < q.length; h++) {
+      const cur = q[h], x = cur % c, y = Math.floor(cur / c);
+      DIRS.forEach((d) => { if (g[cur] & d[2]) return; const n = (y + d[1]) * c + x + d[0]; if (dist[n] < 0) { dist[n] = dist[cur] + 1; q.push(n); } });
+    }
+    return dist;
+  }
+
+  function newLevel() {
+    level += 1;
+    const portrait = H > W;
+    const base = 6 + Math.min(level, 14);
+    cols = portrait ? Math.max(5, Math.round(base * 0.7)) : base + 3;
+    rows = portrait ? base + 2 : Math.max(5, Math.round(base * 0.7));
+    walls = makeMaze(cols, rows);
+    const dist = distances(cols, rows, walls, 0);
+    let far = 0; for (let i = 0; i < dist.length; i++) if (dist[i] > dist[far]) far = i;
+    exit = { x: far % cols, y: Math.floor(far / cols) };
+    hero = { x: 0, y: 0, px: 0, py: 0, trail: [] };
+    pickups = [];
+    const free = [...dist.keys()].filter((i) => i !== 0 && i !== far && dist[i] > 2).sort(() => Math.random() - 0.5);
+    const starCount = 3 + Math.min(4, Math.floor(level / 2));
+    for (let k = 0; k < starCount && free.length; k++) { const i = free.pop(); pickups.push({ x: i % cols, y: Math.floor(i / cols), kind: 'star' }); }
+    if (level >= 3 && free.length) { const i = free.pop(); pickups.push({ x: i % cols, y: Math.floor(i / cols), kind: 'clock' }); }
+    timeLeft += Math.round(dist[far] * Math.max(0.16, 0.42 - level * 0.025) + 3);
+    wait = 0.6;
+    build3d();
+  }
+
+  function reset() { level = 0; timeLeft = 0; stars = 0; played = 0; sparks = []; popups = []; heldDir = queued = null; newLevel(); }
+  function start() {
+    reset(); state = 'play'; chanceUsed = false; chance.hide();
+    $('start').hidden = true; $('over').hidden = true;
+    unlockAudio();
+  }
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'labirint-time', label: '🎬 +15 секунд за рекламу', onReward: () => {
+    chanceUsed = true; timeLeft = 15; state = 'play'; $('over').hidden = true;
+  } });
+  function gameOver() {
+    state = 'over';
+    const passed = level - 1, record = passed > best;
+    const run = { new_levels: passed, new_stars: stars, new_time: Math.floor(played) };
+    if (record) { best = passed; store.set('labirint-best', best); runs.levels = run; }
+    if (stars > bestStars) { bestStars = stars; store.set('labirint-best-stars', bestStars); runs.stars = run; }
+    store.set('labirint-runs', JSON.stringify(runs));
+    lb.submit(run);
+    sound('over');
+    setTimeout(() => {
+      if (state !== 'over') return;
+      $('final').textContent = passed;
+      $('overText').innerHTML = (record && passed > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + levelsWord(passed);
+      $('starsOver').textContent = stars;
+      showBests();
+      $('over').hidden = false;
+      if (!chanceUsed) chance.show();
+    }, 700);
+  }
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('starsStart').textContent = $('bestStarsOver').textContent = bestStars;
+  }
+
+  function canGo(x, y, i) { return !(walls[y * cols + x] & DIRS[i][2]); }
+  function tryMove(i) {
+    if (state !== 'play' || wait > 0) return false;
+    if (hero.x !== hero.px || hero.y !== hero.py) { queued = i; return false; }
+    if (!canGo(hero.x, hero.y, i)) return false;
+    hero.trail.push({ x: hero.x, y: hero.y, life: 1 }); addTrail(hero.x, hero.y);
+    hero.x += DIRS[i][0]; hero.y += DIRS[i][1]; hero.face = i;
+    sound('step');
+    return true;
+  }
+  let slide = null;
+  function runSlide(i) { slide = i; }
+
+  function arrive() {
+    const k = pickups.findIndex((p) => p.x === hero.x && p.y === hero.y);
+    if (k >= 0) {
+      const p = pickups.splice(k, 1)[0];
+      if (p.mesh) pickGroup.remove(p.mesh);
+      if (p.kind === 'star') { stars += 1; popups.push({ x: p.x, y: p.y, text: '+⭐', c: '#ffd23f', life: 1 }); sound('star'); }
+      else { timeLeft += 8; popups.push({ x: p.x, y: p.y, text: '+8 с', c: '#5df2a5', life: 1 }); sound('clock'); }
+      burst(p.x, p.y, p.kind === 'star' ? '#ffd23f' : '#5df2a5');
+    }
+    if (hero.x === exit.x && hero.y === exit.y) {
+      burst(exit.x, exit.y, '#bca0ff'); sound('exit'); flash = 0.5; doorOpen = 1;
+      popups.push({ x: exit.x, y: exit.y, text: `Уровень ${level}!`, c: '#bca0ff', life: 1.2 });
+      slide = null; heldDir = null; queued = null;
+      setTimeout(() => { if (state === 'play') newLevel(); }, 450);
+      wait = 0.6;
+    }
+  }
+  function burst(cx, cy, c) { for (let i = 0; i < 22; i++) { const a = Math.random() * 7, v = 1 + Math.random() * 3; sparks.push({ x: cx, y: cy, h: 0.4, vx: Math.cos(a) * v, vy: Math.sin(a) * v, vh: 2 + Math.random() * 3, life: 1, c }); } }
+
+  function step(dt) {
+    played += dt;
+    if (wait > 0) { wait -= dt; return; }
+    timeLeft -= dt;
+    if (timeLeft <= 0) { timeLeft = 0; gameOver(); return; }
+    const speed = 10 * dt;
+    const moving = hero.x !== hero.px || hero.y !== hero.py;
+    if (moving) {
+      hero.px += Math.sign(hero.x - hero.px) * Math.min(speed, Math.abs(hero.x - hero.px));
+      hero.py += Math.sign(hero.y - hero.py) * Math.min(speed, Math.abs(hero.y - hero.py));
+      if (hero.px === hero.x && hero.py === hero.y) {
+        arrive();
+        if (wait > 0) return;
+        if (queued !== null) { const q = queued; queued = null; if (tryMove(q)) { slide = null; return; } }
+        if (slide !== null) {
+          const open = DIRS.map((_, i) => canGo(hero.x, hero.y, i)).filter(Boolean).length;
+          if (open <= 2 && canGo(hero.x, hero.y, slide)) tryMove(slide); else slide = null;
+        }
+      }
+    } else if (heldDir !== null) tryMove(heldDir);
+    else if (slide !== null) { if (!tryMove(slide)) slide = null; }
+  }
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (ac && ac.state === 'suspended') ac.resume(); }
+  function tone(f, dur, type, vol, slideK = 1, delay = 0) {
+    if (!ac || muted) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t);
+    if (slideK !== 1) o.frequency.exponentialRampToValueAtTime(f * slideK, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function sound(kind) {
+    if (kind === 'step') tone(320 + Math.random() * 40, 0.04, 'triangle', 0.025);
+    else if (kind === 'star') { tone(880, 0.1, 'square', 0.05); tone(1320, 0.14, 'triangle', 0.06, 1, 0.05); }
+    else if (kind === 'clock') { tone(660, 0.08, 'sine', 0.08); tone(990, 0.08, 'sine', 0.08, 1, 0.09); }
+    else if (kind === 'exit') [0, 4, 7, 12].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.16, 'square', 0.05, 1, i * 0.07));
+    else if (kind === 'over') { tone(300, 0.5, 'sawtooth', 0.08, 0.4); }
+    else if (kind === 'tick') tone(1200, 0.03, 'square', 0.03);
+  }
+
+  // ——— 3D ———
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); } catch (e) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="screen"><div class="box"><h1><span>3D</span> не запускается</h1><p>Браузер не поддерживает WebGL.</p><a class="play" style="display:block;text-decoration:none" href="../../labirint/">Лабиринт 2D ↗</a></div></div>');
+    throw e;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  const scene = new THREE.Scene(); scene.background = new THREE.Color('#07080f'); scene.fog = new THREE.Fog('#07080f', 30, 70);
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.3, 200);
+  const hemi = new THREE.HemisphereLight('#9d8cff', '#0a0a18', 0.34); scene.add(hemi);
+  const moon = new THREE.DirectionalLight('#8f86ff', 0.22); moon.position.set(-6, 14, 8); scene.add(moon);
+  // A cell is one unit; the maze is centred at the origin.
+  const C3 = (x, y, h = 0) => new THREE.Vector3(x - cols / 2 + 0.5, h, y - rows / 2 + 0.5);
+
+  const mazeGroup = new THREE.Group(); scene.add(mazeGroup);
+  const pickGroup = new THREE.Group(); scene.add(pickGroup);
+  const wallMat = new THREE.MeshStandardMaterial({ color: '#8c74ff', emissive: '#3a2a9a', emissiveIntensity: 0.5, roughness: 0.45, metalness: 0.1 });
+  const capMat = new THREE.MeshStandardMaterial({ color: '#d9c9ff', emissive: '#bca0ff', emissiveIntensity: 0.9, roughness: 0.3 });
+  const trailMat = new THREE.MeshBasicMaterial({ color: '#bca0ff', transparent: true, opacity: 0.13, depthWrite: false });
+  const trailGeo = new THREE.PlaneGeometry(0.92, 0.92); trailGeo.rotateX(-Math.PI / 2);
+  const WT = 0.14, WH = 0.55;
+  let trailMeshes = [];
+  function addTrail(x, y) { const m = new THREE.Mesh(trailGeo, trailMat); m.position.copy(C3(x, y, 0.012)); mazeGroup.add(m); trailMeshes.push(m); }
+
+  // stars and clocks
+  const starShape = new THREE.Shape();
+  for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? 0.13 : 0.3; i ? starShape.lineTo(Math.cos(a) * r, Math.sin(a) * r) : starShape.moveTo(Math.cos(a) * r, Math.sin(a) * r); }
+  const starGeo = new THREE.ExtrudeGeometry(starShape, { depth: 0.1, bevelEnabled: true, bevelSize: 0.03, bevelThickness: 0.03, bevelSegments: 1 }); starGeo.center();
+  const starMat = new THREE.MeshStandardMaterial({ color: '#ffd23f', emissive: '#ffb000', emissiveIntensity: 0.9, metalness: 0.3, roughness: 0.3 });
+  const clockMat = new THREE.MeshStandardMaterial({ color: '#5df2a5', emissive: '#1d9a62', emissiveIntensity: 0.8, roughness: 0.4 });
+  const faceMat = new THREE.MeshBasicMaterial({ color: '#e9fff4' }), handMat = new THREE.MeshBasicMaterial({ color: '#1d6b49' });
+  function makeClock() {
+    const g = new THREE.Group();
+    const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.27, 0.1, 24), clockMat); rim.rotation.x = Math.PI / 2; g.add(rim);
+    for (const z of [0.051, -0.051]) {
+      const face = new THREE.Mesh(new THREE.CircleGeometry(0.21, 24), faceMat); face.position.z = z; if (z < 0) face.rotation.y = Math.PI; g.add(face);
+      const hand = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.15, 0.01), handMat); hand.position.set(0, 0.06, z * 1.05); g.add(hand);
+      const hand2 = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.03, 0.01), handMat); hand2.position.set(0.05, 0, z * 1.05); g.add(hand2); g.userData.hand = hand2;
+    }
+    return g;
+  }
+  // exit door with a green glow on the floor
+  const exitGroup = new THREE.Group(); scene.add(exitGroup);
+  const exitGlow = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#5df2a5', transparent: true, opacity: 0.4, depthWrite: false }));
+  exitGlow.position.y = 0.015; exitGroup.add(exitGlow);
+  const doorPivot = new THREE.Group(); doorPivot.position.set(-0.28, 0, 0); exitGroup.add(doorPivot);
+  const door = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.82, 0.07), new THREE.MeshStandardMaterial({ color: '#a8683c', emissive: '#5a2f12', emissiveIntensity: 0.6, roughness: 0.7 })); door.position.set(0.28, 0.41, 0); doorPivot.add(door);
+  const knob = new THREE.Mesh(new THREE.SphereGeometry(0.04, 10, 8), new THREE.MeshStandardMaterial({ color: '#ffd23f', emissive: '#aa8800', emissiveIntensity: 0.6 })); knob.position.set(0.48, 0.4, 0.06); doorPivot.add(knob);
+  const frameMat = new THREE.MeshStandardMaterial({ color: '#4a2a14', roughness: 0.8 });
+  for (const [w, h, x, y] of [[0.07, 0.9, -0.31, 0.45], [0.07, 0.9, 0.31, 0.45], [0.69, 0.07, 0, 0.9]]) { const f = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.1), frameMat); f.position.set(x, y, 0); exitGroup.add(f); }
+  const exitLight = new THREE.PointLight('#5df2a5', 0.9, 3.5); exitLight.position.y = 0.8; exitGroup.add(exitLight);
+  let doorOpen = 0;
+
+  // the firefly
+  const fly = new THREE.Group(); scene.add(fly);
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.24, 24, 16), new THREE.MeshStandardMaterial({ color: '#fff3a0', emissive: '#ffe066', emissiveIntensity: 1.1, roughness: 0.4 })); fly.add(body);
+  const halo = new THREE.Mesh(new THREE.SphereGeometry(0.42, 20, 14), new THREE.MeshBasicMaterial({ color: '#fff6b0', transparent: true, opacity: 0.18, depthWrite: false })); fly.add(halo);
+  const eyeM = new THREE.MeshBasicMaterial({ color: '#2b2350' });
+  for (const s of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), eyeM); e.position.set(s * 0.09, 0.06, 0.21); fly.add(e); }
+  const wingM = new THREE.MeshBasicMaterial({ color: '#e9f4ff', transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false });
+  const wings = [-1, 1].map((s) => { const w = new THREE.Mesh(new THREE.CircleGeometry(0.2, 14), wingM); w.scale.set(1, 0.55, 1); w.position.set(s * 0.2, 0.2, -0.04); fly.add(w); return w; });
+  const flyLight = new THREE.PointLight('#ffe9a0', 1.6, 7, 1.6); flyLight.position.y = 0.4; fly.add(flyLight);
+
+  // sparks
+  const MAXP = 300, pGeo = new THREE.BufferGeometry(), pPos = new Float32Array(MAXP * 3), pCol = new Float32Array(MAXP * 3);
+  pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3)); pGeo.setAttribute('color', new THREE.BufferAttribute(pCol, 3));
+  const ptsM = new THREE.Points(pGeo, new THREE.PointsMaterial({ size: 0.12, vertexColors: true, transparent: true, depthWrite: false })); ptsM.frustumCulled = false; scene.add(ptsM);
+  const tmpC = new THREE.Color();
+
+  function build3d() {
+    for (const m of mazeGroup.children.slice()) { mazeGroup.remove(m); if (m.geometry && m.geometry !== trailGeo) m.geometry.dispose(); }
+    for (const m of pickGroup.children.slice()) pickGroup.remove(m);
+    trailMeshes = [];
+    // floor with a soft checker
+    const c = document.createElement('canvas'); c.width = cols * 16; c.height = rows * 16; const g = c.getContext('2d');
+    g.fillStyle = '#15162a'; g.fillRect(0, 0, c.width, c.height); g.fillStyle = '#1b1c33';
+    for (let y = 0; y < rows; y++) for (let x = y % 2; x < cols; x += 2) g.fillRect(x * 16, y * 16, 16, 16);
+    const tex = new THREE.CanvasTexture(c); tex.magFilter = THREE.NearestFilter;
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(cols, rows), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95 }));
+    floor.rotation.x = -Math.PI / 2; mazeGroup.add(floor);
+    const base = new THREE.Mesh(new THREE.BoxGeometry(cols + 0.8, 0.8, rows + 0.8), new THREE.MeshStandardMaterial({ color: '#0f1020', roughness: 0.9 }));
+    base.position.y = -0.41; mazeGroup.add(base);
+    // walls: one instanced box per wall segment, with a glowing top
+    const segs = [];
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+      const w = walls[y * cols + x];
+      if (w & 1) segs.push([x + 0.5, y, true]);
+      if (w & 8) segs.push([x, y + 0.5, false]);
+      if (x === cols - 1 && (w & 2)) segs.push([x + 1, y + 0.5, false]);
+      if (y === rows - 1 && (w & 4)) segs.push([x + 0.5, y + 1, true]);
+    }
+    const boxG = new THREE.BoxGeometry(1, 1, 1), capG = new THREE.BoxGeometry(1, 0.04, 1);
+    const im = new THREE.InstancedMesh(boxG, wallMat, segs.length), ic = new THREE.InstancedMesh(capG, capMat, segs.length);
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), pos = new THREE.Vector3();
+    segs.forEach(([x, y, horiz], i) => {
+      pos.set(x - cols / 2, WH / 2, y - rows / 2); sc.set(horiz ? 1 + WT : WT, WH, horiz ? WT : 1 + WT);
+      m4.compose(pos, q, sc); im.setMatrixAt(i, m4);
+      pos.y = WH + 0.02; sc.y = 1; m4.compose(pos, q, sc); ic.setMatrixAt(i, m4);
+    });
+    mazeGroup.add(im, ic);
+    for (const p of pickups) {
+      p.mesh = p.kind === 'star' ? new THREE.Mesh(starGeo, starMat) : makeClock();
+      p.mesh.position.copy(C3(p.x, p.y, 0.42)); pickGroup.add(p.mesh);
+    }
+    exitGroup.position.copy(C3(exit.x, exit.y));
+    // The door faces into the open side of its cell.
+    const open = DIRS.findIndex((_, i) => canGo(exit.x, exit.y, i));
+    exitGroup.rotation.y = [Math.PI, Math.PI / 2, 0, -Math.PI / 2][open < 0 ? 2 : open];
+    doorOpen = 0;
+    fitCamera();
+  }
+
+  // Camera: the whole maze in view from above at an angle, as close as it fits.
+  const camDir = new THREE.Vector3(), camTarget = new THREE.Vector3();
+  let camDist = 30;
+  function fitCamera() {
+    if (!cols) return;
+    const A = W / Math.max(1, H), tilt = (A < 0.85 ? 66 : 61) * Math.PI / 180;
+    camDir.set(0, Math.sin(tilt), Math.cos(tilt));
+    camTarget.set(0, 0, 0.3);
+    camera.aspect = A; camera.updateProjectionMatrix(); camera.clearViewOffset();
+    const corners = [C3(-0.5, -0.5, WH), C3(cols - 0.5, -0.5, WH), C3(-0.5, rows - 0.5, 0), C3(cols - 0.5, rows - 0.5, 0)];
+    const topLimit = 1 - 2 * Math.min(0.3, 140 / H);
+    let lo = 3, hi = 200;
+    for (let i = 0; i < 30; i++) {
+      const d = (lo + hi) / 2;
+      camera.position.copy(camTarget).addScaledVector(camDir, d); camera.lookAt(camTarget); camera.updateMatrixWorld();
+      const ok = corners.every((c) => { const v = c.clone().project(camera); return Math.abs(v.x) < 0.95 && v.y < topLimit && v.y > -0.96; });
+      if (ok) hi = d; else lo = d;
+    }
+    camDist = hi;
+    camera.position.copy(camTarget).addScaledVector(camDir, camDist); camera.lookAt(camTarget); camera.updateMatrixWorld();
+    const ys = corners.map((c) => c.clone().project(camera).y), mid = (Math.max(...ys) + Math.min(...ys)) / 2, want = (topLimit - 0.96) / 2;
+    camera.setViewOffset(W, H, 0, (want - mid) / 2 * H, W, H);
+    scene.fog.near = camDist * 0.9; scene.fog.far = camDist * 2.2;
+  }
+  function screenOf(x, y, h) { const v = C3(x, y, h).project(camera); return [(v.x + 1) / 2 * W, (1 - v.y) / 2 * H]; }
+
+  let lastTick = 0;
+  function draw(now) {
+    if (!walls) return;
+    camera.position.copy(camTarget).addScaledVector(camDir, camDist);
+    // a slight lean toward the firefly
+    const lean = C3(hero.px, hero.py).multiplyScalar(0.06); camera.position.add(lean); camera.lookAt(camTarget.clone().add(lean));
+
+    const bob = Math.sin(time * 6) * 0.05;
+    fly.position.copy(C3(hero.px, hero.py, 0.42 + bob));
+    if (hero.face !== undefined) { const want = [Math.PI, Math.PI / 2, 0, -Math.PI / 2][hero.face]; let d = want - fly.rotation.y; d = Math.atan2(Math.sin(d), Math.cos(d)); fly.rotation.y += d * 0.25; }
+    const flap = Math.sin(time * 40) * 0.6;
+    wings[0].rotation.y = 0.5 + flap; wings[1].rotation.y = -0.5 - flap;
+    flyLight.intensity = 1.5 + Math.sin(time * 3) * 0.15;
+    halo.scale.setScalar(1 + Math.sin(time * 3) * 0.08);
+
+    for (const p of pickups) if (p.mesh) {
+      p.mesh.position.y = 0.42 + Math.sin(time * 3 + p.x + p.y) * 0.06;
+      p.mesh.rotation.y = time * 2 + p.x;
+      if (p.kind === 'clock' && p.mesh.userData.hand) p.mesh.userData.hand.rotation.z = -time * 3;
+    }
+    exitGlow.material.opacity = 0.25 + 0.2 * (0.5 + 0.5 * Math.sin(now / 250));
+    doorPivot.rotation.y = -doorOpen * 1.4;
+
+    let n = 0;
+    for (const s of sparks) {
+      if (n >= MAXP) break;
+      const v = C3(s.x + s.vx * (1 - s.life) * 0.3, s.y + s.vy * (1 - s.life) * 0.3, s.h);
+      pPos.set([v.x, v.y, v.z], n * 3); tmpC.set(s.c).multiplyScalar(Math.max(0, s.life)); pCol.set([tmpC.r, tmpC.g, tmpC.b], n * 3); n++;
+    }
+    pGeo.setDrawRange(0, n); pGeo.attributes.position.needsUpdate = true; pGeo.attributes.color.needsUpdate = true;
+    renderer.render(scene, camera);
+
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.clearRect(0, 0, W, H);
+    for (const p of popups) {
+      const [sx, sy] = screenOf(p.x, p.y, 1.1);
+      ctx.globalAlpha = Math.min(1, p.life * 2); ctx.fillStyle = p.c; ctx.font = '800 18px Manrope'; ctx.textAlign = 'center';
+      ctx.shadowColor = '#000c'; ctx.shadowBlur = 8; ctx.fillText(p.text, sx, sy - (1 - p.life) * 30); ctx.shadowBlur = 0;
+    }
+    ctx.globalAlpha = 1;
+    if (flash > 0) { ctx.fillStyle = `rgba(188,160,255,${(flash * 0.25).toFixed(3)})`; ctx.fillRect(0, 0, W, H); }
+
+    $('hudScore').hidden = state === 'start';
+    if (state !== 'start') {
+      const low = timeLeft < 8;
+      $('hudTime').textContent = `${Math.ceil(timeLeft)} с`;
+      $('hudTime').className = low && Math.floor(now / 250) % 2 ? 'low' : '';
+      $('hudInfo').textContent = `УРОВЕНЬ ${level} · ⭐ ${stars}`;
+      if (low && state === 'play' && Math.ceil(timeLeft) !== lastTick) { lastTick = Math.ceil(timeLeft); sound('tick'); }
+    }
+  }
+
+  // On the start screen the firefly wanders the maze by itself.
+  let demoT = 0, demoPrev = -1;
+  function demo(dt) {
+    const speed = 6 * dt;
+    if (hero.x !== hero.px || hero.y !== hero.py) {
+      hero.px += Math.sign(hero.x - hero.px) * Math.min(speed, Math.abs(hero.x - hero.px));
+      hero.py += Math.sign(hero.y - hero.py) * Math.min(speed, Math.abs(hero.y - hero.py));
+      return;
+    }
+    const opts = DIRS.map((_, i) => i).filter((i) => canGo(hero.x, hero.y, i));
+    let ch = opts.filter((i) => i !== (demoPrev + 2) % 4); if (!ch.length) ch = opts;
+    const i = ch[Math.floor(Math.random() * ch.length)]; demoPrev = i;
+    hero.x += DIRS[i][0]; hero.y += DIRS[i][1]; hero.face = i;
+  }
+
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.05, (now - lastT) / 1000 || 0)); lastT = now; time += dt;
+    if (state === 'play') step(dt);
+    else if (state === 'start') demo(dt);
+    for (const s of sparks) { s.h = Math.max(0.05, s.h + s.vh * dt); s.vh -= 9 * dt; s.life -= dt * 1.4; } sparks = sparks.filter((s) => s.life > 0);
+    for (const p of popups) p.life -= dt * 1.1; popups = popups.filter((p) => p.life > 0);
+    flash = Math.max(0, flash - dt * 2); doorOpen = Math.max(0, doorOpen - dt * 0.4);
+    draw(now);
+    requestAnimationFrame(frame);
+  }
+
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    ov.width = Math.round(W * DPR); ov.height = Math.round(H * DPR);
+    renderer.setSize(W, H, false);
+    fitCamera();
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'labirint',
+    boards: [
+      { id: 'levels', title: 'Уровни', column: 'best_levels', order: 'desc', note: 'Больше всего пройденных лабиринтов за одну игру (2D и 3D).', format: (v) => `${v} ${levelsWord(v)}` },
+      { id: 'stars', title: 'Звёзды', column: 'best_stars', order: 'desc', note: 'Больше всего звёзд за одну игру (2D и 3D).', format: (v) => `${v} ${starsWord(v)}` },
+    ],
+    bests: () => [runs.levels, runs.stars].filter(Boolean),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  const KEYS = { ArrowUp: 0, KeyW: 0, ArrowRight: 1, KeyD: 1, ArrowDown: 2, KeyS: 2, ArrowLeft: 3, KeyA: 3 };
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.target.closest && e.target.closest('.box button, a, .hud button')) return;
+    if ((e.code === 'Space' || e.code === 'Enter') && state !== 'play' && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); return; }
+    if (e.code in KEYS && state === 'play') { e.preventDefault(); unlockAudio(); heldDir = KEYS[e.code]; slide = null; tryMove(heldDir); }
+  });
+  addEventListener('keyup', (e) => { if (KEYS[e.code] === heldDir) heldDir = null; });
+  let touch = null;
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); unlockAudio(); touch = { x: e.clientX, y: e.clientY }; });
+  cv.addEventListener('pointermove', (e) => {
+    if (!touch || state !== 'play') return;
+    const dx = e.clientX - touch.x, dy = e.clientY - touch.y;
+    if (Math.hypot(dx, dy) < 24) return;
+    const i = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 1 : 3) : (dy > 0 ? 2 : 0);
+    touch = { x: e.clientX, y: e.clientY };
+    runSlide(i);
+    if (!tryMove(i)) queued = i;
+  });
+  const end = () => { touch = null; };
+  addEventListener('pointerup', end); addEventListener('pointercancel', end);
+  document.addEventListener('visibilitychange', () => { lastT = performance.now(); heldDir = null; });
+
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('labirint-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  if (new URLSearchParams(location.search).get('test') === '1') window.__labirint = { get: () => ({ cols, rows, walls, hero, exit, level, state, timeLeft, stars }) };
+
+  addEventListener('resize', resize);
+  W = innerWidth; H = innerHeight;
+  level = 0; timeLeft = 0; stars = 0; played = 0; sparks = []; popups = []; newLevel(); resize(); showBests();
+  // #preview: a level in progress, for the catalog.
+  if (location.hash === '#preview') { $('start').hidden = true; level = 3; newLevel(); state = 'play'; stars = 4; timeLeft = 23; wait = 0; for (let i = 0; i < 6; i++) { const opts = DIRS.map((_, k) => k).filter((k) => canGo(hero.x, hero.y, k)); const k = opts[opts.length - 1]; hero.trail.push({ x: hero.x, y: hero.y }); addTrail(hero.x, hero.y); hero.x += DIRS[k][0]; hero.y += DIRS[k][1]; hero.px = hero.x; hero.py = hero.y; hero.face = k; } step = () => {}; }
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

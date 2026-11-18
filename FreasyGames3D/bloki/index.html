@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/clips.js?v=1"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0d0f1c">
+<title>Блоки 3D — FreasyGames 3D</title>
+<meta name="description" content="Блоки 3D на FreasyGames: ставь объёмные фигуры на поле 8×8, собирай ряды и столбцы, и они разлетаются кубиками. Комбо и таблица лидеров, общая с 2D.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>
+  #ov { pointer-events: none; }
+  .score { position: fixed; top: 58px; left: 0; right: 0; text-align: center; pointer-events: none; text-shadow: 0 6px 30px #000a; }
+  .score[hidden] { display: none; }
+  .score b { display: block; font-size: 44px; font-weight: 800; letter-spacing: -.05em; line-height: 1; }
+  .score span { color: #89879e; font-size: 12px; font-weight: 800; letter-spacing: .08em; }
+  @media (max-height: 520px) and (orientation: landscape) { .score { top: 8px; } .score b { font-size: 28px; } }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="ov"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames 3D</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+<div class="score" id="hudScore" hidden><span id="hudBest">РЕКОРД 0</span><b id="hudPts">0</b></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ 3D</div>
+    <h1>Блоки <span>3D</span></h1>
+    <p>Перетаскивай объёмные фигуры на поле 8×8. Собери целый ряд или столбец — он рассыплется кубиками и даст очки.</p>
+    <p>Убирай несколько линий сразу и подряд — за комбо очков намного больше. Игра кончается, когда ни одна фигура не помещается. Рекорды общие с 2D.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · линий за игру: <b id="bestLinesStart">0</b></p>
+    <button class="play" id="go" type="button">Начать ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров и вход</button>
+    <div class="hint">Тяни фигуру пальцем или мышью. Фигуры не поворачиваются</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow">Нет места</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">очков</p>
+    <p>Рекорд: <b id="bestOver">0</b> · линий за игру: <b id="bestLinesOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров и вход</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<script src="../../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const cv = document.getElementById('c'), ov = document.getElementById('ov'), ctx = ov.getContext('2d');
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  let best = Number(store.get('bloki-best', 0)) || 0, bestLines = Number(store.get('bloki-best-lines', 0)) || 0;
+  let muted = store.get('bloki-muted', '0') === '1';
+
+  const N = 8;
+  const COLORS = ['#bca0ff', '#5df2a5', '#ffd23f', '#ff7aa8', '#6fc8ff', '#ff9f4a', '#9d8cff'];
+  const SHAPES = [
+    { c: [[0, 0]], w: 2 },
+    { c: [[0, 0], [1, 0]], w: 3 }, { c: [[0, 0], [0, 1]], w: 3 },
+    { c: [[0, 0], [1, 0], [2, 0]], w: 3 }, { c: [[0, 0], [0, 1], [0, 2]], w: 3 },
+    { c: [[0, 0], [1, 0], [2, 0], [3, 0]], w: 2 }, { c: [[0, 0], [0, 1], [0, 2], [0, 3]], w: 2 },
+    { c: [[0, 0], [1, 0], [2, 0], [3, 0], [4, 0]], w: 1 }, { c: [[0, 0], [0, 1], [0, 2], [0, 3], [0, 4]], w: 1 },
+    { c: [[0, 0], [1, 0], [0, 1], [1, 1]], w: 4 },
+    { c: [[0, 0], [1, 0], [2, 0], [0, 1], [1, 1], [2, 1], [0, 2], [1, 2], [2, 2]], w: 1 },
+    { c: [[0, 0], [1, 0], [0, 1]], w: 2 }, { c: [[0, 0], [1, 0], [1, 1]], w: 2 }, { c: [[0, 0], [0, 1], [1, 1]], w: 2 }, { c: [[1, 0], [0, 1], [1, 1]], w: 2 },
+    { c: [[0, 0], [0, 1], [0, 2], [1, 2]], w: 1 }, { c: [[1, 0], [1, 1], [1, 2], [0, 2]], w: 1 }, { c: [[0, 0], [1, 0], [2, 0], [0, 1]], w: 1 }, { c: [[0, 0], [1, 0], [2, 0], [2, 1]], w: 1 },
+    { c: [[0, 0], [1, 0], [0, 1], [0, 2]], w: 1 }, { c: [[0, 0], [1, 0], [1, 1], [1, 2]], w: 1 }, { c: [[0, 1], [1, 1], [2, 1], [0, 0]], w: 1 }, { c: [[0, 1], [1, 1], [2, 1], [2, 0]], w: 1 },
+    { c: [[0, 0], [1, 0], [2, 0], [1, 1]], w: 1 }, { c: [[1, 0], [0, 1], [1, 1], [2, 1]], w: 1 }, { c: [[0, 0], [0, 1], [0, 2], [1, 1]], w: 1 }, { c: [[1, 0], [1, 1], [1, 2], [0, 1]], w: 1 },
+    { c: [[0, 0], [1, 0], [1, 1], [2, 1]], w: 1 }, { c: [[1, 0], [2, 0], [0, 1], [1, 1]], w: 1 }, { c: [[0, 0], [0, 1], [1, 1], [1, 2]], w: 1 }, { c: [[1, 0], [1, 1], [0, 1], [0, 2]], w: 1 },
+    { c: [[0, 0], [1, 0], [2, 0], [0, 1], [0, 2]], w: 1 }, { c: [[0, 0], [1, 0], [2, 0], [2, 1], [2, 2]], w: 1 }, { c: [[0, 2], [1, 2], [2, 2], [0, 0], [0, 1]], w: 1 }, { c: [[0, 2], [1, 2], [2, 2], [2, 0], [2, 1]], w: 1 },
+  ];
+  const TOTAL_W = SHAPES.reduce((s, x) => s + x.w, 0);
+  for (const s of SHAPES) { s.cols = Math.max(...s.c.map((p) => p[0])) + 1; s.rows = Math.max(...s.c.map((p) => p[1])) + 1; }
+
+  // The game works in a fixed layout of "field pixels" (a cell is 40), as in 2D; the 3D scene turns it into units.
+  const cell = 40, bx = 0, by = 0, trayY = by + cell * N + cell * 0.4;
+  let W = 0, H = 0, DPR = 1, state = 'start', time = 0, lastT = 0, grid, tray, score, shown, lines, combo, moves, parts, pops, flashes, drag = null, shake = 0, overAt = 0;
+
+  function pickShape() { let r = Math.random() * TOTAL_W; for (const s of SHAPES) { r -= s.w; if (r <= 0) return s; } return SHAPES[0]; }
+  const fits = (s, gx, gy) => s.c.every(([x, y]) => gx + x >= 0 && gy + y >= 0 && gx + x < N && gy + y < N && !grid[gy + y][gx + x]);
+  function fitsAnywhere(s) { for (let y = 0; y <= N - s.rows; y++) for (let x = 0; x <= N - s.cols; x++) if (fits(s, x, y)) return true; return false; }
+  function deal() {
+    tray = [0, 1, 2].map(() => ({ s: pickShape(), col: COLORS[Math.floor(Math.random() * COLORS.length)], used: false, pop: 0.25 }));
+    if (!tray.some((t) => fitsAnywhere(t.s))) { for (let i = 0; i < 40; i++) { const s = pickShape(); if (fitsAnywhere(s)) { tray[0].s = s; break; } } }
+    refit();
+  }
+  function refit() { for (const t of tray) t.fit = !t.used && fitsAnywhere(t.s); }
+  function reset() {
+    grid = Array.from({ length: N }, () => Array(N).fill(null));
+    score = 0; shown = 0; lines = 0; combo = 0; moves = 0; parts = []; pops = []; flashes = []; drag = null; shake = 0;
+    deal();
+  }
+
+  function place(t, gx, gy) {
+    for (const [x, y] of t.s.c) { grid[gy + y][gx + x] = t.col; landed.push({ x: gx + x, y: gy + y, t: 0 }); }
+    t.used = true; moves++;
+    let gain = t.s.c.length;
+    const rows = [], cols = [];
+    for (let i = 0; i < N; i++) { if (grid[i].every(Boolean)) rows.push(i); if (grid.every((r) => r[i])) cols.push(i); }
+    const n = rows.length + cols.length;
+    if (n) {
+      combo++;
+      const bonus = 10 * n * n + (combo > 1 ? 10 * (combo - 1) * n : 0);
+      gain += bonus; lines += n;
+      const gone = new Set();
+      for (const r of rows) for (let x = 0; x < N; x++) gone.add(r * N + x);
+      for (const c of cols) for (let y = 0; y < N; y++) gone.add(y * N + c);
+      for (const id of gone) {
+        const x = id % N, y = Math.floor(id / N), col = grid[y][x];
+        // Cleared blocks fly up and tumble away as cubes.
+        const a = Math.random() * 7, v = 30 + Math.random() * 60;
+        flashes.push({ x: bx + (x + 0.5) * cell, y: by + (y + 0.5) * cell, h: 0.3, vx: Math.cos(a) * v, vy: Math.sin(a) * v, vh: 4 + Math.random() * 3, rx: 0, ry: 0, sx: (Math.random() - 0.5) * 12, sy: (Math.random() - 0.5) * 12, col, life: 1, delay: (Math.abs(x - 3.5) + Math.abs(y - 3.5)) * 0.025 });
+        for (let i = 0; i < 3; i++) { const b = Math.random() * 7, w = 40 + Math.random() * 100; parts.push({ x: bx + (x + 0.5) * cell, y: by + (y + 0.5) * cell, h: 0.5, vx: Math.cos(b) * w, vy: Math.sin(b) * w, vh: 3 + Math.random() * 4, life: 1, col }); }
+        grid[y][x] = null;
+      }
+      const cx = bx + (gx + t.s.cols / 2) * cell, cy = by + (gy + t.s.rows / 2) * cell;
+      pops.push({ x: cx, y: cy, text: (n > 1 ? `${n} линии! ` : '') + (combo > 1 ? `Комбо ×${combo} ` : '') + '+' + bonus, life: 1, big: n > 1 || combo > 1 });
+      shake = Math.min(0.35, 0.1 * n);
+      sound('clear', n + combo);
+    } else { combo = 0; sound('place'); }
+    score += gain;
+    if (tray.every((x) => x.used)) deal(); else refit();
+    if (!tray.some((x) => x.fit)) { state = 'ending'; overAt = time + 1.1; sound('over'); }
+  }
+  let landed = [];
+
+  function start() {
+    unlockAudio(); reset(); state = 'play'; chanceUsed = false; chance.hide();
+    $('start').hidden = true; $('over').hidden = true;
+  }
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'bloki-continue', label: '🎬 Расчистить поле за рекламу', onReward: () => {
+    chanceUsed = true;
+    let bestRow = 0, most = -1;
+    for (let y = 0; y <= N - 3; y++) { let n = 0; for (let r = y; r < y + 3; r++) for (let x = 0; x < N; x++) if (grid[r][x]) n++; if (n > most) { most = n; bestRow = y; } }
+    for (let y = bestRow; y < bestRow + 3; y++) for (let x = 0; x < N; x++) { if (grid[y][x]) flashes.push({ x: bx + (x + 0.5) * cell, y: by + (y + 0.5) * cell, h: 0.3, vx: 0, vy: 0, vh: 5, rx: 0, ry: 0, sx: 6, sy: 4, col: grid[y][x], life: 1, delay: x * 0.03 }); grid[y][x] = null; }
+    deal(); state = 'play'; $('over').hidden = true; sound('clear', 3);
+  } });
+  function gameOver() {
+    state = 'over';
+    const record = score > best;
+    if (record) { best = score; store.set('bloki-best', best); }
+    if (lines > bestLines) { bestLines = lines; store.set('bloki-best-lines', bestLines); }
+    if (score > 0) lb.submit({ new_score: score, new_lines: lines });
+    $('final').textContent = score;
+    $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + `очков · линий: ${lines}`;
+    showBests(); $('over').hidden = false;
+    if (!chanceUsed) chance.show();
+  }
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('bestLinesStart').textContent = $('bestLinesOver').textContent = bestLines;
+  }
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (ac && ac.state === 'suspended') ac.resume(); }
+  function tone(f, dur, type, vol, slide = 1, delay = 0) {
+    if (!ac || muted) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t);
+    if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function sound(kind, n = 0) {
+    if (kind === 'pick') tone(520, 0.06, 'sine', 0.06, 1.3);
+    else if (kind === 'place') { tone(180, 0.09, 'triangle', 0.16, 0.7); }
+    else if (kind === 'clear') { for (let i = 0; i < Math.min(5, n + 1); i++) tone(440 * Math.pow(2, i * 4 / 12), 0.2, 'triangle', 0.12, 1, i * 0.06); }
+    else if (kind === 'back') tone(300, 0.08, 'sine', 0.06, 0.6);
+    else if (kind === 'over') { tone(300, 0.6, 'sawtooth', 0.08, 0.3); tone(90, 0.6, 'sine', 0.2, 0.5); }
+  }
+
+  // ——— 3D ———
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); } catch (e) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="screen"><div class="box"><h1><span>3D</span> не запускается</h1><p>Браузер не поддерживает WebGL.</p><a class="play" style="display:block;text-decoration:none" href="../../bloki/">Блоки 2D ↗</a></div></div>');
+    throw e;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const scene = new THREE.Scene(); scene.background = new THREE.Color('#0d0f1c'); scene.fog = new THREE.Fog('#0d0f1c', 30, 70);
+  const camera = new THREE.PerspectiveCamera(40, 1, 0.3, 200);
+  scene.add(new THREE.HemisphereLight('#e6dcff', '#1a1530', 0.75));
+  const sun = new THREE.DirectionalLight('#ffffff', 0.7); sun.position.set(-5, 14, 7); sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024); Object.assign(sun.shadow.camera, { left: -9, right: 9, top: 10, bottom: -10, near: 1, far: 40 }); scene.add(sun);
+  const MIDX = (cell * N) / 2, MIDY = (trayY + cell * 3.2) / 2;
+  const V = (x, y, h = 0) => new THREE.Vector3((x - MIDX) / cell, h, (y - MIDY) / cell);
+
+  // board: a slab with a frame and checker cells
+  const boardGroup = new THREE.Group(); scene.add(boardGroup);
+  (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 512; const g = c.getContext('2d'), s = 512 / N;
+    g.fillStyle = '#1d1e31'; g.fillRect(0, 0, 512, 512);
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { g.fillStyle = (x + y) % 2 ? '#26273f' : '#22233a'; g.beginPath(); if (g.roundRect) g.roundRect(x * s + 4, y * s + 4, s - 8, s - 8, 10); else g.rect(x * s + 4, y * s + 4, s - 8, s - 8); g.fill(); }
+    const top = new THREE.Mesh(new THREE.PlaneGeometry(N, N), new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(c), roughness: 0.85 }));
+    top.rotation.x = -Math.PI / 2; top.position.copy(V(MIDX, by + MIDX, 0)); top.receiveShadow = true; boardGroup.add(top);
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(N + 0.5, 0.6, N + 0.5), new THREE.MeshStandardMaterial({ color: '#16172a', roughness: 0.8 }));
+    slab.position.copy(V(MIDX, by + MIDX, -0.31)); slab.receiveShadow = true; boardGroup.add(slab);
+    const rimMat = new THREE.MeshStandardMaterial({ color: '#7b67fc', emissive: '#3a2a9a', emissiveIntensity: 0.6, roughness: 0.4 });
+    for (const [w, d, dx, dz] of [[N + 0.5, 0.18, 0, -(N / 2 + 0.16)], [N + 0.5, 0.18, 0, N / 2 + 0.16], [0.18, N + 0.5, -(N / 2 + 0.16), 0], [0.18, N + 0.5, N / 2 + 0.16, 0]]) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.22, d), rimMat); m.position.copy(V(MIDX, by + MIDX, 0.05)); m.position.x += dx; m.position.z += dz; boardGroup.add(m);
+    }
+    // a soft tray plate under the three pieces
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(N + 0.3, 0.2, 3.1), new THREE.MeshStandardMaterial({ color: '#191a2d', roughness: 0.9 }));
+    plate.position.copy(V(MIDX, trayY + cell * 1.6, -0.12)); plate.receiveShadow = true; boardGroup.add(plate);
+  })();
+
+  // Blocks come from a pool; each frame takes as many as it needs.
+  const blockGeo = new THREE.BoxGeometry(0.9, 0.5, 0.9);
+  const mats = {}, ghostMats = {}, litMats = {};
+  for (const c of COLORS) {
+    mats[c] = new THREE.MeshStandardMaterial({ color: c, roughness: 0.32, metalness: 0.08, emissive: c, emissiveIntensity: 0.08 });
+    ghostMats[c] = new THREE.MeshStandardMaterial({ color: c, transparent: true, opacity: 0.35, depthWrite: false, emissive: c, emissiveIntensity: 0.2 });
+    litMats[c] = new THREE.MeshStandardMaterial({ color: c, roughness: 0.3, emissive: '#ffffff', emissiveIntensity: 0.35 });
+  }
+  const greyMat = new THREE.MeshStandardMaterial({ color: '#55536b', roughness: 0.6 });
+  const pool = []; let used = 0;
+  function put(x, y, h, s, mat, rot) {
+    let m = pool[used];
+    if (!m) { m = new THREE.Mesh(blockGeo, mat); m.castShadow = true; m.receiveShadow = true; scene.add(m); pool.push(m); }
+    used++;
+    m.visible = true; m.material = mat; m.position.copy(V(x, y, h + 0.25 * s)); m.scale.setScalar(s);
+    if (rot) m.rotation.set(rot[0], rot[1], 0); else m.rotation.set(0, 0, 0);
+    m.castShadow = !mat.transparent;
+    return m;
+  }
+
+  const MAXP = 400, pGeo = new THREE.BufferGeometry(), pPos = new Float32Array(MAXP * 3), pCol = new Float32Array(MAXP * 3);
+  pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3)); pGeo.setAttribute('color', new THREE.BufferAttribute(pCol, 3));
+  const ptsM = new THREE.Points(pGeo, new THREE.PointsMaterial({ size: 0.16, vertexColors: true, transparent: true, depthWrite: false })); ptsM.frustumCulled = false; scene.add(ptsM);
+  const tmpC = new THREE.Color();
+
+  const camDir = new THREE.Vector3(), camTarget = new THREE.Vector3();
+  let camDist = 20;
+  function fitCamera() {
+    const A = W / Math.max(1, H), tilt = (A < 0.85 ? 66 : 58) * Math.PI / 180;
+    camDir.set(0, Math.sin(tilt), Math.cos(tilt)); camTarget.set(0, 0, 0);
+    camera.aspect = A; camera.updateProjectionMatrix(); camera.clearViewOffset();
+    const corners = [V(-12, -12, 0.3), V(cell * N + 12, -12, 0.3), V(-12, trayY + cell * 3.3, 0), V(cell * N + 12, trayY + cell * 3.3, 0)];
+    const topLimit = 1 - 2 * Math.min(0.26, 120 / H);
+    let lo = 3, hi = 200;
+    for (let i = 0; i < 30; i++) {
+      const d = (lo + hi) / 2;
+      camera.position.copy(camTarget).addScaledVector(camDir, d); camera.lookAt(camTarget); camera.updateMatrixWorld();
+      const ok = corners.every((c) => { const v = c.clone().project(camera); return Math.abs(v.x) < 0.94 && v.y < topLimit && v.y > -0.95; });
+      if (ok) hi = d; else lo = d;
+    }
+    camDist = hi;
+    camera.position.copy(camTarget).addScaledVector(camDir, camDist); camera.lookAt(camTarget); camera.updateMatrixWorld();
+    const ys = corners.map((c) => c.clone().project(camera).y), mid = (Math.max(...ys) + Math.min(...ys)) / 2, want = (topLimit - 0.95) / 2;
+    camera.setViewOffset(W, H, 0, (want - mid) / 2 * H, W, H);
+  }
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    ov.width = Math.round(W * DPR); ov.height = Math.round(H * DPR);
+    renderer.setSize(W, H, false);
+    fitCamera();
+  }
+  const raycaster = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hitV = new THREE.Vector3();
+  function toField(e) {
+    raycaster.setFromCamera({ x: e.clientX / W * 2 - 1, y: -(e.clientY / H) * 2 + 1 }, camera);
+    if (!raycaster.ray.intersectPlane(plane, hitV)) return null;
+    return { x: hitV.x * cell + MIDX, y: hitV.z * cell + MIDY };
+  }
+  function screenOf(x, y, h = 0.5) { const v = V(x, y, h).project(camera); return [(v.x + 1) / 2 * W, (1 - v.y) / 2 * H]; }
+
+  function slot(i) {
+    const t = tray[i], mini = cell * 0.6, cx = bx + (i + 0.5) * (cell * N / 3), cy = trayY + cell * 1.6;
+    return { cx, cy, mini, x: cx - t.s.cols * mini / 2, y: cy - t.s.rows * mini / 2 };
+  }
+  function dragCell() {
+    const s = drag.t.s;
+    const gx = Math.round((drag.px - s.cols * cell / 2 - bx) / cell), gy = Math.round((drag.py - drag.lift - s.rows * cell / 2 - by) / cell);
+    return { gx, gy, ok: fits(s, gx, gy) };
+  }
+  function updateGhost() {
+    const g = dragCell();
+    if (drag.g && drag.g.gx === g.gx && drag.g.gy === g.gy) return;
+    drag.g = g; drag.hot = null;
+    if (!g.ok) return;
+    const mine = new Set(drag.t.s.c.map(([x, y]) => (g.gy + y) * N + g.gx + x)), full = (x, y) => grid[y][x] || mine.has(y * N + x);
+    const hot = new Set();
+    for (let i = 0; i < N; i++) {
+      let row = true, col = true;
+      for (let j = 0; j < N; j++) { if (!full(j, i)) row = false; if (!full(i, j)) col = false; }
+      if (row) for (let x = 0; x < N; x++) hot.add(i * N + x);
+      if (col) for (let y = 0; y < N; y++) hot.add(y * N + i);
+    }
+    drag.hot = hot;
+  }
+
+  function draw() {
+    used = 0;
+    const sh = shake > 0 ? new THREE.Vector3((Math.random() - 0.5) * shake * 0.8, 0, (Math.random() - 0.5) * shake * 0.8) : new THREE.Vector3();
+    const sway = state === 'start' ? Math.sin(time * 0.5) * 0.15 : 0;
+    camera.position.copy(camTarget).addScaledVector(camDir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), sway), camDist).add(sh);
+    camera.lookAt(camTarget.clone().add(sh));
+
+    const hot = drag && drag.hot;
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const c = grid[y][x]; if (!c) continue;
+      const lit = hot && hot.has(y * N + x);
+      // a freshly placed block drops in with a little bounce
+      const L = landed.find((l) => l.x === x && l.y === y), drop = L ? Math.max(0, 1 - L.t / 0.18) * 0.9 : 0;
+      const m = put(bx + (x + 0.5) * cell, by + (y + 0.5) * cell, drop + (lit ? 0.08 + Math.sin(time * 12) * 0.05 : 0), 1, lit ? litMats[drag.t.col] : mats[c]);
+      m.material = lit ? litMats[drag.t.col] : mats[c];
+    }
+    const ghost = drag && drag.g;
+    if (ghost && ghost.ok) for (const [x, y] of drag.t.s.c) put(bx + (ghost.gx + x + 0.5) * cell, by + (ghost.gy + y + 0.5) * cell, 0, 1, ghostMats[drag.t.col]).castShadow = false;
+    for (const f of flashes) {
+      if (f.delay > 0) { put(f.x, f.y, 0, 1, litMats[f.col]); continue; }
+      put(f.x, f.y, f.h, 0.4 + 0.6 * f.life, mats[f.col], [f.rx, f.ry]);
+    }
+    for (let i = 0; i < 3; i++) {
+      const t = tray[i]; if (t.used || (drag && drag.i === i)) continue;
+      const p = slot(i), canFit = state !== 'play' || t.fit, sc = 1 - t.pop, s = p.mini * sc;
+      const bobH = Math.sin(time * 2 + i) * 0.04;
+      for (const [x, y] of t.s.c) put(p.cx + (x - t.s.cols / 2 + 0.5) * s, p.cy + (y - t.s.rows / 2 + 0.5) * s, 0.02 + bobH, s / cell, canFit ? mats[t.col] : greyMat);
+    }
+    if (drag) {
+      const s = drag.t.s, x0 = drag.px - s.cols * cell / 2, y0 = drag.py - drag.lift - s.rows * cell / 2;
+      for (const [x, y] of s.c) put(x0 + (x + 0.5) * cell, y0 + (y + 0.5) * cell, 1.1, 1, mats[drag.t.col]);
+    }
+    for (let i = used; i < pool.length; i++) pool[i].visible = false;
+
+    let n = 0;
+    for (const q of parts) {
+      if (n >= MAXP) break;
+      const v = V(q.x, q.y, q.h); pPos.set([v.x, v.y, v.z], n * 3); tmpC.set(q.col).multiplyScalar(Math.max(0, q.life)); pCol.set([tmpC.r, tmpC.g, tmpC.b], n * 3); n++;
+    }
+    pGeo.setDrawRange(0, n); pGeo.attributes.position.needsUpdate = true; pGeo.attributes.color.needsUpdate = true;
+    renderer.render(scene, camera);
+
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.clearRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    for (const q of pops) {
+      const [sx, sy] = screenOf(q.x, q.y, 1.2);
+      ctx.globalAlpha = Math.max(0, Math.min(1, q.life * 2)); ctx.fillStyle = q.big ? '#ffd23f' : '#5df2a5';
+      ctx.font = `800 ${q.big ? 24 : 20}px Manrope`; ctx.shadowColor = '#000c'; ctx.shadowBlur = 10;
+      ctx.fillText(q.text, Math.max(110, Math.min(W - 110, sx)), sy - (1 - q.life) * 60); ctx.shadowBlur = 0;
+    }
+    ctx.globalAlpha = 1;
+    if (state === 'ending') {
+      const [sx, sy] = screenOf(MIDX, by + MIDX, 1);
+      ctx.globalAlpha = Math.min(1, (1.1 - (overAt - time)) * 2); ctx.fillStyle = '#ff7aa8'; ctx.font = '800 40px Manrope'; ctx.shadowColor = '#000c'; ctx.shadowBlur = 14;
+      ctx.fillText('Нет места!', sx, sy); ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+    }
+    shown += (score - shown) * 0.2; if (Math.abs(score - shown) < 0.5) shown = score;
+    $('hudScore').hidden = state === 'start';
+    $('hudPts').textContent = Math.round(shown); $('hudBest').textContent = 'РЕКОРД ' + Math.max(best, score);
+  }
+
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.05, (now - lastT) / 1000 || 0)); lastT = now; time += dt;
+    for (const t of tray) t.pop = Math.max(0, t.pop - dt * 1.6);
+    for (const q of parts) { q.x += q.vx * dt; q.y += q.vy * dt; q.h = Math.max(0.05, q.h + q.vh * dt); q.vh -= 14 * dt; q.life -= dt * 1.4; }
+    for (const q of pops) q.life -= dt * 0.8;
+    for (const f of flashes) { if (f.delay > 0) { f.delay -= dt; continue; } f.x += f.vx * dt; f.y += f.vy * dt; f.h += f.vh * dt; f.vh -= 16 * dt; f.rx += f.sx * dt; f.ry += f.sy * dt; f.life -= dt * 1.3; }
+    for (const l of landed) l.t += dt;
+    parts = parts.filter((q) => q.life > 0); pops = pops.filter((q) => q.life > 0); flashes = flashes.filter((f) => f.life > 0); landed = landed.filter((l) => l.t < 0.2);
+    shake = Math.max(0, shake - dt);
+    if (state === 'ending' && time >= overAt) gameOver();
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  // The leaderboard is shared with Блоки 2D.
+  const lb = FreasyLeaderboard({
+    key: 'bloki',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за одну игру (2D и 3D).', format: (v) => v + ' очк.' },
+      { id: 'lines', title: 'Линии', column: 'best_lines', order: 'desc', note: 'Больше всего убранных линий за одну игру (2D и 3D).', format: (v) => v + ' лин.' },
+    ],
+    bests: () => (best > 0 ? { new_score: best, new_lines: bestLines } : null),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  cv.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); unlockAudio();
+    if (state !== 'play' || drag) return;
+    const p = toField(e); if (!p) return;
+    let pick = -1, bestD = Infinity;
+    for (let i = 0; i < 3; i++) {
+      if (tray[i].used) continue;
+      const s = slot(i), d = Math.hypot(p.x - s.cx, p.y - s.cy);
+      if (d < bestD && d < cell * 2.2 && p.y > trayY - cell * 0.4) { bestD = d; pick = i; }
+    }
+    if (pick < 0) return;
+    drag = { i: pick, t: tray[pick], px: p.x, py: p.y, lift: e.pointerType === 'mouse' ? 0 : cell * 1.8, id: e.pointerId };
+    updateGhost();
+    try { cv.setPointerCapture(e.pointerId); } catch {}
+    sound('pick');
+  });
+  cv.addEventListener('pointermove', (e) => { if (drag && e.pointerId === drag.id) { const p = toField(e); if (p) { drag.px = p.x; drag.py = p.y; updateGhost(); } } });
+  cv.addEventListener('pointerup', (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const p = toField(e); if (p) { drag.px = p.x; drag.py = p.y; }
+    const g = dragCell(), t = drag.t; drag = null;
+    if (state === 'play' && g.ok) place(t, g.gx, g.gy); else { t.pop = 0.25; sound('back'); }
+  });
+  cv.addEventListener('pointercancel', () => { if (drag) { drag.t.pop = 0.25; drag = null; } });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) return;
+    if (e.code !== 'Space' && e.code !== 'Enter') return;
+    if (e.target.closest && e.target.closest('.screen button, .hud button')) return;
+    e.preventDefault(); if (e.repeat) return;
+    if (state !== 'play' && state !== 'ending' && (!$('start').hidden || !$('over').hidden)) start();
+  });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('bloki-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  // For automated checks only (?test=1): place a tray piece at a cell.
+  if (new URLSearchParams(location.search).get('test') === '1') window.__bloki = { get: () => ({ state, score, lines, tray: tray.map((t) => ({ used: t.used, cells: t.s.c, fit: t.fit })), grid }), place: (i, gx, gy) => { const t = tray[i]; if (!t.used && fits(t.s, gx, gy)) { place(t, gx, gy); return true; } return false; }, fits: (i, gx, gy) => fits(tray[i].s, gx, gy), slotScreen: (i) => { const p = slot(i); return screenOf(p.cx, p.cy, 0); }, cellScreen: (i, gx, gy) => { const t = tray[i].s; return screenOf(bx + (gx + t.cols / 2) * cell, by + (gy + t.rows / 2) * cell, 0); } };
+
+  addEventListener('resize', resize);
+  resize(); reset(); showBests();
+  if (best > 0 && lb.signedIn()) lb.submit({ new_score: best, new_lines: bestLines });
+  // #preview: a board in play with a piece in the hand, for the catalog.
+  if (location.hash === '#preview') {
+    $('start').hidden = true; state = 'play';
+    const pat = ['##.#####', '.#######', '###.##..', '#....#..', '##...###', '#......#', '##.....#', '###...##'];
+    pat.forEach((r, y) => [...r].forEach((ch, x) => { if (ch === '#') grid[y][x] = COLORS[(x * 3 + y * 5) % COLORS.length]; }));
+    score = 1260; shown = 1260; lines = 14; tray[0].s = SHAPES[3]; tray[0].col = COLORS[2]; refit();
+    drag = { i: 0, t: tray[0], px: bx + 3.5 * cell, py: by + 3.5 * cell, lift: 0, id: -1 }; updateGhost();
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

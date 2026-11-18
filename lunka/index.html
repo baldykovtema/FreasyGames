@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../shared/session.js?v=2"></script>
+<script src="../shared/clips.js?v=1"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Лунка — FreasyGames</title>
+<meta name="description" content="Лунка на FreasyGames: мини-гольф без конца. Оттяни мяч и отпусти, обходи блоки, песок, воду и мельницу. Попадание с одного удара возвращает удары.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">⛳ Новая игра</div>
+    <h1><span>Лунка</span></h1>
+    <p>Мини-гольф без конца. Потяни назад от мяча и отпусти — чем дальше тянешь, тем сильнее удар.</p>
+    <p>У тебя 10 ударов на всё поле. Забил быстрее пара — удары возвращаются, с одного удара — больше всего. Вода стоит удар, песок тормозит, мельница отбивает.</p>
+    <p>Рекорд: <b id="bestStart">0</b> лунок · с одного удара: <b id="acesStart">0</b></p>
+    <button class="play" id="go" type="button">Начать ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Тяни мышью или пальцем в любом месте поля, отпусти — удар</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow">Удары кончились</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">лунок</p>
+    <p>С одного удара: <b id="acesOver">0</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · с одного удара: <b id="bestAcesOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), g = cv.getContext('2d');
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const holesWord = (n) => plural(n, 'лунка', 'лунки', 'лунок');
+  const strokesWord = (n) => plural(n, 'удар', 'удара', 'ударов');
+
+  // A fixed 480 × 800 field scaled to the screen, so every course is the same everywhere.
+  const FW = 480, FH = 800, BR = 9, HR = 15, MAXPULL = 170, MAXV = 1150;
+  const C = { x: 30, y: 150, w: 420, h: 620 };
+  let W = 0, H = 0, dpr = 1, scale = 1, ox = 0, oy = 0;
+  let state = 'start', hole, strokes, holes, aces, shots, par, ball, cup, blocks, sands, waters, mill, lastPos, aim = null, parts, popups, sink = 0, time = 0, playTime = 0, shake = 0;
+  let best = +store.get('lunka-best', 0) || 0, bestAces = +store.get('lunka-best-aces', 0) || 0;
+  let runs = {}; try { runs = JSON.parse(store.get('lunka-runs', '{}')) || {}; } catch { runs = {}; }
+  let muted = store.get('lunka-muted', '0') === '1';
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'sine', v = 0.06, slide = 1, delay = 0) {
+    if (muted || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  function noise(dur, vol) {
+    if (!ac || muted) return;
+    const len = Math.floor(ac.sampleRate * dur), buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const s = ac.createBufferSource(), gn = ac.createGain(); s.buffer = buf; gn.gain.value = vol; s.connect(gn).connect(ac.destination); s.start();
+  }
+  const sfx = {
+    hit: (p) => { tone(180 + p * 160, 0.08, 'triangle', 0.12, 0.6); noise(0.04, 0.12); },
+    bump: (v) => tone(260 + Math.random() * 60, 0.05, 'square', Math.min(0.06, v / 9000)),
+    cup: () => [0, 4, 7, 12].forEach((s, i) => tone(660 * Math.pow(2, s / 12), 0.14, 'triangle', 0.08, 1, 0.12 + i * 0.07)),
+    ace: () => [0, 4, 7, 12, 16, 19].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.16, 'square', 0.05, 1, i * 0.06)),
+    splash: () => { noise(0.4, 0.3); tone(300, 0.3, 'sine', 0.1, 0.4); },
+    lip: () => tone(700, 0.06, 'sine', 0.06, 0.6),
+  };
+
+  // ——— Courses ———
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const near = (x, y, px, py, d) => Math.hypot(x - px, y - py) < d;
+  function rectNear(r, x, y, d) { const cx = Math.max(r.x, Math.min(r.x + r.w, x)), cy = Math.max(r.y, Math.min(r.y + r.h, y)); return Math.hypot(cx - x, cy - y) < d; }
+  function buildHole() {
+    hole++;
+    const k = hole;
+    ball = { x: rnd(150, 330), y: 715, vx: 0, vy: 0, z: 0 };
+    cup = { x: rnd(110, 370), y: rnd(215, 300) };
+    blocks = []; sands = []; waters = []; mill = null;
+    const free = (r, pad = 0) => !rectNear(r, ball.x, ball.y, 70 + pad) && !rectNear(r, cup.x, cup.y, 64 + pad) && !blocks.some((b) => rectsTouch(b, r, 24)) && !waters.some((b) => rectsTouch(b, r, 24));
+    // A wall across the middle with one gap, on every third hole.
+    if (k % 3 === 0) {
+      const y = rnd(430, 560), gap = rnd(C.x + 60, C.x + C.w - 150), gw = 95;
+      blocks.push({ x: C.x, y, w: gap - C.x, h: 18 }, { x: gap + gw, y, w: C.x + C.w - gap - gw, h: 18 });
+    }
+    const nBlocks = Math.min(5, 1 + Math.floor(k / 2));
+    for (let i = 0, t = 0; i < nBlocks && t < 60; t++) {
+      const horiz = Math.random() < 0.6, r = horiz ? { x: 0, y: 0, w: rnd(60, 150), h: rnd(18, 28) } : { x: 0, y: 0, w: rnd(18, 28), h: rnd(60, 130) };
+      r.x = rnd(C.x + 10, C.x + C.w - r.w - 10); r.y = rnd(320, 650 - r.h);
+      if (free(r)) { blocks.push(r); i++; }
+    }
+    if (k >= 3) for (let i = 0, t = 0; i < (k >= 7 ? 2 : 1) && t < 40; t++) {
+      const s = { x: rnd(C.x + 20, C.x + C.w - 120), y: rnd(300, 640), w: rnd(80, 130), h: rnd(50, 80) };
+      if (!rectNear(s, ball.x, ball.y, 50) && !rectNear(s, cup.x, cup.y, 40)) { sands.push(s); i++; }
+    }
+    if (k >= 5 && k % 2 === 1) for (let t = 0; t < 40; t++) {
+      const w = { x: rnd(C.x + 10, C.x + C.w - 160), y: rnd(340, 600), w: rnd(110, 160), h: rnd(46, 70) };
+      if (free(w, 10)) { waters.push(w); break; }
+    }
+    if (k >= 4 && k % 2 === 0) {
+      for (let t = 0; t < 40; t++) {
+        const m = { x: rnd(150, 330), y: rnd(360, 560), len: rnd(110, 150), a: Math.random() * 6, w: (Math.random() < 0.5 ? -1 : 1) * rnd(1.2, 1.4 + Math.min(1.2, k * 0.05)) };
+        const box = { x: m.x - m.len / 2, y: m.y - m.len / 2, w: m.len, h: m.len };
+        if (!rectNear(box, ball.x, ball.y, 30) && !rectNear(box, cup.x, cup.y, 30) && !blocks.some((b) => rectsTouch(b, box, 6))) { mill = m; break; }
+      }
+    }
+    par = 2 + (blocks.length >= 3 || waters.length ? 1 : 0) + (mill && (k % 3 === 0) ? 1 : 0);
+    shots = 0; lastPos = { x: ball.x, y: ball.y }; sink = 0;
+  }
+  const rectsTouch = (a, b, pad) => a.x - pad < b.x + b.w && a.x + a.w + pad > b.x && a.y - pad < b.y + b.h && a.y + a.h + pad > b.y;
+  function reset() { hole = 0; strokes = 10; holes = 0; aces = 0; playTime = 0; parts = []; popups = []; buildHole(); }
+
+  // ——— Physics ———
+  const inRect = (r, x, y) => x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h;
+  const moving = () => Math.hypot(ball.vx, ball.vy) > 0.5;
+  function bounceRect(r) {
+    const cx = Math.max(r.x, Math.min(r.x + r.w, ball.x)), cy = Math.max(r.y, Math.min(r.y + r.h, ball.y));
+    let dx = ball.x - cx, dy = ball.y - cy, d = Math.hypot(dx, dy);
+    if (d >= BR) return;
+    if (d === 0) { // centre inside: push out the shortest way
+      const l = ball.x - r.x, rr = r.x + r.w - ball.x, t = ball.y - r.y, b = r.y + r.h - ball.y, m = Math.min(l, rr, t, b);
+      dx = m === l ? -1 : m === rr ? 1 : 0; dy = m === t ? -1 : m === b ? 1 : 0; d = 1;
+    }
+    const nx = dx / d, ny = dy / d, vn = ball.vx * nx + ball.vy * ny;
+    ball.x = cx + nx * BR; ball.y = cy + ny * BR;
+    if (vn < 0) { ball.vx -= 1.75 * vn * nx; ball.vy -= 1.75 * vn * ny; sfx.bump(-vn); }
+  }
+  function millEnds() { const c = Math.cos(mill.a) * mill.len / 2, s = Math.sin(mill.a) * mill.len / 2; return [mill.x - c, mill.y - s, mill.x + c, mill.y + s]; }
+  function bounceMill() {
+    const [ax, ay, bx, by] = millEnds(), dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+    const t = Math.max(0, Math.min(1, ((ball.x - ax) * dx + (ball.y - ay) * dy) / L2)), px = ax + dx * t, py = ay + dy * t;
+    let nx = ball.x - px, ny = ball.y - py; const d = Math.hypot(nx, ny), R = BR + 6;
+    if (d >= R || d === 0) return;
+    nx /= d; ny /= d;
+    // Velocity of the bar at the contact point.
+    const rx = px - mill.x, ry = py - mill.y, bvx = -mill.w * ry, bvy = mill.w * rx;
+    const rvx = ball.vx - bvx, rvy = ball.vy - bvy, vn = rvx * nx + rvy * ny;
+    ball.x = px + nx * R; ball.y = py + ny * R;
+    if (vn < 0) { ball.vx -= 1.8 * vn * nx; ball.vy -= 1.8 * vn * ny; sfx.bump(-vn + 200); }
+  }
+  function physics(dt) {
+    if (mill) mill.a += mill.w * dt;
+    if (sink > 0 || ball.z) return;
+    const n = 8, h = dt / n;
+    for (let i = 0; i < n; i++) {
+      if (mill) bounceMill();
+      const sp = Math.hypot(ball.vx, ball.vy);
+      if (sp < 0.5) { ball.vx = ball.vy = 0; break; }
+      ball.x += ball.vx * h; ball.y += ball.vy * h;
+      // outer walls
+      if (ball.x < C.x + BR) { ball.x = C.x + BR; ball.vx = Math.abs(ball.vx) * 0.75; sfx.bump(sp); }
+      if (ball.x > C.x + C.w - BR) { ball.x = C.x + C.w - BR; ball.vx = -Math.abs(ball.vx) * 0.75; sfx.bump(sp); }
+      if (ball.y < C.y + BR) { ball.y = C.y + BR; ball.vy = Math.abs(ball.vy) * 0.75; sfx.bump(sp); }
+      if (ball.y > C.y + C.h - BR) { ball.y = C.y + C.h - BR; ball.vy = -Math.abs(ball.vy) * 0.75; sfx.bump(sp); }
+      for (const b of blocks) bounceRect(b);
+      // friction: a little always, a lot in sand
+      const sand = sands.some((s) => inRect(s, ball.x, ball.y)), dec = (sand ? 620 : 95) * h, k = Math.max(0, 1 - 0.55 * h);
+      const s2 = Math.hypot(ball.vx, ball.vy), f = s2 > 0 ? Math.max(0, s2 - dec) / s2 * k : 0;
+      ball.vx *= f; ball.vy *= f;
+      // cup: slow enough falls in, too fast lips out
+      const dc = Math.hypot(ball.x - cup.x, ball.y - cup.y);
+      if (dc < HR - 2) {
+        const v = Math.hypot(ball.vx, ball.vy);
+        if (v < 520) { sunk(); return; }
+        if (!ball.lipped) { ball.lipped = true; const a = (Math.random() - 0.5) * 0.9, c = Math.cos(a), s = Math.sin(a); [ball.vx, ball.vy] = [(ball.vx * c - ball.vy * s) * 0.8, (ball.vx * s + ball.vy * c) * 0.8]; sfx.lip(); }
+      } else if (dc > HR + 4) ball.lipped = false;
+      // a little pull toward the cup when the ball rolls slowly over its edge
+      if (dc < HR + 8 && dc > 0.1) { const pull = 220 * h; ball.vx += (cup.x - ball.x) / dc * pull; ball.vy += (cup.y - ball.y) / dc * pull; }
+      if (waters.some((w) => inRect(w, ball.x, ball.y))) { splash(); return; }
+    }
+    if (!moving() && state === 'play' && sink === 0 && strokes <= 0) setTimeout(() => { if (state === 'play' && !moving() && sink === 0 && strokes <= 0) gameOver(); }, 400);
+  }
+  function splash() {
+    burst(ball.x, ball.y, '#7cc4ff', 24); sfx.splash(); shake = 0.3;
+    strokes = Math.max(0, strokes - 1); popup(ball.x, ball.y - 20, 'Вода! −1 удар', '#7cc4ff');
+    ball.x = lastPos.x; ball.y = lastPos.y; ball.vx = ball.vy = 0;
+  }
+  function sunk() {
+    ball.vx = ball.vy = 0; ball.x = cup.x; ball.y = cup.y; sink = 1;
+    holes++; const ace = shots === 1; if (ace) aces++;
+    const back = Math.max(0, par - shots + 1) + (ace ? 1 : 0);
+    strokes += back;
+    const name = ace ? 'С одного удара!' : shots < par ? 'Меньше пара!' : shots === par ? 'Пар' : 'Забил';
+    popup(cup.x, cup.y - 34, name, ace ? '#ffd23f' : '#5df2a5', true);
+    if (back) popup(cup.x, cup.y - 6, `+${back} ${strokesWord(back)}`, '#ffffff');
+    burst(cup.x, cup.y, ace ? '#ffd23f' : '#5df2a5', ace ? 40 : 22);
+    ace ? sfx.ace() : sfx.cup();
+    setTimeout(() => { if (state === 'play') { buildHole(); banner = 1.3; } }, 1300);
+  }
+  let banner = 0;
+
+  function burst(x, y, col, n = 14) { for (let i = 0; i < n; i++) { const a = Math.random() * 7, v = 40 + Math.random() * 200; parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, col }); } }
+  function popup(x, y, text, col, big = false) { popups.push({ x, y, text, col, life: 1.3, big }); }
+
+  function shoot(px, py) {
+    const len = Math.min(MAXPULL, Math.hypot(px, py));
+    if (len < 12) return false;
+    const p = len / MAXPULL, v = MAXV * Math.pow(p, 1.15);
+    ball.vx = px / Math.hypot(px, py) * v; ball.vy = py / Math.hypot(px, py) * v;
+    lastPos = { x: ball.x, y: ball.y }; shots++; strokes--; sfx.hit(p);
+    return true;
+  }
+
+  function step(dt) {
+    if (lb.isOpen()) return;
+    if (state === 'play') playTime += dt;
+    banner = Math.max(0, banner - dt);
+    physics(dt);
+    if (sink > 0) sink = Math.min(2, sink + dt * 3);
+  }
+
+  // ——— Drawing ———
+  function rr(x, y, w, h, r) { g.beginPath(); if (g.roundRect) g.roundRect(x, y, w, h, r); else g.rect(x, y, w, h); }
+  function draw() {
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const bg = g.createRadialGradient(W / 2, -H * 0.1, 0, W / 2, -H * 0.1, H * 1.1);
+    bg.addColorStop(0, '#2f4a3a'); bg.addColorStop(0.4, '#16241f'); bg.addColorStop(1, '#0f1512');
+    g.fillStyle = bg; g.fillRect(0, 0, W, H);
+    const sh = shake > 0 ? (Math.random() - 0.5) * 12 * shake : 0;
+    g.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * (ox + sh), dpr * oy);
+    // border and grass with mowed stripes
+    g.fillStyle = '#6b4a2e'; rr(C.x - 14, C.y - 14, C.w + 28, C.h + 28, 22); g.fill();
+    g.fillStyle = '#8a6240'; rr(C.x - 10, C.y - 10, C.w + 20, C.h + 20, 18); g.fill();
+    g.save(); rr(C.x, C.y, C.w, C.h, 10); g.clip();
+    for (let i = 0; i < 14; i++) { g.fillStyle = i % 2 ? '#3fae5a' : '#46b962'; g.fillRect(C.x, C.y + i * C.h / 14, C.w, C.h / 14 + 1); }
+    for (const s of sands) { g.fillStyle = '#e8cf8f'; g.beginPath(); g.ellipse(s.x + s.w / 2, s.y + s.h / 2, s.w / 2, s.h / 2, 0, 0, 7); g.fill(); g.fillStyle = '#d4b874'; for (let i = 0; i < 12; i++) { g.beginPath(); g.arc(s.x + s.w / 2 + Math.cos(i * 2.3) * s.w * 0.3, s.y + s.h / 2 + Math.sin(i * 1.7) * s.h * 0.3, 1.6, 0, 7); g.fill(); } }
+    for (const w of waters) {
+      g.fillStyle = '#2f7fd1'; rr(w.x, w.y, w.w, w.h, 18); g.fill();
+      g.strokeStyle = '#9fd4ff88'; g.lineWidth = 2;
+      for (let i = 0; i < 3; i++) { g.beginPath(); for (let x = w.x + 14; x < w.x + w.w - 14; x += 6) g.lineTo(x, w.y + w.h * (0.3 + i * 0.22) + Math.sin(x * 0.12 + time * 3 + i) * 2.5); g.stroke(); }
+    }
+    // start mat
+    g.fillStyle = '#ffffff22'; rr(lastPos.x - 18, lastPos.y - 18, 36, 36, 8); g.fill();
+    // cup and flag
+    g.fillStyle = '#1b3a22'; g.beginPath(); g.arc(cup.x, cup.y, HR + 3, 0, 7); g.fill();
+    g.fillStyle = '#0b1a10'; g.beginPath(); g.arc(cup.x, cup.y, HR, 0, 7); g.fill();
+    g.restore();
+    for (const b of blocks) {
+      g.fillStyle = '#00000040'; rr(b.x + 4, b.y + 6, b.w, b.h, 6); g.fill();
+      g.fillStyle = '#8a6240'; rr(b.x, b.y, b.w, b.h, 6); g.fill();
+      g.fillStyle = '#a77a52'; rr(b.x + 2, b.y + 2, b.w - 4, Math.min(8, b.h / 3), 4); g.fill();
+    }
+    if (mill) {
+      const [ax, ay, bx, by] = millEnds();
+      g.lineCap = 'round'; g.strokeStyle = '#00000040'; g.lineWidth = 14; g.beginPath(); g.moveTo(ax + 4, ay + 6); g.lineTo(bx + 4, by + 6); g.stroke();
+      g.strokeStyle = '#bca0ff'; g.lineWidth = 12; g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke();
+      g.strokeStyle = '#ffffff55'; g.lineWidth = 3; g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke();
+      g.fillStyle = '#7b67fc'; g.beginPath(); g.arc(mill.x, mill.y, 10, 0, 7); g.fill(); g.fillStyle = '#fff'; g.beginPath(); g.arc(mill.x, mill.y, 3, 0, 7); g.fill();
+    }
+    // flag: pole leaning up from the cup
+    const wave = Math.sin(time * 4) * 4;
+    g.strokeStyle = '#f2f2f2'; g.lineWidth = 3; g.beginPath(); g.moveTo(cup.x, cup.y); g.lineTo(cup.x + 6, cup.y - 58); g.stroke();
+    g.fillStyle = '#ff5f7a'; g.beginPath(); g.moveTo(cup.x + 6, cup.y - 58); g.lineTo(cup.x + 34, cup.y - 50 + wave * 0.3); g.lineTo(cup.x + 6, cup.y - 40); g.fill();
+    // aim
+    if (aim && state === 'play') {
+      const len = Math.min(MAXPULL, Math.hypot(aim.dx, aim.dy)), p = len / MAXPULL;
+      if (len > 12) {
+        const nx = aim.dx / Math.hypot(aim.dx, aim.dy), ny = aim.dy / Math.hypot(aim.dx, aim.dy);
+        const col = p < 0.5 ? '#5df2a5' : p < 0.8 ? '#ffd23f' : '#ff5f7a';
+        g.fillStyle = col;
+        for (let i = 1; i <= 9; i++) { const d = i * (14 + p * 22); g.globalAlpha = 1 - i / 11; g.beginPath(); g.arc(ball.x + nx * d, ball.y + ny * d, 3.5, 0, 7); g.fill(); }
+        g.globalAlpha = 1;
+        g.strokeStyle = '#ffffff55'; g.lineWidth = 2; g.setLineDash([4, 5]); g.beginPath(); g.moveTo(ball.x, ball.y); g.lineTo(ball.x - nx * len * 0.5, ball.y - ny * len * 0.5); g.stroke(); g.setLineDash([]);
+        g.fillStyle = '#00000066'; rr(ball.x - 30, ball.y + 20, 60, 8, 4); g.fill(); g.fillStyle = col; rr(ball.x - 30, ball.y + 20, 60 * p, 8, 4); g.fill();
+      }
+    }
+    // ball
+    if (sink < 1.9) {
+      const k = sink > 0 ? Math.max(0, 1 - (sink - 1) * 1.2) : 1, r = BR * (sink > 0 ? 0.6 + 0.4 * k : 1);
+      g.fillStyle = '#00000044'; g.beginPath(); g.ellipse(ball.x + 3, ball.y + 4, r, r * 0.8, 0, 0, 7); g.fill();
+      const gr = g.createRadialGradient(ball.x - r * 0.35, ball.y - r * 0.4, 1, ball.x, ball.y, r);
+      gr.addColorStop(0, '#ffffff'); gr.addColorStop(1, '#c9c6d8');
+      g.globalAlpha = k; g.fillStyle = gr; g.beginPath(); g.arc(ball.x, ball.y, r, 0, 7); g.fill(); g.globalAlpha = 1;
+    }
+    for (const p of parts) { g.globalAlpha = Math.max(0, p.life); g.fillStyle = p.col; g.beginPath(); g.arc(p.x, p.y, 3, 0, 7); g.fill(); } g.globalAlpha = 1;
+    for (const p of popups) { g.globalAlpha = Math.min(1, p.life * 1.5); g.fillStyle = p.col; g.font = `800 ${p.big ? 26 : 18}px Manrope, system-ui`; g.textAlign = 'center'; g.fillText(p.text, p.x, p.y - (1.3 - p.life) * 30); } g.globalAlpha = 1;
+    if (banner > 0) { g.globalAlpha = Math.min(1, banner); g.fillStyle = '#fff'; g.font = '800 34px Manrope, system-ui'; g.textAlign = 'center'; g.fillText(`Лунка ${hole} · пар ${par}`, FW / 2, C.y + C.h / 2 + 12); g.globalAlpha = 1; }
+    // HUD
+    if (state !== 'start') {
+      g.textAlign = 'center'; g.fillStyle = '#fff'; g.font = '800 44px Manrope, system-ui'; g.fillText(holes, FW / 2, 66);
+      g.font = '800 13px Manrope, system-ui'; g.fillStyle = '#c8f2d4'; g.fillText(`ЛУНКА ${hole} · ПАР ${par} · УДАРОВ НА ЛУНКЕ ${shots}`, FW / 2, 88);
+      // strokes left as golf balls
+      const n = Math.max(0, strokes), per = Math.min(n, 15);
+      g.font = '800 14px Manrope, system-ui'; g.fillStyle = strokes <= 2 ? '#ff7a8a' : '#ffffff';
+      g.fillText(`${n} ${strokesWord(n)} осталось`, FW / 2, 110);
+      for (let i = 0; i < per; i++) { g.fillStyle = strokes <= 2 ? '#ff7a8a' : '#ffffffcc'; g.beginPath(); g.arc(FW / 2 - (per - 1) * 7 + i * 14, 122, 4.5, 0, 7); g.fill(); }
+    }
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.033, (now - last) / 1000)); last = now; time += dt;
+    step(dt);
+    if (state === 'start') demo(dt);
+    for (const p of parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.96; p.vy *= 0.96; p.life -= dt * 1.4; } parts = parts.filter((p) => p.life > 0);
+    for (const p of popups) p.life -= dt; popups = popups.filter((p) => p.life > 0);
+    shake = Math.max(0, shake - dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+  // Behind the start card a ball putts toward the cup by itself.
+  let demoT = 1;
+  function demo(dt) {
+    if (moving() || sink) return;
+    demoT -= dt; if (demoT > 0) return; demoT = 1.6;
+    const dx = cup.x - ball.x, dy = cup.y - ball.y, d = Math.hypot(dx, dy);
+    shoot(dx / d * Math.min(MAXPULL, 40 + d * 0.32), dy / d * Math.min(MAXPULL, 40 + d * 0.32)); strokes = 10;
+  }
+
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr;
+    scale = Math.min(W / FW, H / FH); ox = (W - FW * scale) / 2; oy = (H - FH * scale) / 2;
+  }
+  const toField = (e) => ({ x: (e.clientX - ox) / scale, y: (e.clientY - oy) / scale });
+
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('acesStart').textContent = $('bestAcesOver').textContent = bestAces;
+  }
+  function start() { unlockAudio(); reset(); banner = 1.3; state = 'play'; chanceUsed = false; chance.hide(); $('start').hidden = true; $('over').hidden = true; }
+  // Once a game, an ad gives five more strokes on the same hole.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'lunka-strokes', label: '🎬 +5 ударов за рекламу', onReward: () => {
+    chanceUsed = true; strokes = 5; state = 'play'; $('over').hidden = true;
+  } });
+  function gameOver() {
+    state = 'over';
+    const run = { new_holes: holes, new_aces: aces, new_time: Math.floor(playTime) }, record = holes > best;
+    if (record) { best = holes; store.set('lunka-best', best); runs.holes = run; }
+    if (aces > bestAces) { bestAces = aces; store.set('lunka-best-aces', bestAces); runs.aces = run; }
+    store.set('lunka-runs', JSON.stringify(runs));
+    lb.submit(run);
+    $('final').textContent = holes;
+    $('overText').innerHTML = (record && holes > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + holesWord(holes);
+    $('acesOver').textContent = aces;
+    showBests(); $('over').hidden = false;
+    if (!chanceUsed) chance.show();
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'lunka',
+    boards: [
+      { id: 'holes', title: 'Лунки', column: 'best_holes', order: 'desc', note: 'Больше всего лунок за одну игру.', format: (v) => `${v} ${holesWord(v)}` },
+      { id: 'aces', title: 'С одного удара', column: 'best_aces', order: 'desc', note: 'Больше всего лунок с одного удара за одну игру.', format: (v) => `${v} ${holesWord(v)}` },
+    ],
+    bests: () => [runs.holes, runs.aces].filter(Boolean),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  // Pull back anywhere on the field: the shot goes the opposite way.
+  cv.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); unlockAudio();
+    if (state !== 'play' || moving() || sink || strokes <= 0) return;
+    const p = toField(e); aim = { sx: p.x, sy: p.y, dx: 0, dy: 0, id: e.pointerId };
+    try { cv.setPointerCapture(e.pointerId); } catch {}
+  });
+  cv.addEventListener('pointermove', (e) => { if (!aim || e.pointerId !== aim.id) return; const p = toField(e); aim.dx = aim.sx - p.x; aim.dy = aim.sy - p.y; });
+  const release = (e) => { if (!aim || (e && e.pointerId !== aim.id)) return; const a = aim; aim = null; if (state === 'play' && !moving() && !sink) shoot(a.dx, a.dy); };
+  cv.addEventListener('pointerup', release);
+  cv.addEventListener('pointercancel', () => { aim = null; });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && e.target.closest && e.target.closest('.screen button')) return;
+    if ((e.code === 'Space' || e.code === 'Enter') && !e.repeat && state !== 'play' && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); }
+    if (e.code === 'Escape') aim = null;
+  });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('lunka-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  // For automated checks only (?test=1).
+  if (new URLSearchParams(location.search).get('test') === '1') window.__lunka = { get: () => ({ ball, cup, state, strokes, holes, hole, shots, moving: moving(), sink }), shoot: (dx, dy) => shoot(dx, dy) };
+
+  addEventListener('resize', resize);
+  resize(); reset(); showBests();
+  // #preview: aiming on a later hole, for the catalog.
+  if (location.hash === '#preview') {
+    $('start').hidden = true; hole = 5; buildHole(); while (!mill) { hole = 5; buildHole(); }
+    state = 'play'; holes = 5; strokes = 8; aces = 1; banner = 0;
+    const dx = cup.x - ball.x, dy = cup.y - ball.y, d = Math.hypot(dx, dy); aim = { sx: 0, sy: 0, dx: dx / d * 120, dy: dy / d * 120 };
+    shoot = () => false;
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../shared/chat-boot.js?v=5"></script>
+</body>
+</html>
