@@ -36,6 +36,7 @@
   .fs-acc.float { position: fixed; top: 14px; right: 14px; z-index: 1000; }
   .fs-gear.float { position: fixed; top: 14px; right: 14px; z-index: 1000; }
   .fs-acc.float ~ .fs-gear.float, .fs-gear.float + .fs-acc.float { right: 62px; }
+  @media (max-width: 450px) { .fs-acc { max-width: 104px; padding: 9px 11px; font-size: 12px; } .fs-gear { width: 34px; height: 34px; font-size: 15px; } }
   .fs-banner { position: fixed; left: 50%; top: 16px; transform: translateX(-50%); z-index: 100011; background: #ffd23f; color: #2a1145; font: 800 14px Manrope, system-ui, sans-serif;
     padding: 10px 16px; border-radius: 12px; box-shadow: 0 10px 30px #0008; max-width: min(520px, 92vw); text-align: center; }
   .fs-banner[hidden] { display: none; }`;

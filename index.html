@@ -27,7 +27,9 @@
     .brand-icon { display: grid; place-items: center; width: 35px; height: 35px; border-radius: 11px; background: linear-gradient(135deg,var(--accent),var(--accent-deep)); color: var(--on-accent); font-size: 20px; box-shadow: 0 8px 26px var(--accent-shadow); }
     .nav-link { color: var(--soft); font-size: 13px; font-weight: 700; padding: 10px 15px; border: 1px solid var(--line); border-radius: 100px; transition: background .2s; }
     .nav-link:hover { background: var(--hover); }
-    .top-nav { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .top-nav { display: flex; gap: 8px; flex-wrap: nowrap; justify-content: flex-end; align-items: center; min-width: 0; }
+    .brand { flex: none; white-space: nowrap; }
+    .nav-link { white-space: nowrap; }
     .nav-clips { color: #fff; border-color: transparent; background: linear-gradient(120deg, #ff2d55, #ff7a45); }
     .nav-clips:hover { background: linear-gradient(120deg, #ff4d6d, #ff9160); }
     .nav-3d { color: var(--accent2-hi); border-color: var(--accent2-line); background: var(--accent2-soft); }
@@ -36,7 +38,9 @@
     .hero-action.hero-clips:hover { background: linear-gradient(120deg, #ff4d6d, #ff9160); }
     .hero-action.hero-3d { background: linear-gradient(120deg, var(--accent), var(--accent-2)); }
     .hero-action.hero-3d:hover { background: linear-gradient(120deg, var(--accent-hi), var(--accent2-hi)); }
-    @media (max-width: 450px) { .nav-3d { display: none; } }
+    @media (max-width: 900px) { .nav-games { display: none; } }
+    @media (max-width: 620px) { .nav-3d { display: none; } }
+    @media (max-width: 450px) { .nav-clips span { display: none; } .top-nav { gap: 6px; } .hero-actions { flex-direction: column; align-items: stretch; gap: 10px; margin-top: 26px; } .hero-actions .hero-action { justify-content: center; margin-top: 0; } }
     .badge-3d { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 7px; background: var(--on-accent); color: var(--accent-2); font-size: 11px; font-weight: 800; }
     .hero { text-align: center; padding: 84px 0 86px; }
     .eyebrow { display: inline-flex; gap: 9px; align-items: center; border: 1px solid var(--accent-line); background: var(--accent-soft); color: var(--accent-hi); border-radius: 100px; padding: 8px 15px; font-size: 12px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
@@ -86,9 +90,9 @@
   <header class="topbar wrap">
     <a class="brand" href="#top" aria-label="FreasyGames — наверх"><span class="brand-icon" aria-hidden="true">✦</span> FreasyGames</a>
     <nav class="top-nav">
-      <a class="nav-link nav-clips" href="clips/">🎬 Клипы</a>
+      <a class="nav-link nav-clips" href="clips/" aria-label="Клипы">🎬<span> Клипы</span></a>
       <a class="nav-link nav-3d" href="FreasyGames3D/">FreasyGames 3D ↗</a>
-      <a class="nav-link" href="#games">Смотреть игры ↓</a>
+      <a class="nav-link nav-games" href="#games">Смотреть игры ↓</a>
     </nav>
   </header>
   <main id="top">
@@ -311,11 +315,11 @@
       });
     })();
   </script>
-  <script src="shared/catalog.js?v=2"></script>
+  <script src="shared/catalog.js?v=3"></script>
   <script>FreasyCatalog({ grid: '.games', card: '.card', playLink: '.play', statsBefore: '.card-bottom' });</script>
   <!-- FreasyChat: чат, личные сообщения, группы и голос -->
   <script src="shared/account.js?v=6"></script>
-  <script src="shared/site-account.js?v=4"></script>
+  <script src="shared/site-account.js?v=5"></script>
   <script src="shared/chat-boot.js?v=5" data-catalog></script>
 </body>
 </html>

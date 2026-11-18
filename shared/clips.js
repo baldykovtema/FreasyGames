@@ -120,7 +120,11 @@
   }
   function placeSaved() {
     let p = null; try { p = JSON.parse(localStorage.getItem(POS_KEY) || 'null'); } catch {}
-    if (p) place(p[0] * innerWidth, p[1] * innerHeight); else place(innerWidth - (btn.offsetWidth || 90) - 10, Math.round(innerHeight * 0.38));
+    if (p) return place(p[0] * innerWidth, p[1] * innerHeight);
+    // By default the button stands at the right edge just above the weather and chat buttons, so it never covers them.
+    const w = btn.offsetWidth || 90, h = btn.offsetHeight || 40, above = document.querySelector('.fw-btn') || document.querySelector('.fc-btn');
+    const r = above && above.isConnected ? above.getBoundingClientRect() : null;
+    place(innerWidth - w - 10, r && r.height ? r.top - h - 12 : Math.round(innerHeight * 0.38));
   }
   let drag = null;
   btn.addEventListener('pointerdown', (e) => {
@@ -264,6 +268,7 @@
     toastEl.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { toastEl.hidden = true; }, 6000);
   }
 
-  const add = () => { document.body.appendChild(btn); placeSaved(); };
+  // The chat and weather buttons appear a moment later: stand clear of them once they are there.
+  const add = () => { document.body.appendChild(btn); placeSaved(); setTimeout(placeSaved, 1500); setTimeout(placeSaved, 5000); };
   if (document.body) add(); else document.addEventListener('DOMContentLoaded', add);
 })();

@@ -35,8 +35,10 @@
       background: linear-gradient(135deg,var(--accent),var(--accent-2)); color: var(--on-accent); font-size: 14px; font-weight: 800; letter-spacing: -.04em;
       box-shadow: 0 8px 26px var(--accent-shadow); transform: perspective(200px) rotateX(12deg) rotateY(-14deg); }
     .brand b { color: var(--accent-2); }
-    .nav { display: flex; gap: 8px; }
-    @media (max-width: 450px) { .nav .nav-link:not(.nav-clips) { display: none; } .nav-clips span { display: none; } .topbar { gap: 8px; } .nav { gap: 6px; } .nav .nav-link { padding: 9px 11px; font-size: 12px; } }
+    .nav { display: flex; gap: 8px; align-items: center; flex-wrap: nowrap; min-width: 0; }
+    .brand { flex: none; white-space: nowrap; }
+    .nav-link { white-space: nowrap; }
+    @media (max-width: 450px) { .nav .nav-link:not(.nav-clips) { display: none; } .nav-clips span { display: none; } .topbar { gap: 8px; } .nav { gap: 6px; } .brand { font-size: 16px; gap: 8px; } .brand-icon { width: 32px; height: 32px; } .nav .nav-link { padding: 9px 11px; font-size: 12px; } }
     .nav-link { color: var(--soft); font-size: 13px; font-weight: 700; padding: 10px 15px; border: 1px solid var(--line); border-radius: 100px;
       background: var(--label-bg); backdrop-filter: blur(8px); transition: background .2s; }
     .nav-link.nav-clips { color: #fff; border-color: transparent; background: linear-gradient(120deg, #ff2d55, #ff7a45); }
@@ -432,7 +434,7 @@
     </div>
   </footer>
 
-  <script src="../shared/catalog.js?v=2"></script>
+  <script src="../shared/catalog.js?v=3"></script>
   <script>FreasyCatalog({ grid: '.soon', card: '.slot.game', playLink: '.slot-link' });</script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script>
@@ -560,7 +562,7 @@
   </script>
   <!-- FreasyChat: чат, личные сообщения, группы и голос -->
   <script src="../shared/account.js?v=6"></script>
-  <script src="../shared/site-account.js?v=4"></script>
+  <script src="../shared/site-account.js?v=5"></script>
   <script src="../shared/chat-boot.js?v=5" data-catalog></script>
 </body>
 </html>
