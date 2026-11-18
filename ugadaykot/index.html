@@ -59,7 +59,7 @@
 <div class="app">
   <div class="top">
     <div class="brand">Угадай<span>кот</span></div>
-    <button class="ghost hidden" id="restartTop" type="button">Заново</button>
+    <div class="row" style="width:auto;gap:8px"><button class="ghost hidden" id="restartTop" type="button">Заново</button><button class="ghost" id="leaders" type="button" aria-label="Таблица лидеров">🏆 Лидеры</button></div>
   </div>
 
   <svg class="cat" id="cat" viewBox="0 0 200 200" aria-hidden="true">
@@ -78,9 +78,11 @@
   <div id="rewardSlot" style="max-width:360px;margin:0 auto"></div>
   <div class="meter hidden" id="meter"><span id="qnum">Вопрос 1</span><div class="bar"><i id="conf"></i></div><span id="confText">0%</span></div>
   <div class="stats" id="stats"></div>
+  <div class="stats" id="onlineNote"></div>
 
   <footer>Угадайкот работает прямо в браузере и учится на твоих ответах · игры на <a href="https://baldykovtema.github.io/FreasyGames/" target="_blank" rel="noopener">FreasyGames</a></footer>
 </div>
+<script src="../shared/leaderboard.js"></script>
 <script>
 'use strict';
 
@@ -363,7 +365,7 @@ function showGuess(i) {
 
 function win() {
   mood('happy');
-  const s = store.get('ugadaykot-stats', { won: 0, lost: 0 }); s.won++; store.set('ugadaykot-stats', s);
+  const s = store.get('ugadaykot-stats', { won: 0, lost: 0 }); s.won++; store.set('ugadaykot-stats', s); sendStats();
   remember(game.list[game.guessIndex].name);
   screen.innerHTML = `<div class="kicker">Ура!</div><h2>Я угадал «${esc(game.list[game.guessIndex].name)}» за ${questionsText(game.answers.length)} 😺</h2><p>Попробуешь меня обхитрить?</p>`;
   buttons([['Сыграть ещё', () => start(game.mode), 'yes'], ['Сменить режим', showStart, 'alt']]);
@@ -396,7 +398,26 @@ function learn() {
   showStats();
 }
 
-function lose() { const s = store.get('ugadaykot-stats', { won: 0, lost: 0 }); s.lost++; store.set('ugadaykot-stats', s); }
+function lose() { const s = store.get('ugadaykot-stats', { won: 0, lost: 0 }); s.lost++; store.set('ugadaykot-stats', s); sendStats(); }
+
+/* ================= Таблица лидеров (общий Supabase-проект FreasyGames) ================= */
+
+const gamesWord = (n) => n % 10 === 1 && n % 100 !== 11 ? 'раз' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'раза' : 'раз';
+const partiesWord = (n) => n % 10 === 1 && n % 100 !== 11 ? 'партия' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'партии' : 'партий';
+// Кот проиграл — значит, игрок его обыграл.
+const myBests = () => { const s = store.get('ugadaykot-stats', { won: 0, lost: 0 }); return s.won + s.lost ? { new_beat: s.lost, new_games: s.won + s.lost } : null; };
+const lb = window.FreasyLeaderboard ? FreasyLeaderboard({
+  key: 'ugadaykot',
+  boards: [
+    { id: 'beat', title: 'Обыграли кота', column: 'best_beat', order: 'desc', note: 'Кто чаще всех загадывал то, что кот не угадал.', format: (v) => `${v} ${gamesWord(v)}` },
+    { id: 'games', title: 'Сыграно', column: 'best_games', order: 'desc', note: 'Больше всего сыгранных партий.', format: (v) => `${v} ${partiesWord(v)}` },
+  ],
+  bests: myBests,
+  onStatus: (text) => { $('onlineNote').textContent = text; },
+}) : null;
+function sendStats() { const b = myBests(); if (lb && b && lb.signedIn()) lb.submit(b); }
+$('leaders').onclick = () => { if (lb) lb.open(); };
+addEventListener('keydown', (e) => { if (lb && lb.isOpen() && e.key === 'Escape') lb.close(); });
 
 // Ответы игрока становятся знаниями кота о загаданном варианте (сохраняются в этом браузере).
 function remember(name) {
@@ -412,6 +433,7 @@ function remember(name) {
 
 $('restartTop').onclick = showStart;
 showStart();
+sendStats();
 </script>
 <script src="../shared/rewards.js"></script>
 <script src="../shared/back.js"></script>
