@@ -26,6 +26,8 @@
     cube(head, 0.4, 0.4, 0.4, look.skin, 0, 0.2, 0);
     cube(head, 0.42, 0.12, 0.42, look.hair, 0, 0.42, 0);
     cube(head, 0.08, 0.06, 0.02, '#111111', -0.09, 0.24, 0.205); cube(head, 0.08, 0.06, 0.02, '#111111', 0.09, 0.24, 0.205);
+    if (look.hat) { cube(head, 0.46, 0.14, 0.46, look.hat, 0, 0.47, 0); cube(head, 0.46, 0.05, 0.22, look.hat, 0, 0.41, 0.3); }
+    if (look.glasses) { cube(head, 0.38, 0.08, 0.03, '#111111', 0, 0.25, 0.215); }
     if (opts.cop) { cube(head, 0.46, 0.12, 0.46, '#1a2a5a', 0, 0.45, 0); cube(head, 0.46, 0.04, 0.2, '#111', 0, 0.39, 0.28); cube(g, 0.12, 0.12, 0.02, '#ffd447', 0.15, 1.38, 0.17); }
     if (opts.gang) cube(head, 0.44, 0.1, 0.44, '#c8341a', 0, 0.46, 0);
     const gun = new THREE.Group(); gun.position.set(0, -0.8, 0.12); armR.add(gun);

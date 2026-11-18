@@ -47,7 +47,7 @@
     if (!p.obj || p.objMode !== msg.s.m + (msg.s.vt || '')) makeModel(p);
   }
   function drop(id) { const p = peers.get(id); if (!p) return; if (p.obj) G.scene.remove(p.obj); p.tag.remove(); peers.delete(id); }
-  G.remoteDots = () => [...peers.values()].filter((p) => p.s).map((p) => ({ x: p.x, z: p.z, color: p.color }));
+  G.remoteDots = () => [...peers.values()].filter((p) => p.s).map((p) => ({ x: p.x, z: p.z, color: p.color, name: p.name }));
   // попадание по другим игрокам
   G.netRayTest = (o, d, best, rayBox) => {
     let hit = null;

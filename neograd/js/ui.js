@@ -35,43 +35,83 @@
     drawMinimap();
   };
   // миникарта поворачивается вместе с камерой
+  // все значки для карт: задания, заведения, покраска, другие игроки
+  function mapIcons() {
+    const out = [];
+    for (const s of G.spots()) if (s.mission) out.push({ x: s.x, z: s.z, icon: '❗', color: '#ffd447', label: s.mission.n, kind: 'mission' });
+    if (G.venueSpots) for (const v of G.venueSpots()) out.push({ x: v.x, z: v.z, icon: v.icon, color: v.color, label: v.n, kind: 'venue', locked: v.venue && v.venue.type === 'home' && !G.homes.has(v.venue.home.id) });
+    if (G.remoteDots) for (const r of G.remoteDots()) out.push({ x: r.x, z: r.z, icon: '●', color: r.color, label: r.name || 'Игрок', kind: 'player' });
+    return out;
+  }
+  G.mapIcons = mapIcons;
   function drawMinimap() {
     const S = mm.width, M = G.map, zoom = P.mode === 'plane' ? 0.45 : P.mode === 'heli' ? 0.7 : P.mode === 'car' ? 1.1 : 1.5;
+    const cx = G.inside ? G.inside.door.x : P.x, cz = G.inside ? G.inside.door.z : P.z, rot = G.cam.yaw;
     mg.save(); mg.fillStyle = '#2a6aa0'; mg.fillRect(0, 0, S, S);
-    mg.translate(S / 2, S / 2); mg.rotate(G.cam.yaw - Math.PI); mg.scale(zoom, zoom);
-    mg.drawImage(M.canvas, -M.X(P.x), -M.Z(P.z));
-    const dot = (x, z, c, r = 4, sq) => { mg.fillStyle = c; const px = M.X(x) - M.X(P.x), pz = M.Z(z) - M.Z(P.z); if (sq) mg.fillRect(px - r / zoom, pz - r / zoom, 2 * r / zoom, 2 * r / zoom); else { mg.beginPath(); mg.arc(px, pz, r / zoom, 0, 7); mg.fill(); } };
-    for (const s of G.spots()) dot(s.x, s.z, s.mission ? '#ffd447' : s.kind === 'shop' ? '#ff4f6d' : '#5ac8ff', 5, true);
+    mg.translate(S / 2, S / 2); mg.rotate(rot); mg.scale(zoom, zoom);
+    mg.drawImage(M.canvas, -M.X(cx), -M.Z(cz));
+    const dot = (x, z, c, r = 4) => { mg.fillStyle = c; mg.beginPath(); mg.arc(M.X(x) - M.X(cx), M.Z(z) - M.Z(cz), r / zoom, 0, 7); mg.fill(); };
     for (const v of G.vehicles) if (v.chase) dot(v.x, v.z, Math.floor(G.t * 4) % 2 ? '#ff3030' : '#3050ff', 4);
     for (const h of G.gang) if (h.state !== 'dead') dot(h.x, h.z, '#ff4f6d', 3);
-    if (G.remoteDots) for (const r of G.remoteDots()) dot(r.x, r.z, r.color, 4);
     mg.restore();
-    // цель: точка или стрелка у края
-    if (G.target) {
-      const dx = (M.X(G.target.x) - M.X(P.x)) * zoom, dz = (M.Z(G.target.z) - M.Z(P.z)) * zoom, a = -(G.cam.yaw - Math.PI);
-      let px = dx * Math.cos(-a) - dz * Math.sin(-a), pz = dx * Math.sin(-a) + dz * Math.cos(-a);
-      const lim = S / 2 - 8, l = Math.max(Math.abs(px), Math.abs(pz)); if (l > lim) { px *= lim / l; pz *= lim / l; }
-      mg.fillStyle = '#ffd447'; mg.strokeStyle = '#000'; mg.lineWidth = 2; mg.beginPath(); mg.arc(S / 2 + px, S / 2 + pz, 6, 0, 7); mg.fill(); mg.stroke();
+    // значки рисуем прямо (не поворачивая); задания и игроки за краем прижимаются к краю
+    const toScreen = (x, z, clamp) => {
+      const dx = (M.X(x) - M.X(cx)) * zoom, dz = (M.Z(z) - M.Z(cz)) * zoom;
+      let px = dx * Math.cos(rot) - dz * Math.sin(rot), pz = dx * Math.sin(rot) + dz * Math.cos(rot);
+      const lim = S / 2 - 10, l = Math.hypot(px, pz);
+      if (l > lim) { if (!clamp) return null; px *= lim / l; pz *= lim / l; }
+      return [S / 2 + px, S / 2 + pz];
+    };
+    mg.textAlign = 'center'; mg.textBaseline = 'middle';
+    for (const ic of mapIcons()) {
+      const p = toScreen(ic.x, ic.z, ic.kind !== 'venue'); if (!p) continue;
+      mg.globalAlpha = ic.locked ? 0.45 : 1;
+      mg.fillStyle = '#14162acc'; mg.beginPath(); mg.arc(p[0], p[1], 9, 0, 7); mg.fill();
+      mg.strokeStyle = ic.color; mg.lineWidth = 2; mg.stroke();
+      mg.font = (ic.kind === 'player' ? '14px' : '11px') + ' system-ui'; mg.fillStyle = ic.color; mg.fillText(ic.icon, p[0], p[1] + 1); mg.globalAlpha = 1;
     }
-    // игрок — стрелка
-    mg.save(); mg.translate(S / 2, S / 2); const look = P.veh ? P.veh.yaw : P.yaw; mg.rotate(-(look - G.cam.yaw + Math.PI));
+    if (G.target) { const p = toScreen(G.target.x, G.target.z, true); mg.fillStyle = '#5aff8a'; mg.strokeStyle = '#000'; mg.lineWidth = 2; mg.beginPath(); mg.arc(p[0], p[1], 6, 0, 7); mg.fill(); mg.stroke(); }
+    // игрок — стрелка по направлению персонажа
+    mg.save(); mg.translate(S / 2, S / 2); const look = P.veh ? P.veh.yaw : P.yaw; mg.rotate(Math.PI - (look - rot));
     mg.fillStyle = '#fff'; mg.strokeStyle = '#000'; mg.lineWidth = 1.5; mg.beginPath(); mg.moveTo(0, -8); mg.lineTo(6, 6); mg.lineTo(0, 3); mg.lineTo(-6, 6); mg.closePath(); mg.fill(); mg.stroke(); mg.restore();
+    if (G.inside) { mg.fillStyle = '#000a'; mg.fillRect(0, S - 26, S, 26); mg.fillStyle = '#fff'; mg.font = 'bold 12px Manrope, system-ui'; mg.fillText('внутри', S / 2, S - 13); }
   }
-  // большая карта
+  // большая карта: подписи, легенда, такси по нажатию на значок
+  let mapMarks = [];
   G.openMap = function () {
     const c = $('bigmap'), g = c.getContext('2d'), M = G.map; c.width = M.canvas.width; c.height = M.canvas.height;
     g.drawImage(M.canvas, 0, 0);
-    const mark = (x, z, col, r = 6) => { g.fillStyle = col; g.strokeStyle = '#000'; g.lineWidth = 2; g.beginPath(); g.arc(M.X(x), M.Z(z), r, 0, 7); g.fill(); g.stroke(); };
-    for (const s of G.spots()) mark(s.x, s.z, s.mission ? '#ffd447' : s.kind === 'shop' ? '#ff4f6d' : '#5ac8ff', 7);
-    if (G.target) mark(G.target.x, G.target.z, '#5aff8a', 8);
-    mark(P.x, P.z, '#ffffff', 8);
-    g.font = 'bold 14px Manrope, system-ui'; g.fillStyle = '#fff';
-    g.fillText('Аэропорт', M.X(N.AIR.x0 + 20), M.Z(N.AIR.z0 + 30)); g.fillText('Пляж', M.X(N.BEACH - 30), M.Z(300)); g.fillText('Центр', M.X(N.roadX(7)), M.Z(N.roadX(6)));
+    g.font = 'bold 15px Manrope, system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = '#ffffffcc'; g.fillText('АЭРОПОРТ', M.X((N.AIR.x0 + N.AIR.x1) / 2), M.Z(N.AIR.z0 + 20)); g.fillText('ПЛЯЖ', M.X(N.BEACH - 20), M.Z(420)); g.fillText('МОРЕ', M.X(N.BEACH - 200), M.Z(300));
+    mapMarks = [];
+    const label = (x, z, icon, color, text, locked) => {
+      const X = M.X(x), Z = M.Z(z);
+      g.globalAlpha = locked ? 0.5 : 1;
+      g.fillStyle = '#14162a'; g.beginPath(); g.arc(X, Z, 11, 0, 7); g.fill(); g.strokeStyle = color; g.lineWidth = 3; g.stroke();
+      g.font = '13px system-ui'; g.fillStyle = color; g.fillText(icon, X, Z + 1);
+      g.font = 'bold 12px Manrope, system-ui'; const w = g.measureText(text).width + 10;
+      g.fillStyle = '#14162acc'; g.fillRect(X - w / 2, Z + 14, w, 17); g.fillStyle = '#fff'; g.fillText(text, X, Z + 23);
+      g.globalAlpha = 1;
+      mapMarks.push({ X, Z, x, z, text });
+    };
+    for (const ic of mapIcons()) label(ic.x, ic.z, ic.icon, ic.color, ic.label + (ic.locked ? ' (продаётся)' : ''), ic.locked);
+    if (G.target) { g.fillStyle = '#5aff8a'; g.strokeStyle = '#000'; g.lineWidth = 2; g.beginPath(); g.arc(M.X(G.target.x), M.Z(G.target.z), 9, 0, 7); g.fill(); g.stroke(); }
+    const px = G.inside ? G.inside.door.x : P.x, pz = G.inside ? G.inside.door.z : P.z;
+    g.fillStyle = '#fff'; g.strokeStyle = '#000'; g.lineWidth = 3; g.beginPath(); g.arc(M.X(px), M.Z(pz), 9, 0, 7); g.fill(); g.stroke();
+    g.font = 'bold 13px Manrope, system-ui'; g.fillStyle = '#fff'; g.fillText('Ты', M.X(px), M.Z(pz) - 18);
+    $('taxiBox').hidden = true;
     showScreen('mapScreen');
   };
+  $('bigmap').addEventListener('click', (e) => {
+    const c = $('bigmap'), r = c.getBoundingClientRect(), X = (e.clientX - r.left) / r.width * c.width, Z = (e.clientY - r.top) / r.height * c.height;
+    let best = null, bd = 24; for (const m of mapMarks) { const d = Math.hypot(m.X - X, m.Z - Z); if (d < bd) { bd = d; best = m; } }
+    if (!best) { $('taxiBox').hidden = true; return; }
+    $('taxiText').textContent = `🚕 Такси до «${best.text}» — $${G.taxiCost(best.x, best.z)}`; $('taxiBox').hidden = false; G.taxiPick = best;
+  });
+  $('taxiGo').addEventListener('click', () => { const m = G.taxiPick; if (m && G.taxiTo(m.x, m.z, m.text)) G.closeScreen(); });
 
   // ---------- окна ----------
-  const SCREENS = ['menu', 'online', 'settings', 'help', 'pause', 'dead', 'brief', 'shop', 'mapScreen'];
+  const SCREENS = ['menu', 'online', 'settings', 'help', 'pause', 'dead', 'brief', 'shop', 'mapScreen', 'venue', 'garageScreen'];
   function showScreen(id) {
     for (const s of SCREENS) $(s).hidden = s !== id;
     G.paused = G.state === 'play' && !!id;
@@ -120,6 +160,11 @@
   };
   $('resumeBtn').addEventListener('click', () => G.closeScreen());
   $('pMap').addEventListener('click', () => G.openMap());
+  $('pCars').addEventListener('click', () => {
+    $('garageList').innerHTML = G.garage.length ? G.garage.map((c, i) => `<div class="item"><div><b>${N.CARS[c.type].n}</b><small><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${c.color}"></span> подъедет к ближайшему перекрёстку</small></div><button type="button" data-call="${i}" ${G.money < 50 ? 'disabled' : ''}>Вызвать · $50</button></div>`).join('') : '<p>Своих машин пока нет. Купи в автосалоне «Мотор» 🚗.</p>';
+    showScreen('garageScreen');
+  });
+  $('garageList').addEventListener('click', (e) => { const b = e.target.closest('[data-call]'); if (b && !b.disabled) { G.callCar(+b.dataset.call); G.closeScreen(); } });
   $('pSettings').addEventListener('click', () => { G.fromPause = true; syncSettings(); showScreen('settings'); });
   $('pCancel').addEventListener('click', () => { G.cancelMission('Ты отменил задание'); G.closeScreen(); });
   $('pauseBtn').addEventListener('click', () => G.openPause());
@@ -136,9 +181,9 @@
   function readKeys() {
     if (touchOn) return;
     const fly = P.mode === 'plane';
-    I.mx = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0) + (fly ? 0 : (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0));
-    I.my = fly ? (keys.ArrowDown ? 1 : 0) - (keys.ArrowUp ? 1 : 0) : (keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0);
-    if (fly) { I.mx += (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0); I.up = !!keys.KeyW; I.down = !!keys.KeyS; }
+    I.mx = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
+    I.my = (keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0);
+    if (fly) { I.up = !!(keys.ShiftLeft || keys.ShiftRight || keys.Space); I.down = !!(keys.KeyC || keys.ControlLeft); }
     else { I.up = false; I.down = !!(keys.ShiftLeft && P.mode === 'heli') || !!keys.KeyC; }
     I.jump = !!keys.Space; I.brake = !!keys.Space && P.mode === 'car'; I.sprint = !!keys.ShiftLeft && P.mode === 'foot';
   }

@@ -45,7 +45,7 @@
       brief: 'Подработай в такси: три пассажира, отвези каждого куда скажет.',
       steps: [{ t: 'enter', spawn: { type: 'taxi', ...rd(7, 3), yaw: 0 }, text: 'Сядь в такси' }, { t: 'taxi', n: 3, text: 'Забери пассажира' }] },
     { id: 'm6', n: 'Лётная школа', giver: { x: 380, z: -95 }, reward: 2500,
-      brief: 'Самолёт на полосе. W/S — газ, стрелки или джойстик — нос и крен. Разгонись, пролети сквозь шесть колец и сядь обратно на полосу.',
+      brief: 'Самолёт стоит на полосе. Держи «вперёд» (W или джойстик вверх) — он разгонится и сам поднимет нос. В воздухе: вверх/вниз — нос, вбок — поворот, ▲▼ (Shift/C) — газ. Пролети шесть колец и сядь обратно на полосу.',
       steps: [{ t: 'enterKind', kind: 'plane', text: 'Сядь в самолёт на полосе' }, { t: 'rings', pts: [[620, 30, N.AIR.rz], [880, 60, 60], [700, 90, 400], [300, 70, 500], [100, 50, 200], [300, 30, N.AIR.rz]], text: 'Пролети через кольца' }, { t: 'land', ...RUNWAY_END, r: 120, kind: 'plane', text: 'Приземлись на взлётную полосу' }] },
     { id: 'm7', n: 'Горячая погоня', giver: sw(9, 7), reward: 2200,
       brief: 'Мне нужно отвлечь полицию. Подними розыск до двух звёзд — и оторвись от них.',
@@ -53,12 +53,33 @@
     { id: 'm8', n: 'Большое дело', giver: sw(10, 10), reward: 6000, gift: { w: 'rifle', ammo: 90 },
       brief: 'Последнее дело: склад банды на окраине. Разберись с охраной, потом лети на вертолёте с аэропорта на крышу самой высокой башни.',
       steps: [{ t: 'kill', at: WARE, n: 7, text: 'Захвати склад' }, { t: 'enterKind', kind: 'heli', text: 'Доберись до вертолёта в аэропорту' }, { t: 'land', roof: true, kind: 'heli', r: 14, text: 'Сядь на крышу самой высокой башни' }] },
+    { id: 'm9', n: 'Курьер', giver: sw(4, 3), reward: 1400,
+      brief: 'Разнеси пять посылок по городу за две с половиной минуты. Можно пешком, на машине — как удобнее.',
+      steps: [{ t: 'race', car: false, time: 150, pts: [sw(4, 5), sw(6, 6, -1, 1), sw(8, 4), sw(9, 1, -1, 1), sw(6, 1)], text: 'Разнеси посылки' }] },
+    { id: 'm10', n: 'Угон под заказ', giver: sw(1, 9, -1, 1), reward: 3000,
+      brief: 'Заказчику нужна полицейская машина. Она стоит у участка — угони её и пригони в гараж Тимура. Полиция будет против.',
+      steps: [{ t: 'enter', spawn: { type: 'police', ...rd(8, 9), yaw: 0 }, addWanted: 2, text: 'Угони полицейскую машину' }, { t: 'goto', ...GARAGE, r: 7, car: true, mustBeMissionCar: true, text: 'Пригони машину в гараж' }] },
+    { id: 'm11', n: 'Пляжная гонка', giver: { x: N.BEACH + 20, z: 120 }, reward: 1800,
+      brief: 'Гонка на багги вдоль всего пляжа. Шесть точек за 75 секунд.',
+      steps: [{ t: 'enter', spawn: { type: 'buggy', x: N.BEACH + 26, z: 130, yaw: Math.PI }, text: 'Сядь в багги' }, { t: 'race', car: true, time: 75, pts: [{ x: N.BEACH + 25, z: 30 }, { x: N.BEACH + 15, z: -120 }, { x: N.BEACH + 30, z: -250 }, { x: N.BEACH + 20, z: 300 }, { x: N.BEACH + 15, z: 600 }, { x: N.BEACH + 30, z: 850 }], text: 'Проедь по пляжу' }] },
+    { id: 'm12', n: 'Воздушная почта', giver: { x: 790, z: -60 }, reward: 3500,
+      brief: 'Возьми вертолёт в аэропорту и доставь три срочных пакета на крыши небоскрёбов.',
+      steps: [{ t: 'enterKind', kind: 'heli', text: 'Сядь в вертолёт' }, { t: 'land', roofIdx: 1, kind: 'heli', r: 12, text: 'Сядь на крышу (1 из 3)' }, { t: 'land', roofIdx: 3, kind: 'heli', r: 12, text: 'Сядь на крышу (2 из 3)' }, { t: 'land', roofIdx: 5, kind: 'heli', r: 12, text: 'Сядь на крышу (3 из 3)' }] },
+    { id: 'm13', n: 'Разбей машины банды', giver: sw(10, 6), reward: 2600,
+      brief: 'У «Красных курток» три машины на окраине. Уничтожь их — стреляй, тарань, как получится.',
+      steps: [{ t: 'destroy', cars: [rd(11, 3), rd(12, 6), rd(11, 9)], text: 'Уничтожь машины банды' }] },
+    { id: 'm14', n: 'Зачистка набережной', giver: sw(1, 4), reward: 4000, gift: { w: 'shotgun', ammo: 30 },
+      brief: 'Банда захватила набережную. Разберись с ними — потом уходи от полиции.',
+      steps: [{ t: 'kill', at: { x: N.BEACH + 25, z: N.roadX(9) }, n: 8, text: 'Очисть набережную' }, { t: 'wanted', stars: 1, text: 'Шум услышала полиция', auto: 2 }, { t: 'lose', text: 'Оторвись от полиции' }] },
+    { id: 'm15', n: 'Ас неба', giver: { x: 440, z: -95 }, reward: 5000,
+      brief: 'Скоростной пилотаж: восемь колец над городом за 100 секунд.',
+      steps: [{ t: 'enterKind', kind: 'plane', text: 'Сядь в самолёт' }, { t: 'rings', time: 100, pts: [[650, 40, N.AIR.rz], [850, 80, 150], [750, 120, 450], [520, 90, 700], [250, 60, 760], [60, 80, 500], [120, 110, 200], [380, 50, -40]], text: 'Пролети через кольца' }] },
   ];
   G.done = new Set();
 
   // ---------- точки заданий, магазины, больница ----------
   const spots = [];
-  G.SHOPS = [{ ...sw(6, 3, -1, 1), kind: 'shop' }, { ...sw(2, 9, 1, 1), kind: 'shop' }, { ...G.HOSPITAL, kind: 'hospital' }];
+  G.SHOPS = [];   // магазины и больница теперь — здания с дверями (venues.js)
   G.refreshSpots = function () {
     for (const s of spots) scene.remove(s.m); spots.length = 0;
     if (!active) {
@@ -108,9 +129,17 @@
     if (s.t === 'race') { stepData.k = 0; setTarget(s.pts[0].x, s.pts[0].z); }
     if (s.t === 'kill') { for (let k = 0; k < s.n; k++) { const h = G.spawnHuman(G.gang, s.at.x + (Math.random() - 0.5) * 30, s.at.z + (Math.random() - 0.5) * 30, { gang: true, hp: 70, mission: true }); spawned.push(h); } setTarget(s.at.x, s.at.z, '#ff4f6d', 0, 4); }
     if (s.t === 'rings') { stepData.k = 0; for (let k = 0; k < s.pts.length; k++) { const [x, y, z] = s.pts[k], nx = s.pts[(k + 1) % s.pts.length]; rings.push(ring(x, y, z, Math.atan2(nx[0] - x, nx[2] - z))); } setTarget(s.pts[0][0], s.pts[0][2], '#ffd447', 0, 2); }
-    if (s.t === 'land') { if (s.roof) setTarget(G.roofHeli.x, G.roofHeli.z, '#5aff8a', G.roofHeli.h, 10); else setTarget(s.x, s.z, '#5aff8a', 0, 12); }
+    if (s.t === 'land') { const R = roofOf(s); if (R) setTarget(R.x, R.z, '#5aff8a', R.h, 10); else setTarget(s.x, s.z, '#5aff8a', 0, 12); }
+    if (s.t === 'destroy') { stepData.cars = s.cars.map((c, k) => { const v = G.spawnCar(k === 1 ? 'truck' : 'sedan', c.x, c.z, 0, '#8a1010'); v.keep = true; for (let q = 0; q < 2; q++) spawned.push(G.spawnHuman(G.gang, c.x + 4 + q * 1.5, c.z + 3, { gang: true, hp: 60, mission: true })); return v; }); setTarget(s.cars[0].x, s.cars[0].z, '#ff4f6d', 0, 4); }
+    if (s.addWanted) stepData.addWanted = s.addWanted;
+    if (s.auto) G.crime(s.auto);
     if (s.t === 'taxi') { stepData.trip = 0; taxiPickup(); }
     if (G.onStep) G.onStep(s);
+  }
+  function roofOf(s) {
+    if (s.roof) return { x: G.roofHeli.x, z: G.roofHeli.z, h: G.roofHeli.h };
+    if (s.roofIdx === undefined) return null;
+    const b = G.plan.buildings.slice().sort((a, c) => c.h - a.h)[s.roofIdx]; return { x: b.x, z: b.z, h: b.h };
   }
   function taxiPickup() {
     const i = 1 + ((Math.random() * (N.GN - 2)) | 0), j = 1 + ((Math.random() * (N.GN - 2)) | 0), c = sw(i, j);
@@ -129,7 +158,7 @@
 
   G.tickMissions = function (dt) {
     // точки: магазин, больница, начало задания (только пешком)
-    if (P.mode === 'foot' && !G.dead) for (const s of spots) {
+    if (P.mode === 'foot' && !G.dead && !G.inside) for (const s of spots) {
       const d = Math.hypot(s.x - P.x, s.z - P.z);
       if (d < 2) { if (!s.inside) { s.inside = true; if (s.mission) G.openBrief(s.mission); else if (s.kind === 'shop') G.openShop(); else if (s.kind === 'hospital') G.openHospital(); } }
       else if (d > 3) s.inside = false;
@@ -147,11 +176,13 @@
       if (d2(s.x, s.z) < s.r && (!s.car || inCar) && (!s.mustBeMissionCar || P.veh === missionCar)) { if (P.veh && P.veh.kind === 'car') P.veh.speed *= 0.3; nextStep(); }
     } else if (s.t === 'enter' || s.t === 'enterKind') {
       if (missionCar && !missionCar.removed) target && (target.x = missionCar.x, target.z = missionCar.z, targetMesh.position.x = missionCar.x, targetMesh.position.z = missionCar.z);
-      if (P.veh === missionCar) nextStep();
+      // для «самолёт»/«вертолёт» годится любой такой транспорт — тогда он и становится транспортом задания
+      if (s.t === 'enterKind' && P.veh && P.veh.kind === s.kind && P.veh !== missionCar) { missionCar = P.veh; missionCar.keep = true; }
+      if (P.veh && P.veh === missionCar) { if (stepData.addWanted) G.crime(stepData.addWanted); nextStep(); }
     } else if (s.t === 'race') {
       const p = s.pts[stepData.k];
       G.missionText = `${s.text}: ${stepData.k} из ${s.pts.length}` + (!inCar ? ' (нужна машина)' : '');
-      if (inCar && d2(p.x, p.z) < 10) { G.sfx('check'); stepData.k++; if (stepData.k >= s.pts.length) return nextStep(); const q = s.pts[stepData.k]; setTarget(q.x, q.z); }
+      if ((inCar || !s.car) && d2(p.x, p.z) < (s.car ? 10 : 4)) { G.sfx('check'); stepData.k++; if (stepData.k >= s.pts.length) return nextStep(); const q = s.pts[stepData.k]; setTarget(q.x, q.z); }
     } else if (s.t === 'kill') {
       const left = spawned.filter((h) => !h.removed && h.state !== 'dead').length;
       G.missionText = `${s.text}: осталось ${left}`;
@@ -168,8 +199,8 @@
       }
     } else if (s.t === 'land') {
       const v = P.veh;
-      const tx = s.roof ? G.roofHeli.x : s.x, tz = s.roof ? G.roofHeli.z : s.z;
-      if (v && v.kind === s.kind && d2(tx, tz) < s.r && v.speed < 6 && Math.abs(v.y - (s.roof ? G.roofHeli.h + 0.4 : 0)) < (s.roof ? 1.5 : 0.6)) nextStep();
+      const R = roofOf(s), tx = R ? R.x : s.x, tz = R ? R.z : s.z;
+      if (v && v.kind === s.kind && d2(tx, tz) < s.r && Math.abs(v.speed) < 6 && Math.abs(v.y - (R ? R.h + 0.4 : 0)) < (R ? 1.5 : 0.6)) nextStep();
     } else if (s.t === 'taxi') {
       const h = stepData.pax;
       if (P.mode !== 'car' || P.veh.type !== 'taxi') G.missionText = 'Вернись в такси';
@@ -189,6 +220,10 @@
       }
     } else if (s.t === 'wanted') {
       G.missionText = s.text + ` (${Math.ceil(G.wanted)} из ${s.stars})`; if (G.wanted >= s.stars) nextStep();
+    } else if (s.t === 'destroy') {
+      const left = stepData.cars.filter((v) => v.hp > 0 && !v.removed);
+      G.missionText = `${s.text}: осталось ${left.length}`;
+      if (left.length) { target.x = left[0].x; target.z = left[0].z; targetMesh.position.x = left[0].x; targetMesh.position.z = left[0].z; } else nextStep();
     } else if (s.t === 'lose') { G.missionText = s.text; if (G.wanted <= 0) nextStep(); }
   };
 })();

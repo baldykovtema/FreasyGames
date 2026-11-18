@@ -24,6 +24,7 @@
   const T = N.makeTextures(), plan = N.plan();
   G.plan = plan;
   const col = G.col = N.buildCity(scene, T, plan);
+  G.ccol = () => (G.inside && G.icol) || col;   // внутри здания — свои стены
   G.map = N.mapImage(plan);
 
   // ---------- звук ----------
@@ -289,27 +290,41 @@
     if (v.x < N.BEACH - 30) { v.x = N.BEACH - 30; v.speed *= 0.5; }
     G.engine(true, Math.abs(v.speed) / D.max, 'car');
   }
+  // Самолёт: вперёд/вверх — нос вверх (на земле это ещё и газ), назад — нос вниз, вбок — крен и поворот.
+  // ▲/▼ (Shift и C на клавиатуре) — газ. Медленнее ~95 км/ч самолёт сваливается и теряет высоту.
   function flyPlane(v, dt) {
-    const I = G.inp;
-    v.throttle = Math.max(0, Math.min(1, v.throttle + (I.up ? 0.6 : I.down ? -0.6 : 0) * dt));
-    v.speed += (v.throttle * 75 - v.speed) * 0.35 * dt;
-    const ground = Math.max(0, col.roofAt(v.x, v.z)), onGround = v.y <= ground + 0.05;
-    const fly = v.speed > 30;
-    if (fly || !onGround) {
-      v.roll += (I.mx * 1.1 - v.roll) * Math.min(1, dt * 2.5);
-      v.pitch += (I.my * 0.7 - v.pitch) * Math.min(1, dt * 2);
-      v.yaw -= v.roll * dt * 0.8;
-    } else { v.roll *= 0.8; v.pitch = Math.max(0, v.pitch * 0.9); v.yaw -= I.mx * dt * 0.6 * Math.min(1, v.speed / 8); }
-    const lift = fly ? 0 : -9;
+    const I = G.inp, pull = -I.my;
+    const roof = col.roofAt(v.x, v.z);
+    const ground = roof > 0 && v.y >= roof - 0.6 ? roof : 0, onGround = v.y <= ground + 0.05;
+    let thr = I.up ? 0.7 : I.down ? -0.7 : 0;
+    if (onGround && pull > 0.2) thr = Math.max(thr, 0.8);
+    v.throttle = Math.max(0, Math.min(1, v.throttle + thr * dt));
+    v.speed += (v.throttle * 78 - v.speed) * 0.38 * dt;
+    const fly = v.speed > 26;
+    if (!onGround) {
+      v.roll += (I.mx * 1.0 - v.roll) * Math.min(1, dt * 2.5);
+      v.pitch += (pull * 0.6 - v.pitch) * Math.min(1, dt * 2);
+      v.yaw -= v.roll * dt * 0.9;
+      if (!fly) v.pitch += (-0.35 - v.pitch) * Math.min(1, dt * 0.8);   // сваливание
+    } else {
+      v.roll *= 0.8;
+      v.yaw -= I.mx * dt * 0.7 * Math.min(1, v.speed / 8);
+      // разбег: при скорости взлёта нос поднимается сам, если держишь «вверх»
+      v.pitch = fly && pull > 0.2 ? Math.min(0.35, v.pitch + dt * 0.6) : Math.max(0, v.pitch - dt);
+    }
+    const sink = fly ? 0 : -6;
     const cp = Math.cos(v.pitch);
     v.x += Math.sin(v.yaw) * cp * v.speed * dt; v.z += Math.cos(v.yaw) * cp * v.speed * dt;
-    v.y += (Math.sin(v.pitch) * v.speed + lift) * dt;
-    if (v.y < ground) {
-      const hard = v.speed > 20 && (v.pitch < -0.25 || Math.abs(v.roll) > 0.6);
-      v.y = ground; v.pitch = Math.max(0, v.pitch);
+    v.y += (Math.sin(v.pitch) * v.speed + (onGround ? 0 : sink)) * dt;
+    // влетел в стену дома
+    const roof2 = col.roofAt(v.x, v.z);
+    if (roof2 > 0 && v.y < roof2 - 0.6) { G.hurtVehicle(v, 999); return; }
+    const g2 = roof2 > 0 ? roof2 : 0;
+    if (v.y < g2) {
+      const hard = (v.speed > 18 && (v.pitch < -0.3 || Math.abs(v.roll) > 0.7)) || (v.speed > 45 && v.pitch < -0.15);
+      v.y = g2; v.pitch = Math.max(0, v.pitch);
       if (hard) { G.hurtVehicle(v, 999); return; }
     }
-    if (v.y < ground + 20 && v.y > 0.5) { const o = { x: v.x, z: v.z }; if (col.push(o, 1.5, v.y)) { G.hurtVehicle(v, 999); return; } }
     if (v.x < N.BOUNDS.x0 - 300 || v.x > N.BOUNDS.x1 + 300 || v.z < N.BOUNDS.z0 - 300 || v.z > N.BOUNDS.z1 + 300) { v.yaw += Math.PI * dt * 0.5; }
     if (v.y > 400) v.y = 400;
     v.model.userData.prop.rotation.z += v.throttle * 40 * dt;
@@ -347,6 +362,8 @@
     }
     v.driver = 'player'; P.mode = v.kind; P.veh = v; P.model.visible = false; G.sfx('door'); G.uiDirty = true;
     G.cam.yaw = v.yaw + Math.PI;
+    if (v.kind === 'plane') G.toast(G.settings.touch ? 'Джойстик вверх — разгон и взлёт, ▲▼ — газ' : 'W — разгон и нос вверх, S — нос вниз, A/D — поворот, Shift/C — газ', 5000);
+    if (v.kind === 'heli') G.toast(G.settings.touch ? '▲▼ — высота, джойстик — полёт' : 'Пробел — вверх, C — вниз, WASD — полёт', 4000);
     if (G.onEnter) G.onEnter(v);
   };
   G.exitVehicle = function (forced) {
@@ -402,7 +419,7 @@
       if (aimTo) d.copy(aimTo.sub(o).normalize()); }
     for (let k = 0; k < (W.pellets || 1); k++) {
       const dd = d.clone().add(new THREE.Vector3((Math.random() - 0.5) * W.spread * 2, (Math.random() - 0.5) * W.spread * 2, (Math.random() - 0.5) * W.spread * 2)).normalize();
-      let best = Math.min(W.range, col.ray(o, dd, W.range)), hitObj = null;
+      let best = Math.min(W.range, G.ccol().ray(o, dd, W.range)), hitObj = null;
       const gy = -o.y / (dd.y || -1e-9); if (dd.y < 0 && gy < best) best = gy;
       for (const h of G.humans()) { if (h.state === 'dead') continue; const t = rayBox(o, dd, h.x, 0, h.z, 0.35, 1.9, 0.35); if (t !== null && t < best) { best = t; hitObj = { h }; } }
       for (const v of G.vehicles) { if (v.removed || v === P.veh) continue; const t = rayBox(o, dd, v.x, v.y, v.z, (v.D.w || 2) / 2, v.kind === 'car' ? 1.9 : 3.5, v.D.len / 2, v.yaw); if (t !== null && t < best) { best = t; hitObj = { v }; } }
@@ -437,7 +454,8 @@
     if (seen) G.seenT = 0; else G.seenT = (G.seenT || 0) + dt;
     G.hidden = !seen;
     if (G.seenT > 8 + stars * 3) { G.wanted = Math.max(0, Math.ceil(G.wanted) - 1); G.seenT = 0; G.uiDirty = true; if (!G.wanted) G.toast('Полиция потеряла след'); }
-    // машины полиции подтягиваются
+    // машины полиции подтягиваются (в помещение не заезжают)
+    if (G.inside) return;
     const chasing = G.vehicles.filter((v) => v.chase && !v.removed).length;
     if (chasing < Math.min(5, stars) && Math.random() < dt * 0.6) {
       const a = Math.random() * 6.28, x = P.x + Math.cos(a) * 110, z = P.z + Math.sin(a) * 110;
@@ -451,6 +469,7 @@
     G.dead = false; P.hp = 100; P.armor = 0; G.wanted = 0; P.model.rotation.x = 0;
     for (const v of G.vehicles) if (v.chase) removeVehicle(v);
     for (const h of G.cops) removeHuman(h);
+    if (G.leaveInside) G.leaveInside();
     const H = G.HOSPITAL; P.x = H.x; P.z = H.z; P.y = 0; P.vy = 0; P.mode = 'foot'; P.veh = null; P.model.visible = true;
     G.uiDirty = true; G.toast('Больница: лечение стоило $' + lost);
   };
@@ -481,6 +500,7 @@
 
   // ---------- игрок пешком ----------
   function walk(dt) {
+    const C = G.ccol();
     const I = G.inp, c = G.cam;
     const fx = -Math.sin(c.yaw), fz = -Math.cos(c.yaw);   // вперёд от камеры
     let mx = fx * -I.my + -fz * I.mx * -1, mz = fz * -I.my + fx * I.mx * -1;
@@ -490,15 +510,13 @@
     const sp = I.sprint ? 7.5 : 4.6;
     P.x += mx * sp * dt; P.z += mz * sp * dt; P.speed = ml * sp;
     if (I.aim || I.fire) P.yaw = c.yaw + Math.PI; else if (ml > 0.1) { let want = Math.atan2(mx, mz), d = want - P.yaw; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; P.yaw += d * Math.min(1, dt * 12); }
-    const ground = col.roofAt(P.x, P.z) > P.y + 0.6 ? 0 : col.roofAt(P.x, P.z) <= P.y + 0.01 ? col.roofAt(P.x, P.z) : 0;
     P.vy -= 24 * dt; P.y += P.vy * dt;
-    const floor = Math.max(0, col.roofAt(P.x, P.z) <= P.y + 0.3 ? col.roofAt(P.x, P.z) : 0);
+    const floor = Math.max(0, C.roofAt(P.x, P.z) <= P.y + 0.3 ? C.roofAt(P.x, P.z) : 0);
     if (P.y <= floor) { if (P.vy < -18) G.hurtPlayer((-P.vy - 18) * 4, 'падение'); P.y = floor; P.vy = 0; P.onGround = true; } else P.onGround = false;
     if (I.jump && P.onGround) { P.vy = 7.5; P.onGround = false; }
-    col.push(P, 0.4, P.y + 0.2);
-    if (P.x < N.BEACH - 30) { P.x = N.BEACH - 30; }
+    C.push(P, 0.4, P.y + 0.2);
+    if (!G.inside && P.x < N.BEACH - 30) { P.x = N.BEACH - 30; }
     P.anim += dt * P.speed * 2;
-    void ground;
   }
 
   // ---------- камера ----------
@@ -506,15 +524,15 @@
   function updateCamera(dt) {
     const c = G.cam, I = G.inp;
     c.yaw -= I.lookDX; c.pitch = Math.max(-1.2, Math.min(0.9, c.pitch - I.lookDY - G.camKick)); I.lookDX = 0; I.lookDY = 0; G.camKick *= 0.5;
-    let tx = P.x, ty = P.y + 1.6, tz = P.z, dist = I.aim ? 2.6 : 4.4, side = 0.75;
+    let tx = P.x, ty = P.y + 1.6, tz = P.z, dist = G.inside ? 3.2 : I.aim ? 2.6 : 4.4, side = G.inside ? 0.4 : 0.75;
     if (P.mode === 'car') { const v = P.veh; tx = v.x; tz = v.z; ty = 2.2; dist = 7.5 + v.D.len * 0.3; side = 0; if (!G.lookingAround) { let d = v.yaw + Math.PI - c.yaw; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; if (Math.abs(v.speed) > 3) c.yaw += d * Math.min(1, dt * 2.5); } }
     if (P.mode === 'plane' || P.mode === 'heli') { const v = P.veh; tx = v.x; tz = v.z; ty = v.y + 3; dist = P.mode === 'plane' ? 22 : 16; side = 0; if (!G.lookingAround) { let d = v.yaw + Math.PI - c.yaw; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; c.yaw += d * Math.min(1, dt * 2.2); } }
     const cp = Math.cos(c.pitch);
     let cx = tx + Math.sin(c.yaw) * cp * dist + Math.cos(c.yaw) * side, cy = ty - Math.sin(c.pitch) * dist, cz = tz + Math.cos(c.yaw) * cp * dist - Math.sin(c.yaw) * side;
     // не уходить за стены
     const o = { x: tx, y: ty, z: tz }, dv = new THREE.Vector3(cx - tx, cy - ty, cz - tz), L = dv.length(); dv.normalize();
-    const hitD = col.ray(o, dv, L); if (hitD < L) { cx = tx + dv.x * (hitD - 0.4); cy = ty + dv.y * (hitD - 0.4); cz = tz + dv.z * (hitD - 0.4); }
-    cy = Math.max(cy, 0.5);
+    const hitD = G.ccol().ray(o, dv, L); if (hitD < L) { cx = tx + dv.x * (hitD - 0.4); cy = ty + dv.y * (hitD - 0.4); cz = tz + dv.z * (hitD - 0.4); }
+    cy = Math.max(cy, 0.5); if (G.inside) cy = Math.min(cy, 4.3);
     camera.position.set(cx, cy, cz);
     camera.rotation.order = 'YXZ';
     camera.rotation.set(c.pitch, c.yaw, 0);
@@ -564,6 +582,7 @@
       }
       updateCamera(dt);
       if (G.tickMissions) G.tickMissions(dt);
+      if (G.tickVenues) G.tickVenues(dt);
       if (G.tickNet) G.tickNet(dt);
       if (G.tickHud) G.tickHud(dt);
       if (G.flash > 0) G.flash -= dt;

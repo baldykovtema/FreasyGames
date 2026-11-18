@@ -72,7 +72,9 @@
   .item button { border: 0; border-radius: 9px; padding: 8px 11px; background: #ff4fa0; color: #fff; font-weight: 800; white-space: nowrap; }
   .item button:disabled { background: #ffffff14; color: var(--mut); cursor: default; }
   .help li { margin: 4px 0; color: var(--mut); font-size: 14px; } .help b { color: var(--txt); }
-  #bigmap { width: 100%; height: auto; border-radius: 12px; display: block; }
+  #bigmap { width: 100%; height: auto; border-radius: 12px; display: block; cursor: pointer; }
+  .legend { font-size: 13px; }
+  #venueList h3 { margin: 14px 0 4px; font-size: 15px; }
   .back { position: fixed; top: max(10px, env(safe-area-inset-top)); left: max(10px, env(safe-area-inset-left)); z-index: 25; color: var(--txt); text-decoration: none; font-weight: 800; font-size: 14px; background: var(--ui); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
   body.playing .fw-btn, body.playing .fc-btn { top: max(8px, env(safe-area-inset-top)) !important; bottom: auto !important; right: auto !important; width: 38px !important; height: 38px !important; }
   body.playing .fw-btn { left: 118px !important; } body.playing .fc-btn { left: 162px !important; }
@@ -143,10 +145,12 @@
     <ul class="help">
       <li><b>Пешком:</b> WASD — идти, Shift — бег, пробел — прыжок, мышь — смотреть, левая кнопка — стрелять, правая — прицел, Q/E или колесо — оружие.</li>
       <li><b>Машина:</b> F — сесть или выйти, W/S — газ и тормоз, A/D — руль, пробел — ручник.</li>
-      <li><b>Самолёт:</b> W/S — газ, стрелки — нос и крен. Разгонись по полосе до ~110 км/ч и потяни нос вверх.</li>
+      <li><b>Самолёт:</b> держи W — он разгонится по полосе и сам поднимет нос. В воздухе W/S — нос вверх и вниз, A/D — поворот, Shift/C — газ.</li>
       <li><b>Вертолёт:</b> пробел — вверх, C или Shift — вниз, W/S — вперёд и назад, A/D — поворот.</li>
-      <li><b>Телефон:</b> левая половина — джойстик, правая — взгляд, 🎯 — стрелять (по ней можно водить прицелом), 🚗 — сесть или выйти, ▲▼ — газ и высота.</li>
-      <li><b>Карта:</b> M или 🗺. Жёлтые столбы — задания, красные — оружейная, синие — больница. Оранжевые кубики — тайники.</li>
+      <li><b>Телефон:</b> левая половина — джойстик, правая — взгляд, 🎯 — стрелять (по ней можно водить прицелом), 🚗 — сесть или выйти, ▲▼ — газ самолёта и высота вертолёта. Самолёт взлетает, если держать джойстик вверх.</li>
+      <li><b>Здания:</b> к светящейся двери с вывеской подойди вплотную — зайдёшь внутрь. Внутри встань на цветной квадрат у прилавка. Свои квартиры покупаются в агентстве недвижимости и приносят доход.</li>
+      <li><b>Деньги:</b> оружие, броня, еда, одежда, машины (вызываются из паузы), квартиры, покраска машины (снимает розыск) и такси по карте.</li>
+      <li><b>Карта:</b> M или 🗺 — все места подписаны. Жёлтые столбы — задания. Оранжевые кубики — тайники.</li>
       <li><b>Розыск:</b> стрельба и нападения поднимают звёзды. Спрячься подальше от полиции, и звёзды погаснут.</li>
     </ul>
     <button class="btn" type="button" data-close>Понятно</button>
@@ -157,7 +161,8 @@
     <h2>Пауза</h2>
     <p id="pauseInfo"></p>
     <button class="btn" type="button" id="resumeBtn">Продолжить ↗</button>
-    <button class="btn sec" type="button" id="pMap">🗺 Карта</button>
+    <button class="btn sec" type="button" id="pMap">🗺 Карта и такси</button>
+    <button class="btn sec" type="button" id="pCars">🚗 Мои машины</button>
     <button class="btn sec" type="button" id="pSettings">⚙ Настройки</button>
     <button class="btn sec" type="button" id="pCancel">✕ Отменить задание</button>
     <button class="btn sec" type="button" id="quitBtn">💾 Сохранить и выйти в меню</button>
@@ -188,10 +193,27 @@
     <button class="btn" type="button" data-close>Выйти</button>
   </div>
 </div>
+<div class="screen" id="venue" hidden>
+  <div class="panel">
+    <h2 id="venueTitle"></h2>
+    <p>У тебя: <b id="venueMoney" style="color:#7dff8a"></b></p>
+    <div id="venueList"></div>
+    <button class="btn" type="button" data-close>Выйти</button>
+  </div>
+</div>
+<div class="screen" id="garageScreen" hidden>
+  <div class="panel">
+    <h2>Мои машины</h2>
+    <div id="garageList"></div>
+    <button class="btn" type="button" data-close>Назад</button>
+  </div>
+</div>
 <div class="screen" id="mapScreen" hidden>
   <div class="panel" style="width:min(820px,100%)">
     <h2>Карта Неограда</h2>
+    <p class="legend">❗ задания · 🔫 оружейные · 🏥 больница · 🚗 автосалон · 👕 одежда · ☕🍔 еда · 🏢 недвижимость · 🏠 квартиры · 🎨 покраска · ● другие игроки. Нажми на значок, чтобы доехать на такси.</p>
     <canvas id="bigmap"></canvas>
+    <div class="item" id="taxiBox" hidden><div><b id="taxiText"></b></div><button type="button" id="taxiGo">Поехать</button></div>
     <button class="btn" type="button" data-close>Закрыть</button>
   </div>
 </div>
@@ -201,6 +223,7 @@
 <script src="js/models.js"></script>
 <script src="js/game.js"></script>
 <script src="js/missions.js"></script>
+<script src="js/venues.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/net.js"></script>
 <script src="js/main.js"></script>
