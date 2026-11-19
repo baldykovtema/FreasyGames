@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#16182b">
 <title>Кубомир — FreasyGames</title>
-<meta name="description" content="Кубомир на FreasyGames: бесконечный мир из кубиков. Копай, строй, крафти инструменты, собирай механизмы, исследуй три измерения и побеждай стражей. Сохранения и игра по сети, на компьютере и телефоне.">
+<meta name="description" content="Кубомир на FreasyGames: бесконечный мир из кубиков. Копай, строй, крафти инструменты, собирай механизмы, исследуй три измерения, побеждай стражей и Владыку Кубомира. Сохранения и игра по сети, на компьютере и телефоне.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
@@ -105,6 +105,21 @@
   .help li { margin: 3px 0; color: var(--mut); }
   .net { font-size: 12px; color: var(--mut); margin-top: 6px; }
   .back { position: fixed; top: max(10px, env(safe-area-inset-top)); left: max(10px, env(safe-area-inset-left)); z-index: 25; color: var(--txt); text-decoration: none; font-weight: 800; font-size: 14px; background: var(--ui); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+  /* цель и подсказка */
+  #quest { position: absolute; left: max(8px, env(safe-area-inset-left)); top: calc(max(8px, env(safe-area-inset-top)) + 46px); max-width: min(300px, 46vw); pointer-events: auto; cursor: pointer; background: #16182baa; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; font-size: 13px; line-height: 1.3; text-shadow: 0 1px 2px #000; }
+  #quest small, #qStep { display: block; font-size: 11px; color: var(--acc); font-weight: 800; }
+  #qText { display: block; font-weight: 800; }
+  #qNav { margin-top: 3px; font-size: 12px; color: #fffc; display: flex; align-items: center; gap: 6px; }
+  #qArrow { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: #7fe0c8; color: #0d2a24; font-weight: 900; font-size: 14px; }
+  @media (max-width: 520px) { #quest { font-size: 11px; padding: 4px 8px; } #qStep { font-size: 10px; } }
+  /* броня в инвентаре */
+  .armorRow { display: grid; grid-template-columns: repeat(9, 1fr); gap: 4px; margin-bottom: 10px; }
+  .armorRow .slot.empty { font-size: 18px; opacity: .45; }
+  .armorRow .armorInfo { grid-column: span 5; align-self: center; font-size: 13px; color: var(--mut); padding-left: 6px; }
+  /* финал */
+  .winStats { display: grid; gap: 4px; margin: 12px 0; text-align: left; }
+  .winStats div { display: flex; justify-content: space-between; gap: 10px; padding: 7px 10px; border-radius: 10px; background: #ffffff0d; border: 1px solid var(--line); font-size: 14px; }
+  .winStats span { color: var(--mut); } .winStats b { text-align: right; }
   .nametag { position: fixed; z-index: 3; transform: translate(-50%, -100%); font-size: 12px; font-weight: 800; background: #0008; padding: 2px 6px; border-radius: 6px; pointer-events: none; white-space: nowrap; }
   @media (max-width: 520px) { #bagBtn { font-size: 16px; } h1 { font-size: 36px; } .grid { gap: 3px; } #stats { font-size: 11px; gap: 8px; } }
   /* во время игры кнопки чата и погоды сайта переезжают в верхний левый угол, чтобы не мешать управлению */
@@ -128,11 +143,12 @@
     <button type="button" id="pauseBtn">☰</button>
     <div id="info"></div>
   </div>
+  <div id="quest" role="button" aria-label="Цель — нажми, чтобы увидеть подсказку"><span id="qStep"></span><b id="qText"></b><div id="qNav" hidden><span id="qArrow">↑</span><span id="qDist"></span></div></div>
   <div id="bossbar" hidden><span id="bossName"></span><div><i id="bossHp"></i></div></div>
   <div id="toasts"></div>
   <div id="bottom">
     <div id="itemName"></div>
-    <div id="stats"><span id="hearts"></span><span id="food"></span></div>
+    <div id="stats"><span id="hearts"></span><span id="armorV"></span><span id="food"></span></div>
     <div id="hotbar"></div>
   </div>
 </div>
@@ -150,7 +166,7 @@
 <div class="screen" id="menu">
   <div class="panel">
     <h1>Кубомир</h1>
-    <p>Бесконечный мир из кубиков: копай, строй, крафти, собирай механизмы и пройди три измерения — Поверхность, Глубины и Небеса. В каждом ждёт свой страж.</p>
+    <p>Бесконечный мир из кубиков: копай, строй, крафти, собирай механизмы и пройди три измерения — Поверхность, Глубины и Небеса. В каждом ждёт свой страж, а в конце — Владыка Кубомира.</p>
     <div class="worlds" id="worldList"></div>
     <button class="btn" type="button" id="newWorldBtn">＋ Новый мир</button>
     <button class="btn sec" type="button" id="onlineBtn">🌐 Играть по сети</button>
@@ -202,11 +218,14 @@
   <div class="panel">
     <h2>Как играть</h2>
     <ul class="help">
-      <li><span class="kbd">Компьютер:</span> клик по миру — захватить мышь; WASD — ходить, пробел — прыжок, Shift — красться/вниз, Ctrl — бег; левая кнопка — ломать и бить, правая — ставить и использовать; колесо или 1–9 — выбор; E — инвентарь и крафт; F — полёт в творчестве; Esc — пауза.</li>
+      <li><span class="kbd">Компьютер:</span> клик по миру — захватить мышь; WASD — ходить, пробел — прыжок, Shift — красться/вниз, Ctrl — бег; левая кнопка — ломать и бить, правая — ставить и использовать; колесо или 1–9 — выбор; E — инвентарь и крафт; V — вид из глаз или от третьего лица; H — подсказка к цели; F — полёт в творчестве; Esc — пауза.</li>
       <li><span class="kbd">Телефон:</span> левая половина экрана — джойстик; правая — водить взглядом; короткое касание — поставить или использовать, удержание — ломать; кнопка ⛏ — ударить; ⤒ — прыжок.</li>
       <li><span class="kbd">Начало:</span> добудь брёвна → доски → верстак. У верстака открываются инструменты, у печи — переплавка (нужен уголь).</li>
       <li><span class="kbd">Механизмы:</span> рычаг, кнопка и нажимная плита дают искру; искровод проводит её к лампам, дверям, толкателям и пороховым бочкам.</li>
-      <li><span class="kbd">Стражи:</span> алтари в храмах призывают стража. Каменный голем на Поверхности даст Сердце камня — из него портал в Глубины. Огненный колосс в крепостях Глубин даст Огненное ядро — портал в Небеса. Там ждёт Грозовой страж.</li>
+      <li><span class="kbd">Цель:</span> слева вверху — текущая цель; нажми на неё, чтобы увидеть подсказку. Стрелка показывает, куда идти.</li>
+      <li><span class="kbd">Броня:</span> шлем, нагрудник, поножи и ботинки из шерсти, железа или кристаллов делаются у верстака. Надень правой кнопкой или в инвентаре — броня срезает урон.</li>
+      <li><span class="kbd">Стражи:</span> алтари в храмах призывают стража. Каменный голем на Поверхности даст Сердце камня — из него портал в Глубины. Огненный колосс в крепостях Глубин даст Огненное ядро — портал в Небеса. Там ждёт Грозовой страж, а его Корона бури нужна для Алтаря Кубомира.</li>
+      <li><span class="kbd">Финал:</span> на Алтаре Кубомира призывается Владыка Кубомира. Победи его — и игра пройдена.</li>
       <li><span class="kbd">Сохранение:</span> мир сохраняется сам каждые 15 секунд и при выходе.</li>
     </ul>
     <button class="btn" type="button" data-close>Понятно</button>
@@ -218,6 +237,7 @@
     <h2 id="pauseTitle">Пауза</h2>
     <p id="pauseInfo"></p>
     <button class="btn" type="button" id="resumeBtn">Продолжить ↗</button>
+    <button class="btn sec" type="button" id="pView">👁 Вид: из глаз</button>
     <button class="btn sec" type="button" id="pSettings">⚙ Настройки</button>
     <button class="btn sec" type="button" id="pHelp">❓ Как играть</button>
     <button class="btn sec" type="button" id="quitBtn">💾 Сохранить и выйти в меню</button>
@@ -237,6 +257,7 @@
     <div class="tabs"><button type="button" data-tab="bag" class="on">🎒 Инвентарь</button><button type="button" data-tab="craft">🔨 Крафт</button><button type="button" data-tab="creative" id="tabCreative">✨ Все блоки</button></div>
     <div id="tabBag">
       <div id="chestBox" hidden><h2 id="chestTitle">Сундук</h2><div class="grid" id="chestGrid"></div><div class="sep"></div></div>
+      <div class="armorRow" id="armorGrid"></div>
       <div class="grid" id="bagGrid"></div>
       <div class="sep"></div>
       <div class="grid" id="bagHot"></div>
@@ -254,14 +275,25 @@
     </div>
   </div>
 </div>
+<div class="screen" id="win" hidden>
+  <div class="panel" style="text-align:center">
+    <h1>Игра пройдена!</h1>
+    <p>Ты прошёл Поверхность, Глубины и Небеса, одолел трёх стражей и победил Владыку Кубомира. Мир остаётся твоим — можно играть дальше.</p>
+    <div class="winStats" id="winStats"></div>
+    <button class="btn" type="button" id="winGo">Продолжить играть ↗</button>
+    <button class="btn sec" type="button" id="winQuit">💾 Сохранить и выйти в меню</button>
+  </div>
+</div>
 <div id="cursor"><img alt=""><b></b></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="js/blocks.js"></script>
 <script src="js/world.js"></script>
 <script src="js/game.js"></script>
+<script src="js/player.js"></script>
 <script src="js/mobs.js"></script>
 <script src="js/ui.js"></script>
+<script src="js/quest.js"></script>
 <script src="js/net.js"></script>
 <script src="js/main.js"></script>
 <script src="../../shared/chat-boot.js?v=5"></script>

@@ -132,7 +132,8 @@
       } else if (s.type === 'fortress') {
         box(x - 10, y - 1, z - 10, x + 10, y - 1, z + 10, KM.DARK_BRICK);
         box(x - 7, y, z - 7, x + 7, y + 7, z + 7, KM.DARK_BRICK, true);
-        for (let a = -7; a <= 7; a += 7) for (let c = -7; c <= 7; c += 7) box(x + a - 1, y - 12, z + c - 1, x + a + 1, y + 10, z + c + 1, KM.DARK_BRICK);
+        // колонны по углам и серединам стен; в центре колонны нет — там алтарь
+        for (let a = -7; a <= 7; a += 7) for (let c = -7; c <= 7; c += 7) if (a || c) box(x + a - 1, y - 12, z + c - 1, x + a + 1, y + 10, z + c + 1, KM.DARK_BRICK);
         box(x - 1, y, z - 7, x + 1, y + 3, z - 7, 0); box(x - 1, y, z + 7, x + 1, y + 3, z + 7, 0);
         box(x - 1, y, z - 1, x + 1, y, z + 1, KM.DARK_BRICK); put(x, y + 1, z, KM.ALTAR, 2);
         put(x + 6, y, z + 6, KM.CHEST, 4); put(x - 6, y, z + 6, KM.CHEST, 4); put(x - 6, y, z - 6, KM.CHEST, 4);

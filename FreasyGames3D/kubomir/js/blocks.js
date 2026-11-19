@@ -3,7 +3,7 @@
 const KM = window.KM = {};
 
 // ---------- атлас ----------
-KM.TS = 16; KM.ACOLS = 16; KM.AROWS = 7;
+KM.TS = 16; KM.ACOLS = 16; KM.AROWS = 8;
 const T = {}; // имя плитки → номер
 const TILE_NAMES = ('grass_top grass_side dirt stone cobble sand water log_side log_top leaves planks glass coal_ore iron_ore gold_ore crystal_ore ' +
   'bedrock brick table_top table_side furnace_front furnace_side chest_front chest_side torch lava snow snow_side pine_leaves flower_red flower_blue tallgrass ' +
@@ -11,7 +11,8 @@ const TILE_NAMES = ('grass_top grass_side dirt stone cobble sand water log_side 
   'wire_off wire_on lamp_off lamp_on door_closed door_open piston_side piston_front bomb_side bomb_top button plate piston_head wool gravel pine_log ' +
   'stick coal iron_ingot gold_ingot crystal ember feather apple meat_raw meat_cooked heart_stone fire_core storm_crown bread wheat seeds ' +
   'pick0 pick1 pick2 pick3 axe0 axe1 axe2 axe3 shovel0 shovel1 shovel2 shovel3 sword0 sword1 sword2 sword3 ' +
-  'cactus_side cactus_top farmland wheat_crop ice obsidian_crk mushroom spawner_x crack0 crack1 crack2 crack3 sign_x bow arrow ladder').split(' ');
+  'cactus_side cactus_top farmland wheat_crop ice obsidian_crk mushroom spawner_x crack0 crack1 crack2 crack3 sign_x bow arrow ladder ' +
+  'helmet0 helmet1 helmet2 chest0 chest1 chest2 legs0 legs1 legs2 boots0 boots1 boots2 altar_final').split(' ');
 TILE_NAMES.forEach((n, i) => { T[n] = i; });
 KM.T = T;
 
@@ -140,6 +141,16 @@ KM.buildAtlas = function () {
     bow: () => item(() => { for (let i = 0; i < 10; i++) px(3 + i, 12 - i + Math.round(Math.sin(i / 9 * Math.PI) * -2), hex('#7a5530')); line(3, 12, 13, 2, '#e8e2c8', 0); }),
     arrow: () => item(() => { line(3, 13, 12, 4, '#9c6b3a'); rect(11, 3, 3, 3, '#8d8d93', 0.05); rect(2, 12, 3, 2, '#ecebe4', 0.05); }),
   };
+  // броня: шлем, нагрудник, поножи, ботинки трёх видов — шерсть, железо, кристалл
+  const armor = (kind, tier) => {
+    clear(); const c = ['#e8e4da', '#c9ccd4', '#5ee8d2'][tier], hi = ['#ffffff', '#f2f3f7', '#b8fff2'][tier], lo = ['#b9b2a2', '#8d9099', '#2fa894'][tier];
+    if (kind === 'helmet') { rect(3, 4, 10, 4, c, 0.1); rect(3, 8, 2, 4, c, 0.1); rect(11, 8, 2, 4, c, 0.1); rect(4, 4, 8, 1, hi, 0.05); rect(5, 8, 6, 1, lo, 0.05); }
+    if (kind === 'chest') { rect(2, 3, 12, 4, c, 0.1); rect(4, 7, 8, 7, c, 0.1); rect(6, 3, 4, 2, '#000000', 0, 0); rect(1, 3, 2, 5, lo, 0.08); rect(13, 3, 2, 5, lo, 0.08); rect(5, 8, 1, 5, hi, 0.05); }
+    if (kind === 'legs') { rect(4, 3, 8, 3, c, 0.1); rect(4, 6, 3, 8, c, 0.1); rect(9, 6, 3, 8, c, 0.1); rect(4, 3, 8, 1, hi, 0.05); rect(6, 6, 1, 8, lo, 0.05); rect(11, 6, 1, 8, lo, 0.05); }
+    if (kind === 'boots') { rect(3, 8, 3, 3, c, 0.1); rect(10, 8, 3, 3, c, 0.1); rect(2, 11, 4, 3, c, 0.1); rect(10, 11, 4, 3, c, 0.1); rect(2, 13, 4, 1, lo, 0.05); rect(10, 13, 4, 1, lo, 0.05); rect(3, 8, 3, 1, hi, 0.05); rect(10, 8, 3, 1, hi, 0.05); }
+  };
+  for (const k of [0, 1, 2]) for (const kind of ['helmet', 'chest', 'legs', 'boots']) P[kind + k] = () => armor(kind, k);
+  P.altar_final = () => { fill('#2a1840', 0.12); frame('#ffd447'); rect(1, 1, 14, 1, '#c99a2a', 0.05); for (let i = 0; i < 5; i++) { px(7 - i, 7, hex('#ffe08a')); px(8 + i, 8, hex('#ffe08a')); px(7, 7 - i, hex('#ffe08a')); px(8, 8 + i, hex('#ffe08a')); } rect(6, 6, 4, 4, '#c34bff', 0.1); rect(7, 7, 2, 2, '#ffffff', 0); };
   for (const k of [0, 1, 2, 3]) { P['pick' + k] = () => tool('pick', k); P['axe' + k] = () => tool('axe', k); P['shovel' + k] = () => tool('shovel', k); P['sword' + k] = () => tool('sword', k); }
   TILE_NAMES.forEach((n, i) => { ox = (i % KM.ACOLS) * S; oy = ((i / KM.ACOLS) | 0) * S; R = rng(1234 + i * 977); (P[n] || clear)(); });
   g.putImageData(img, 0, 0);
@@ -222,6 +233,7 @@ blk('ice', 'Лёд', 'ice', { hard: 0.5, alpha: 2, drop: 0 });
 blk('mushroom', 'Гриб', 'mushroom', { shape: 'cross', solid: false, alpha: 1, hard: 0.02, light: 3 });
 blk('ladder', 'Лестница', 'ladder', { shape: 'thin', solid: false, alpha: 1, hard: 0.4, tool: 'axe', climb: true, facing: true });
 blk('obsidian', 'Лунный камень', 'obsidian_crk', { hard: 8, tool: 'pick', tier: 2 });
+blk('altar_final', 'Алтарь Кубомира', 'altar_final', { hard: 4, tool: 'pick', tier: 1, use: 'altar', light: 10 });
 KM.NBLOCKS = BI;
 
 // ---------- предметы (id от 100) ----------
@@ -253,6 +265,11 @@ for (let k = 0; k < 4; k++) {
   itm('shovel' + k, TIERN[k] + 'ая лопата', 'shovel' + k, { stack: 1, tool: { type: 'shovel', tier: k, speed: sp, dur } });
   itm('sword' + k, TIERN[k] + 'ый меч', 'sword' + k, { stack: 1, tool: { type: 'sword', tier: k, speed: 1, dur, dmg: 4 + k * 2 } });
 }
+// броня: слот 0 — шлем, 1 — нагрудник, 2 — поножи, 3 — ботинки; очки защиты срезают урон (4% за очко, не больше 80%)
+const ARMN = [['Шерстяной шлем', 'Шерстяной нагрудник', 'Шерстяные поножи', 'Шерстяные ботинки'], ['Железный шлем', 'Железный нагрудник', 'Железные поножи', 'Железные ботинки'], ['Кристальный шлем', 'Кристальный нагрудник', 'Кристальные поножи', 'Кристальные ботинки']];
+const ARMP = [[1, 2, 2, 1], [2, 5, 4, 2], [3, 6, 5, 3]], ARMD = [80, 220, 500];
+['helmet', 'chest', 'legs', 'boots'].forEach((kind, slot) => { for (let k = 0; k < 3; k++) itm(kind + k, ARMN[k][slot], kind + k, { stack: 1, armor: { slot, tier: k, pts: ARMP[k][slot], dur: ARMD[k] } }); });
+KM.ARMOR_SLOTS = ['Шлем', 'Нагрудник', 'Поножи', 'Ботинки'];
 // хоу: используем лопату на земле, чтобы сделать грядку (см. game.js)
 
 KM.isItem = (id) => id >= 100;
@@ -313,3 +330,5 @@ rec('portal_deep', 1, { heart_stone: 1, iron: 4, coal: 4 }, 'table');
 rec('portal_sky', 1, { fire_core: 1, crystal: 4, glass: 4 }, 'table');
 rec('glowstone', 1, { ember: 2, glass: 1 }, 'table');
 rec('wool', 1, { wheat: 4 }, 'table');
+[['wool', 0], ['iron', 1], ['crystal', 2]].forEach(([mat, k]) => { const n = k ? [4, 6, 5, 3] : [3, 5, 4, 2]; ['helmet', 'chest', 'legs', 'boots'].forEach((kind, i) => rec(kind + k, 1, { [mat]: n[i] }, 'table')); });
+rec('altar_final', 1, { storm_crown: 1, crystal: 4, gold: 4, obsidian: 2 }, 'table');

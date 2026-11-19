@@ -35,6 +35,7 @@
     if (G.uiDirty || lastHot !== G.hot) {
       G.uiDirty = false;
       $('hotbar').innerHTML = G.inv.slice(0, 9).map((s, i) => slotHTML(s, `data-h="${i}"`)).join('') + '<button id="bagBtn" type="button" aria-label="Инвентарь">🎒</button>';
+      if (!(G.hot >= 0 && G.hot < 9)) G.hot = 0;
       $('hotbar').children[G.hot].classList.add('sel');
       if (lastHot !== G.hot) { const s = G.held(); $('itemName').textContent = s ? KM.name(s[0]) : ''; $('itemName').style.opacity = 1; nameT = 1.6; }
       lastHot = G.hot;
@@ -42,7 +43,7 @@
     }
     if (nameT > 0) { nameT -= dt; if (nameT <= 0) $('itemName').style.opacity = 0; }
     const creative = G.mode === 'creative';
-    const key = creative ? 'c' : p.hp + ':' + p.food + ':' + Math.ceil(p.air);
+    const ap = G.armorPoints(), key = (creative ? 'c' : p.hp + ':' + p.food + ':' + Math.ceil(p.air)) + ':' + ap;
     if (key !== hudKey) {
       hudKey = key;
       if (creative) { $('hearts').textContent = '✨ Творчество'; $('food').textContent = ''; }
@@ -51,11 +52,13 @@
         let f = ''; for (let i = 0; i < 10; i++) f += p.food >= (i + 1) * 2 ? '🍖' : p.food === i * 2 + 1 ? '🦴' : '▫️';
         $('hearts').textContent = h; $('food').textContent = f + (p.air < 10 ? '  🫧' + Math.ceil(p.air) : '');
       }
+      $('armorV').textContent = ap ? '🛡' + ap : '';
     }
     const hh = Math.floor(((G.time + 0.25) % 1) * 24), mm = Math.floor((((G.time + 0.25) % 1) * 24 % 1) * 60);
     $('info').innerHTML = `${G.DIMN[p.d]} · ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}<br>${Math.floor(p.x)}, ${Math.floor(p.y)}, ${Math.floor(p.z)} · ${Math.round(fps)} к/с${G.netLine ? '<br>' + G.netLine() : ''}`;
     if (G.boss && !G.boss.dead) { $('bossbar').hidden = false; $('bossName').textContent = G.boss.T.n; $('bossHp').style.width = Math.max(0, G.boss.hp / G.boss.T.hp * 100) + '%'; }
     else $('bossbar').hidden = true;
+    if (G.tickQuest) G.tickQuest(dt);
   };
   G.toast = function (text, ms = 2600) {
     const el = document.createElement('div'); el.className = 'toast'; el.textContent = text; el.style.animationDuration = ms + 'ms';
@@ -64,7 +67,7 @@
   };
 
   // ---------- окна ----------
-  const screens = ['menu', 'newWorld', 'online', 'settings', 'help', 'pause', 'dead', 'inv'];
+  const screens = ['menu', 'newWorld', 'online', 'settings', 'help', 'pause', 'dead', 'inv', 'win'];
   let screenStack = [];
   G.show = function (id, push = false) {
     if (!push) screenStack = []; else { const cur = screens.find((s) => !$(s).hidden); if (cur) screenStack.push(cur); }
@@ -133,6 +136,7 @@
     if (tab === 'bag') {
       $('bagGrid').innerHTML = G.inv.slice(9).map((s, i) => slotHTML(s, `data-i="${i + 9}"`)).join('');
       $('bagHot').innerHTML = G.inv.slice(0, 9).map((s, i) => slotHTML(s, `data-i="${i}"`)).join('');
+      $('armorGrid').innerHTML = G.player.armor.map((s, i) => s ? slotHTML(s, `data-ar="${i}"`) : `<div class="slot empty" data-ar="${i}" title="${KM.ARMOR_SLOTS[i]}">${['🪖', '👕', '👖', '🥾'][i]}</div>`).join('') + `<div class="armorInfo">🛡 Защита: ${G.armorPoints()} · урон −${Math.round(Math.min(0.8, G.armorPoints() * 0.04) * 100)}%</div>`;
       if (G.chestOpen) { const items = G.world.chests[G.chestOpen]; $('chestGrid').innerHTML = items.map((s, i) => slotHTML(s, `data-c="${i}"`)).join(''); }
     } else if (tab === 'craft') renderCraft();
     else if (tab === 'creative' && !$('allGrid').children.length) {
@@ -145,11 +149,20 @@
   $('inv').addEventListener('click', (e) => {
     const t = e.target.closest('[data-tab]'); if (t) { tab = t.dataset.tab; G.renderInv(); return; }
     const s = e.target.closest('.slot'); if (!s) return;
+    if (s.dataset.ar !== undefined) { armorClick(+s.dataset.ar); return; }
     if (s.dataset.i !== undefined) clickSlot(G.inv, +s.dataset.i, e.shiftKey);
     else if (s.dataset.c !== undefined) clickSlot(G.world.chests[G.chestOpen], +s.dataset.c, e.shiftKey);
     else if (s.dataset.a !== undefined) { const id = +s.dataset.a; G.give(id, KM.stackOf(id)); G.sfx('pop'); G.renderInv(); }
   });
   $('inv').addEventListener('contextmenu', (e) => { e.preventDefault(); const s = e.target.closest('.slot'); if (!s) return; if (s.dataset.i !== undefined) clickSlot(G.inv, +s.dataset.i, true); else if (s.dataset.c !== undefined) clickSlot(G.world.chests[G.chestOpen], +s.dataset.c, true); });
+  // ячейки брони принимают только броню своего вида
+  function armorClick(i) {
+    const c = G.cursor, a = G.player.armor;
+    if (c) { const it = KM.isItem(c[0]) ? KM.I[c[0]] : null; if (!it || !it.armor || it.armor.slot !== i) { G.toast('Сюда — только ' + KM.ARMOR_SLOTS[i].toLowerCase()); return; } }
+    if (!c && !a[i]) return;
+    const old = a[i]; a[i] = c; G.cursor = old; G.sfx('pop');
+    G.edited = true; G.uiDirty = true; G.renderInv(); renderCursor();
+  }
   $('trashBtn').addEventListener('click', () => { G.cursor = null; renderCursor(); });
   // при закрытии взятая стопка возвращается в инвентарь
   const origClose = G.closeScreen;
@@ -184,7 +197,7 @@
       if (r.st === 'furnace') { if (G.player.fuel <= 0) { if (G.count(KM.EMBER)) { G.take(KM.EMBER, 1); G.player.fuel += 30; } else if (G.count(KM.COAL)) { G.take(KM.COAL, 1); G.player.fuel += 8; } else return; } G.player.fuel--; }
       for (const [id, n] of r.ing) G.take(id, n);
     }
-    G.give(r.out, r.n); G.sfx('craft'); G.edited = true; renderCraft();
+    G.give(r.out, r.n); G.sfx('craft'); G.edited = true; G.player.stats.crafts++; renderCraft();
   });
 
   // ---------- управление: клавиатура и мышь ----------
@@ -199,6 +212,7 @@
     if (/^Digit[1-9]$/.test(e.code)) G.hot = +e.code.slice(5) - 1;
     if (e.code === 'KeyF' && G.mode === 'creative') { G.player.fly = !G.player.fly; G.toast(G.player.fly ? 'Полёт включён' : 'Полёт выключен'); }
     if (e.code === 'KeyC') G.openInv('craft');
+    if (e.code === 'KeyV' || e.code === 'F5') { e.preventDefault(); G.toggleView(); }
     if (e.code === 'Space') { e.preventDefault(); const now = performance.now(); if (G.mode === 'creative' && now - lastSpace < 300) { G.player.fly = !G.player.fly; } lastSpace = now; }
     if (e.code === 'KeyQ') { const s = G.held(); if (s && G.mode !== 'creative') { s[1]--; if (!s[1]) G.inv[G.hot] = null; G.uiDirty = true; } }
     readKeys();
@@ -278,15 +292,17 @@
     if (G.state !== 'play' || G.paused) return;
     $('pauseTitle').textContent = G.meta ? G.meta.name : 'Пауза';
     const p = G.player;
-    $('pauseInfo').textContent = `${G.DIMN[p.d]} · ${G.mode === 'creative' ? 'творчество' : 'выживание'}${G.online ? ' · комната «' + G.online.room + '»' : ''} · стражей повержено: ${p.wins.length} из 3`;
+    $('pauseInfo').textContent = `${G.DIMN[p.d]} · ${G.mode === 'creative' ? 'творчество' : 'выживание'}${G.online ? ' · комната «' + G.online.room + '»' : ''} · стражей повержено: ${p.wins.filter((w) => w !== 'lord').length} из 3${p.done ? ' · 🏆 игра пройдена' : G.questLine ? ' · ' + G.questLine() : ''}`;
+    $('pView').textContent = '👁 Вид: ' + (G.view ? 'от третьего лица' : 'из глаз');
     G.show('pause');
     if (G.saveWorld) G.saveWorld();
   };
   $('resumeBtn').addEventListener('click', () => { G.show('none'); G.wantLock(); });
   $('pSettings').addEventListener('click', () => G.show('settings', true));
+  $('pView').addEventListener('click', () => { G.toggleView(); $('pView').textContent = '👁 Вид: ' + (G.view ? 'от третьего лица' : 'из глаз'); });
   $('pHelp').addEventListener('click', () => G.show('help', true));
   G.die = function (why) {
-    G.player.hp = 0; inp.breakHeld = false; $('deadWhy').textContent = why; G.show('dead');
+    G.player.hp = 0; inp.breakHeld = false; G.player.stats.deaths++; $('deadWhy').textContent = why; G.show('dead');
     if (G.mode !== 'creative' && G.player.food < 6) G.player.food = 6;
   };
   $('respawnBtn').addEventListener('click', () => {

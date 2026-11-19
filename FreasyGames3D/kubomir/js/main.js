@@ -22,7 +22,7 @@
     const p = G.player;
     return Object.assign({}, G.meta, {
       played: Date.now(), mode: G.mode, peaceful: G.peaceful, time: G.time, hot: G.hot, inv: G.inv, chests: W.chests,
-      player: { x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, hp: p.hp, food: p.food, d: p.d, fly: p.fly, sx: p.sx, sy: p.sy, sz: p.sz, fuel: p.fuel, wins: p.wins },
+      player: { x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, hp: p.hp, food: p.food, d: p.d, fly: p.fly, sx: p.sx, sy: p.sy, sz: p.sz, fuel: p.fuel, wins: p.wins, armor: p.armor, prog: p.prog, stats: p.stats, portals: p.portals, altars: p.altars, done: p.done || null },
       edits,
     });
   }
@@ -45,7 +45,11 @@
     G.mode = rec.mode || 'survival'; G.peaceful = !!rec.peaceful; G.time = rec.time ?? 0.3; G.hot = rec.hot || 0;
     G.inv = rec.inv && rec.inv.length === 36 ? rec.inv : G.invNew();
     let p;
-    if (rec.player) { p = Object.assign(G.newPlayer(0, 0, 0), rec.player); p.vx = p.vy = p.vz = 0; p.fallFrom = p.y; p.wins = p.wins || []; }
+    if (rec.player) { p = Object.assign(G.newPlayer(0, 0, 0), rec.player); p.vx = p.vy = p.vz = 0; p.fallFrom = p.y; p.wins = p.wins || [];
+      // сохранения до брони и целей
+      if (!Array.isArray(p.armor) || p.armor.length !== 4) p.armor = [null, null, null, null];
+      p.prog = p.prog || {}; p.stats = Object.assign(G.newStats(), p.stats || {}); p.portals = p.portals || {}; p.altars = p.altars || [];
+      for (const s of G.inv) if (s) p.prog[s[0]] = 1; }
     else {
       G.player = G.newPlayer(8, 60, 8);
       const s = G.spawnPoint(); p = G.newPlayer(s.x, s.y, s.z); p.sx = s.x; p.sy = s.y; p.sz = s.z;
@@ -56,7 +60,7 @@
     // если сохранились внутри блока — поднимаем наверх
     let guard = 0; while (G.collides(p.d, p.x, p.y, p.z, 0.3, 1.8) && guard++ < 100) p.y += 1;
     G.clearMobs(); G.clearMeshes();
-    G.state = 'play'; G.uiDirty = true; G.applyTouch();
+    G.state = 'play'; G.uiDirty = true; G.applyTouch(); if (G.questReset) G.questReset();
     $('hud').hidden = false; document.body.classList.add('playing'); G.show('none');
     G.toast(rec.player ? 'С возвращением в «' + rec.name + '»' : (G.mode === 'creative' ? 'Твори! F или двойной прыжок — полёт' : 'Добудь брёвна: держи левую кнопку на дереве'), 4000);
     if (rec.room) G.netConnect(rec.room);
@@ -65,7 +69,7 @@
   async function quit() {
     await G.saveWorld();
     if (G.online) G.netDisconnect();
-    G.clearMobs(); G.clearMeshes(); G.world = null; G.meta = null; G.state = 'menu';
+    G.clearMobs(); G.clearMeshes(); if (G.hideSelf) G.hideSelf(); G.world = null; G.meta = null; G.state = 'menu';
     $('hud').hidden = true; document.body.classList.remove('touch', 'playing');
     G.show('menu'); renderWorlds();
   }

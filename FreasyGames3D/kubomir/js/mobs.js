@@ -33,6 +33,8 @@
       make() { const g = new THREE.Group(), m = lam('#3a1410', '#5a1a0a'), f = lam('#ff7a1a', '#ff4a00'); g.add(sph(1.0, m, 0, 1.6, 0, 1, 1.2, 0.9)); g.add(sph(0.6, f, 0, 1.6, 0.5)); g.add(sph(0.5, m, 0, 2.8, 0)); eyes(g, 2.85, 0.45, 0.2, '#ffe08a', 0.1); for (let i = 0; i < 6; i++) { const t = i / 6 * Math.PI * 2; g.add(sph(0.18, f, Math.cos(t) * 1.4, 2.0 + Math.sin(t * 2) * 0.3, Math.sin(t) * 1.4)); } return g; } },
     storm: { n: 'Грозовой страж', hp: 400, w: 0.9, h: 2.4, speed: 4.2, dmg: 6, fly: true, boss: 3, shoot: 'orb3', drops: [['storm_crown', 1, 1], ['feather', 5, 8], ['crystal', 3, 5]],
       make() { const g = new THREE.Group(), m = new THREE.MeshLambertMaterial({ color: '#7a6cff', emissive: '#2a1a8a' }), w = new THREE.MeshLambertMaterial({ color: '#e0e8ff', transparent: true, opacity: 0.7, emissive: '#5a6aaa' }); g.add(sph(0.8, m, 0, 1.3, 0, 1, 1.2, 0.8)); g.add(sph(0.45, m, 0, 2.2, 0)); eyes(g, 2.25, 0.4, 0.17, '#ffffff', 0.09); for (const s of [-1, 1]) g.add(sph(0.9, w, s * 1.3, 1.6, -0.2, 1.4, 0.25, 0.8)); for (let i = 0; i < 3; i++) g.add(box(0.12, 0.5, 0.12, lam('#ffd447', '#ffb000'), (i - 1) * 0.25, 2.75, 0)); return g; } },
+    lord: { n: 'Владыка Кубомира', hp: 640, w: 1.0, h: 3.4, speed: 3.4, dmg: 8, fly: true, boss: 4, shoot: 'lord', drops: [['crystal', 6, 10], ['gold', 6, 10], ['iron', 8, 12]],
+      make() { const g = new THREE.Group(), m = lam('#2a1840', '#1a0a30'), v = lam('#c34bff', '#7a1aa8'), gold = lam('#ffd447', '#b08a00'); g.add(sph(0.95, m, 0, 1.55, 0, 1.1, 1.15, 0.85)); g.add(sph(0.5, v, 0, 1.6, 0.62, 1, 1, 0.4)); g.add(sph(0.55, m, 0, 2.8, 0)); eyes(g, 2.85, 0.5, 0.2, '#ff3df2', 0.1); g.add(box(1.1, 0.25, 1.1, gold, 0, 3.4, 0)); for (const x of [-0.42, 0, 0.42]) g.add(box(0.18, 0.4, 0.18, gold, x, 3.7, 0)); for (const s of [-1, 1]) { g.add(sph(0.35, m, s * 1.25, 1.7, 0, 1, 2.2, 1)); g.add(sph(0.3, v, s * 1.3, 0.9, 0)); } const orbit = new THREE.Group(); orbit.name = 'orbit'; for (let i = 0; i < 4; i++) { const t = i / 4 * Math.PI * 2; orbit.add(sph(0.2, v, Math.cos(t) * 1.8, 1.8, Math.sin(t) * 1.8)); } g.add(orbit); return g; } },
   };
   G.MOBTYPES = TYPES;
 
@@ -67,13 +69,16 @@
     if (from && !m.T.boss) { const dx = m.x - from.x, dz = m.z - from.z, l = Math.hypot(dx, dz) || 1; m.vx = dx / l * 6; m.vz = dz / l * 6; m.vy = 5; }
     m.angry = true;
     if (m.hp <= 0) {
+      if (G.player.stats) G.player.stats.kills++;
       G.particles(m.x, m.y + m.T.h / 2, m.z, 0, 24, [1, 1, 1]);
       for (const [k, a, b] of m.T.drops) { const n = a + Math.floor(Math.random() * (b - a + 1)); if (n) G.give(KM.byKey(k), n, true); }
       if (m.T.boss) {
         G.sfx('win'); const p = G.player; if (!p.wins.includes(m.type)) p.wins.push(m.type);
         const nm = KM.name(KM.byKey(m.T.drops[0][0]));
-        G.toast('🏆 ' + m.T.n + ' повержен! Получено: ' + nm, 5000);
-        if (p.wins.length >= 3) setTimeout(() => G.toast('👑 Ты одолел всех стражей Кубомира!', 6000), 1500);
+        G.toast('🏆 ' + m.T.n + ' повержен!' + (m.type === 'lord' ? '' : ' Получено: ' + nm), 5000);
+        if (G.onProgress) G.onProgress();
+        if (m.type === 'lord') { G.particles(m.x, m.y + 2, m.z, 0, 60, [0.9, 0.5, 1]); setTimeout(() => G.gameComplete && G.gameComplete(), 1800); }
+        else if (m.type === 'storm') setTimeout(() => G.toast('👑 Все три стража повержены! Скрафти у верстака Алтарь Кубомира', 6000), 1500);
         else if (m.type === 'golem') setTimeout(() => G.toast('Скрафти у верстака Портал в Глубины', 5000), 1500);
         else if (m.type === 'colossus') setTimeout(() => G.toast('Скрафти у верстака Портал в Небеса', 5000), 1500);
       }
@@ -114,10 +119,12 @@
   G.summonBoss = function (x, y, z, kind) {
     if (G.boss) { G.toast('Страж уже здесь!'); return; }
     if (G.mode === 'creative') G.toast('В творчестве стражи не причиняют вреда');
-    const type = kind === 2 ? 'colossus' : kind === 3 ? 'storm' : 'golem';
-    G.world.set(G.player.d, x, y, z, KM.ALTAR_USED);
+    const type = kind === 4 ? 'lord' : kind === 2 ? 'colossus' : kind === 3 ? 'storm' : 'golem', p = G.player;
+    // алтарь стража гаснет; Алтарь Кубомира остаётся — Владыку можно призвать снова, если не вышло с первого раза
+    if (kind !== 4) { G.world.set(p.d, x, y, z, KM.ALTAR_USED); p.altars.push(p.d + ':' + x + ',' + z); }
     G.particles(x + 0.5, y + 1, z + 0.5, 0, 40, [0.8, 0.3, 1]);
-    spawn(type, x + 0.5, y + 1.5, z + 3.5);
+    if (kind === 4) { let sy = y + 1.2; for (let k = 0; k < 12 && G.collides(p.d, x + 0.5, sy, z + 0.5, 1.0, 3.4); k++) sy += 1; const m = spawn(type, x + 0.5, sy, z + 0.5); m.ph = 0; G.toast('Владыка Кубомира: «Ты дошёл до конца. Посмотрим, чего ты стоишь!»', 5000); }
+    else spawn(type, x + 0.5, y + 1.5, z + 3.5);
   };
 
   // ---------- появление существ ----------
@@ -164,7 +171,7 @@
       if (T.hop && !m.onGround) { } else if (T.hop) { wantX *= 0; wantZ *= 0; }
       m.vx += (wantX * sp - m.vx) * Math.min(1, 6 * dt); m.vz += (wantZ * sp - m.vz) * Math.min(1, 6 * dt);
       if (T.fly) {
-        const ty = chase ? p.y + (T.boss ? 4.5 : 2.2) + Math.sin(m.t * 2) * 0.6 : m.y + Math.sin(m.t) * 0.3;
+        const ty = chase ? p.y + (T.boss === 4 ? 2.2 : T.boss ? 4.5 : 2.2) + Math.sin(m.t * 2) * 0.6 : m.y + Math.sin(m.t) * 0.3;
         m.vy += ((ty - m.y) * 1.6 - m.vy) * Math.min(1, 3 * dt);
       } else {
         m.vy -= 26 * dt;
@@ -185,6 +192,16 @@
         if (T.shoot === 'fire') { m.cool = 2.6; fire('fire', m.x, ey, m.z, p.x, p.y + 1.2, p.z, 11); }
         else if (T.shoot === 'orb') { m.cool = 3; fire('orb', m.x, ey, m.z, p.x, p.y + 1.2, p.z, 7); }
         else if (T.shoot === 'fire3') { m.cool = 2.2; for (let i = -1; i <= 1; i++) { const a = Math.atan2(dx, dz) + i * 0.28; fire('fire', m.x, ey, m.z, m.x + Math.sin(a) * dist, p.y + 1.2, m.z + Math.cos(a) * dist, 13); } if (m.t % 14 < dt * 2 && G.mobs.length < 12) for (let k = 0; k < 2; k++) spawn('ogneshar', m.x + (Math.random() - 0.5) * 4, m.y + 1, m.z + (Math.random() - 0.5) * 4); }
+        else if (T.shoot === 'lord') {
+          // Владыка: по кругу — веер огня, самонаводящиеся сферы, град камней; при половине здоровья злее и зовёт слуг
+          const rage = m.hp < T.hp / 2; if (rage && !m.rage) { m.rage = true; G.toast('⚠ Владыка в ярости!', 3000); G.sfx('boss'); }
+          m.cool = rage ? 1.15 : 1.7; const ph = (m.ph = (m.ph || 0) + 1) % 3;
+          if (ph === 0) for (let i = -2; i <= 2; i++) { const a = Math.atan2(dx, dz) + i * 0.22; fire('fire', m.x, ey, m.z, m.x + Math.sin(a) * dist, p.y + 1.2, m.z + Math.cos(a) * dist, 13); }
+          else if (ph === 1) { fire('orb', m.x - 1, ey, m.z, p.x, p.y + 1.2, p.z, 8); fire('orb', m.x + 1, ey, m.z, p.x, p.y + 1.2, p.z, 8); }
+          else for (let i = 0; i < (rage ? 4 : 2); i++) fire('rock', m.x, m.y + T.h, m.z, p.x + (Math.random() - 0.5) * 3, p.y + 1, p.z + (Math.random() - 0.5) * 3, 15);
+          m.minion = (m.minion || 10) - m.cool;
+          if (m.minion <= 0 && G.mobs.length < 10) { m.minion = rage ? 9 : 14; const mt = p.d === 1 ? 'magma' : p.d === 2 ? 'vihr' : 'tennik'; for (let k = 0; k < 2; k++) spawn(mt, m.x + (Math.random() - 0.5) * 5, m.y, m.z + (Math.random() - 0.5) * 5); }
+        }
         else if (T.shoot === 'orb3') { m.cool = 1.7; fire('orb', m.x, ey, m.z, p.x, p.y + 1.2, p.z, 9); if (Math.random() < 0.3) { m.vx = dx / (dist || 1) * 18; m.vz = dz / (dist || 1) * 18; m.vy = (p.y + 1 - m.y) * 2; } }
         G.sfx('shoot');
       }
@@ -197,6 +214,7 @@
       m.obj.position.set(m.x, m.y + (T.hop && !m.onGround ? 0.1 : 0), m.z); m.obj.rotation.y = m.yaw;
       if (T.hop) { const s = m.onGround ? 1 : 1.15; m.obj.scale.set(1 / Math.sqrt(s), s, 1 / Math.sqrt(s)); }
       if (T.fly) m.obj.rotation.z = Math.sin(m.t * 3) * 0.1;
+      if (T.boss === 4) { const o = m.obj.getObjectByName('orbit'); if (o) o.rotation.y = m.t * 1.6; }
       if (m.hurt > 0) m.hurt -= dt;
       const lt = W.lightAt(p.d, Math.floor(m.x), Math.floor(m.y + 1), Math.floor(m.z)), br = Math.max(lt[0] / 15 * (p.d === 1 ? 0 : G.dayFactor()), lt[1] / 15, p.d === 1 ? 0.35 : 0.12);
       m.obj.traverse((o) => { if (o.material && o.material.color && o.material.type === 'MeshLambertMaterial') { if (!o.userData.base) o.userData.base = o.material.color.clone(); o.material.color.copy(o.userData.base).multiplyScalar(m.hurt > 0 ? 1.8 : 0.35 + br * 0.85); if (m.hurt > 0) o.material.color.r = 1; } });
@@ -228,11 +246,13 @@
       if (y < 0 || y < 20) { y = 50; for (let a = -2; a <= 2; a++) for (let c = -2; c <= 2; c++) W.set(2, x + a, 49, z + c, KM.CLOUDSTONE); }
     }
     p.x = x + 0.5; p.y = y; p.z = z + 0.5; p.vx = p.vy = p.vz = 0; p.fallFrom = y;
+    if (to && !p.prog['d' + to]) { p.prog['d' + to] = 1; if (G.onProgress) G.onProgress(); }
     // обратный портал рядом
     if (portalId) {
       const px = x + 2, pz = z; let py = y;
       if (W.get(to, px, py - 1, pz) <= 0 || !B[Math.max(0, W.get(to, px, py - 1, pz))].solid) W.set(to, px, py - 1, pz, to === 1 ? KM.HELLROCK : to === 2 ? KM.CLOUDSTONE : KM.COBBLE);
       if (W.get(to, px, py, pz) !== portalId) W.set(to, px, py, pz, portalId);
+      p.portals[(portalId === KM.PORTAL_DEEP ? 'deep' : 'sky') + to] = [px, py, pz];
       W.set(to, px, py + 1, pz, 0);
     }
     G.sfx('portal'); G.toast('🌀 ' + DIMN[to]);

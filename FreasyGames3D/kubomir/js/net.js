@@ -45,6 +45,8 @@
     if (ch && client) client.removeChannel(ch);
     ch = null; status = 'off'; for (const id of [...peers.keys()]) dropPeer(id); G.online = null; outEdits = [];
   };
+  const dbg = { sent: 0, got: 0 };
+  G.netDebug = () => ({ status, peers: peers.size, presence: Object.keys(presence).length, me: myId, sent: dbg.sent, got: dbg.got });
   G.netLine = () => G.online ? `🌐 ${G.online.room}: ${status === 'online' ? Math.max(peers.size + 1, Object.keys(presence).length) + ' игр.' : status === 'error' ? 'нет связи' : 'подключение…'}` : '';
 
   // ----- старший игрок присылает мир новичку -----
@@ -75,27 +77,26 @@
   }
 
   // ----- другие игроки -----
-  function makeAvatar(color) {
-    const g = new THREE.Group(), m = new THREE.MeshLambertMaterial({ color }), skin = new THREE.MeshLambertMaterial({ color: '#f2c79b' }), dark = new THREE.MeshLambertMaterial({ color: '#3a3a5a' });
-    const bx = (w, h, d, mat, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); o.position.set(x, y, z); g.add(o); return o; };
-    bx(0.5, 0.7, 0.28, m, 0, 1.05, 0);                       // туловище
-    bx(0.46, 0.46, 0.46, skin, 0, 1.64, 0);                  // голова
-    bx(0.5, 0.14, 0.5, m, 0, 1.92, 0);                       // шапка
-    for (const s of [-1, 1]) { bx(0.22, 0.7, 0.24, dark, s * 0.13, 0.35, 0); bx(0.18, 0.66, 0.2, m, s * 0.35, 1.05, 0); }
-    const eye = new THREE.MeshBasicMaterial({ color: '#222' }); for (const s of [-1, 1]) bx(0.08, 0.08, 0.02, eye, s * 0.11, 1.68, -0.24);
-    G.scene.add(g); return g;
-  }
+  // фигурка другого игрока — та же, что у себя при виде от третьего лица (js/player.js)
+  function makeAvatar(color) { const ch = KM.makeCharacter({ color }); G.scene.add(ch.g); return ch; }
   function onPlayer(msg) {
+    dbg.got++;
     if (!msg || typeof msg.id !== 'string' || msg.id === myId) return;
     let p = peers.get(msg.id);
     if (!p) {
       const color = COLORS[[...msg.id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % COLORS.length];
       const tag = document.createElement('div'); tag.className = 'nametag'; document.getElementById('tags').appendChild(tag);
-      p = { id: msg.id, obj: makeAvatar(color), tag, x: msg.x, y: msg.y, z: msg.z, yaw: msg.yaw };
+      p = { id: msg.id, ch: makeAvatar(color), tag, x: msg.x, y: msg.y, z: msg.z, yaw: msg.yaw, pitch: 0, sw: 0, swn: msg.s };
+      p.obj = p.ch.g;
       peers.set(msg.id, p);
     }
     p.name = String(msg.n || 'Игрок').slice(0, 16); p.tag.textContent = p.name;
     p.tx = msg.x; p.ty = msg.y; p.tz = msg.z; p.tyaw = msg.yaw; p.d = msg.d; p.heard = Date.now();
+    // необязательные поля (старые версии игры их не шлют): наклон головы, предмет в руке, броня, счётчик ударов
+    p.tpitch = typeof msg.pi === 'number' ? msg.pi : 0;
+    const h = typeof msg.h === 'number' && KM.def(msg.h) ? msg.h : 0; KM.setCharHeld(p.ch, h);
+    if (Array.isArray(msg.a) && msg.a.length === 4) KM.setCharArmor(p.ch, msg.a.map((t) => (t === 0 || t === 1 || t === 2 ? t : -1)));
+    if (typeof msg.s === 'number' && msg.s !== p.swn) { p.swn = msg.s; p.sw = 1; }
   }
   function dropPeer(id) { const p = peers.get(id); if (!p) return; G.scene.remove(p.obj); p.tag.remove(); peers.delete(id); }
 
@@ -105,15 +106,25 @@
     const me = G.player;
     if (status === 'online' && ch) {
       sendT -= dt; flushT -= dt;
-      if (sendT <= 0 && peers.size) { sendT = 0.16; ch.send({ type: 'broadcast', event: 'p', payload: { id: myId, n: G.myName(), d: me.d, x: +me.x.toFixed(2), y: +me.y.toFixed(2), z: +me.z.toFixed(2), yaw: +me.yaw.toFixed(2) } }); }
+      // шлём положение, когда в комнате есть кто-то ещё (по присутствию), — иначе новички друг друга не увидят
+      if (sendT <= 0 && (peers.size || Object.keys(presence).some((k) => k !== myId))) { sendT = 0.16; dbg.sent++; const hs = G.held(); ch.send({ type: 'broadcast', event: 'p', payload: { id: myId, n: G.myName(), d: me.d, x: +me.x.toFixed(2), y: +me.y.toFixed(2), z: +me.z.toFixed(2), yaw: +me.yaw.toFixed(2), pi: +me.pitch.toFixed(2), h: hs ? hs[0] : 0, a: G.armorTiers(), s: G.swingState().n } }); }
       if (flushT <= 0 && outEdits.length) { flushT = 0.15; const l = outEdits.splice(0, 300); ch.send({ type: 'broadcast', event: 'e', payload: { l } }); }
     }
     for (const p of peers.values()) {
       if (Date.now() - p.heard > 8000) { dropPeer(p.id); continue; }
       const k = Math.min(1, dt * 10);
-      p.x += (p.tx - p.x) * k; p.y += (p.ty - p.y) * k; p.z += (p.tz - p.z) * k; p.yaw += (p.tyaw - p.yaw) * k;
+      const ox = p.x, oz = p.z;
+      let dyaw = p.tyaw - p.yaw; dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
+      p.x += (p.tx - p.x) * k; p.y += (p.ty - p.y) * k; p.z += (p.tz - p.z) * k; p.yaw += dyaw * k; p.pitch += (p.tpitch - p.pitch) * k;
       const show = p.d === me.d; p.obj.visible = show;
       p.obj.position.set(p.x, p.y, p.z); p.obj.rotation.y = p.yaw;
+      if (show) {
+        const sp = dt > 0 ? Math.hypot(p.x - ox, p.z - oz) / dt : 0;
+        if (p.sw > 0) p.sw = Math.max(0, p.sw - dt / 0.3);
+        KM.animChar(p.ch, dt, sp > 0.4 ? sp : 0, p.pitch, p.sw > 0 ? 1 - p.sw : 0);
+        const lt = G.world.lightAt(me.d, Math.floor(p.x), Math.floor(p.y + 1), Math.floor(p.z));
+        KM.tintChar(p.ch, Math.max(lt[0] / 15 * (me.d === 1 ? 0 : G.dayFactor()), lt[1] / 15, me.d === 1 ? 0.35 : 0.12));
+      }
       v3.set(p.x, p.y + 2.1, p.z).project(G.camera);
       const vis = show && v3.z < 1 && Math.abs(v3.x) < 1.1 && Math.abs(v3.y) < 1.1 && Math.hypot(p.x - me.x, p.z - me.z) < 48;
       p.tag.style.display = vis && !G.paused ? 'block' : 'none';

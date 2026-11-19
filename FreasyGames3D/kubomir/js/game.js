@@ -143,7 +143,8 @@
   };
 
   // ---------- игрок ----------
-  G.newPlayer = (x, y, z) => ({ x, y, z, vx: 0, vy: 0, vz: 0, yaw: 0, pitch: 0, hp: 20, food: 20, d: 0, onGround: false, fly: false, fallFrom: y, sx: x, sy: y, sz: z, sd: 0, fuel: 0, hurtT: 0, air: 10, sat: 0, wins: [] });
+  G.newPlayer = (x, y, z) => ({ x, y, z, vx: 0, vy: 0, vz: 0, yaw: 0, pitch: 0, hp: 20, food: 20, d: 0, onGround: false, fly: false, fallFrom: y, sx: x, sy: y, sz: z, sd: 0, fuel: 0, hurtT: 0, air: 10, sat: 0, wins: [], armor: [null, null, null, null], prog: {}, stats: G.newStats(), portals: {}, altars: [] });
+  G.newStats = () => ({ t: 0, br: 0, pl: 0, kills: 0, deaths: 0, crafts: 0 });
   const PW = 0.3, PH = 1.8, EYE = 1.62;
   G.EYE = EYE;
   function collides(d, x, y, z, w, h) {
@@ -223,6 +224,14 @@
   G.damage = function (n, why, from) {
     const p = G.player; if (G.mode === 'creative' || p.hp <= 0 || n <= 0) return;
     if (p.hurtT > 0 && !from) return;
+    // броня срезает урон (кроме голода, удушья и падения в пустоту) и понемногу изнашивается
+    const pts = G.armorPoints();
+    if (pts > 0 && !/голод|Утонул|Выпал/.test(why || '')) {
+      const x = n * (1 - Math.min(0.8, pts * 0.04)); n = Math.floor(x) + (Math.random() < x % 1 ? 1 : 0);
+      for (let i = 0; i < 4; i++) { const a = p.armor[i]; if (!a) continue; a[2] = (a[2] || 0) + 1; if (a[2] >= KM.I[a[0]].armor.dur) { p.armor[i] = null; G.toast(KM.name(a[0]) + ' сломался'); G.sfx('break'); } }
+      G.uiDirty = true;
+      if (n <= 0) { p.hurtT = 0.45; G.sfx('hit'); return; }
+    }
     p.hp = Math.max(0, p.hp - n); p.hurtT = 0.45; G.sfx('hurt');
     const h = document.getElementById('hurt'); h.style.opacity = 0.7; setTimeout(() => { h.style.opacity = 0; }, 160);
     if (from) { const dx = p.x - from.x, dz = p.z - from.z, l = Math.hypot(dx, dz) || 1; p.vx += dx / l * 7; p.vz += dz / l * 7; p.vy = Math.max(p.vy, 5); }
@@ -252,8 +261,10 @@
   // 36 ячеек: 0–8 — панель быстрого доступа, 9–35 — рюкзак. Ячейка: null или [id, count, износ].
   G.invNew = () => { const a = new Array(36).fill(null); return a; };
   G.held = () => G.inv[G.hot];
+  G.armorPoints = () => { const a = G.player && G.player.armor; let s = 0; if (a) for (const x of a) if (x) s += KM.I[x[0]].armor.pts; return s; };
   G.give = function (id, n = 1, quiet = false) {
     if (!id) return 0;
+    if (G.player && G.player.prog && !G.player.prog[id]) { G.player.prog[id] = 1; if (G.onProgress) G.onProgress(); }
     const st = KM.stackOf(id); let left = n;
     for (let i = 0; i < 36 && left; i++) { const s = G.inv[i]; if (s && s[0] === id && s[1] < st && !(KM.isItem(id) && KM.I[id].tool)) { const k = Math.min(st - s[1], left); s[1] += k; left -= k; } }
     for (let i = 0; i < 36 && left; i++) if (!G.inv[i]) { const k = Math.min(st, left); G.inv[i] = [id, k, 0]; left -= k; }
@@ -303,6 +314,7 @@
     const up = W.get(d, x, y + 1, z); if (up > 0 && (B[up].shape === 'cross' || B[up].shape === 'flat') && up !== KM.TORCH) { W.set(d, x, y + 1, z, 0); if (byPlayer && G.mode !== 'creative') { const dd = dropOf(up); if (dd) G.give(dd, 1); } }
     if (byPlayer && G.mode !== 'creative' && canHarvest(id)) { const dd = dropOf(id); if (dd) G.give(dd, 1); }
     if (df.mech) G.mechUpdate(x, y, z);
+    if (byPlayer) G.player.stats.br++;
     G.particles(x + 0.5, y + 0.5, z + 0.5, id);
     G.sfx('break');
   };
@@ -337,7 +349,10 @@
     if (id === KM.DOOR) { if (W.get(d, x, y + 1, z) !== 0) return false; W.set(d, x, y + 1, z, KM.DOOR); }
     W.set(d, x, y, z, id, m);
     if (df.mech) G.mechUpdate(x, y, z);
+    if (id === KM.PORTAL_DEEP || id === KM.PORTAL_SKY) G.player.portals[(id === KM.PORTAL_DEEP ? 'deep' : 'sky') + d] = [x, y, z];
+    if (id === KM.ALTAR_FINAL) G.player.portals['altar' + d] = [x, y, z];
     useHeld(1);
+    G.player.stats.pl++; G.swingHand();
     G.sfx('place');
     return true;
   }
@@ -457,8 +472,9 @@
     // удар по существу важнее, чем ломание блока
     const hit = G.raycast(5);
     const mob = G.pickMob ? G.pickMob(hit ? hit.t : 4) : null;
-    if (mob) { breaking = null; crack.visible = false; if (pressed || attackCD <= 0) { if (attackCD <= 0) { const t = G.toolOf(); G.hurtMob(mob, t && t.dmg ? t.dmg : 1, G.player); attackCD = 0.45; if (t) wearTool(); } } return; }
-    if (!hit) { breaking = null; crack.visible = false; return; }
+    if (mob) { breaking = null; crack.visible = false; if (pressed || attackCD <= 0) { if (attackCD <= 0) { G.swingHand(); const t = G.toolOf(); G.hurtMob(mob, t && t.dmg ? t.dmg : 1, G.player); attackCD = 0.45; if (t) wearTool(); } } return; }
+    if (!hit) { breaking = null; crack.visible = false; if (pressed) G.swingHand(); return; }
+    G.swingHand();
     if (!breaking || breaking.x !== hit.x || breaking.y !== hit.y || breaking.z !== hit.z) breaking = { x: hit.x, y: hit.y, z: hit.z, p: 0, t: breakTime(hit.id), snd: 0 };
     if (breaking.t === Infinity) return;
     breaking.p += dt; breaking.snd -= dt; if (breaking.snd <= 0) { breaking.snd = 0.22; G.sfx('dig'); }
@@ -473,13 +489,14 @@
     if (hit) {
       const id = hit.id, df = B[id], P = G.player;
       if (df.use && !(G.input.down && s && !KM.isItem(s[0]))) {
+        G.swingHand();
         if (df.use === 'craft') { G.openInv('craft'); return; }
         if (df.use === 'chest') { G.openChest(hit.x, hit.y, hit.z); return; }
         if (df.use === 'lever') { W.set(d, hit.x, hit.y, hit.z, id === KM.LEVER ? KM.LEVER_ON : KM.LEVER); G.mechUpdate(hit.x, hit.y, hit.z); G.sfx('click'); return; }
         if (df.use === 'button') { G.pressButton(hit.x, hit.y, hit.z); return; }
         if (df.use === 'door') { G.toggleDoor(hit.x, hit.y, hit.z); return; }
         if (df.use === 'bomb') { G.ignite(hit.x, hit.y, hit.z); return; }
-        if (df.use === 'altar') { G.summonBoss(hit.x, hit.y, hit.z, W.getMeta(d, hit.x, hit.y, hit.z)); return; }
+        if (df.use === 'altar') { G.summonBoss(hit.x, hit.y, hit.z, id === KM.ALTAR_FINAL ? 4 : W.getMeta(d, hit.x, hit.y, hit.z)); return; }
         if (df.use === 'portal') { G.usePortal(id); return; }
       }
       if (s && KM.isItem(s[0])) {
@@ -490,6 +507,7 @@
     }
     if (s && KM.isItem(s[0])) {
       const it = KM.I[s[0]];
+      if (it.armor) { const P = G.player, old = P.armor[it.armor.slot]; P.armor[it.armor.slot] = s; G.inv[G.hot] = old; G.uiDirty = true; G.sfx('craft'); G.swingHand(); G.toast('🛡 Надето: ' + KM.name(s[0]), 1600); return; }
       if (it.food) { if (G.player.food < 20 || G.mode === 'creative') { G.player.food = Math.min(20, G.player.food + it.food); useHeld(1); G.sfx('eat'); } return; }
       if (it.bow) { if (G.mode === 'creative' || G.count(KM.ARROW) > 0) { if (G.mode !== 'creative') G.take(KM.ARROW, 1); G.shootArrow(); } else G.toast('Нужны стрелы'); return; }
     }
@@ -540,6 +558,8 @@
       camera.position.set(p.x, p.y + EYE + (G.input.down && !p.fly ? -0.2 : 0), p.z);
       if (G.shake > 0) { camera.position.x += (Math.random() - 0.5) * G.shake * 0.3; camera.position.y += (Math.random() - 0.5) * G.shake * 0.3; G.shake -= dt; }
       camera.rotation.set(p.pitch, p.yaw, 0, 'YXZ');
+      if (!G.paused) p.stats.t += dt;
+      if (G.tickAvatar) G.tickAvatar(dt);
       const hit = !G.paused ? G.raycast(5.5) : null;
       sel.visible = !!hit; if (hit) sel.position.set(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5);
       tickParts(dt);
@@ -548,6 +568,7 @@
       saveT += dt; if (saveT > 15 && !G.paused) { saveT = 0; if (G.saveWorld) G.saveWorld(); }
     }
     R.render(scene, camera);
+    if (G.renderHand) G.renderHand(R);
     requestAnimationFrame(G.frame);
   };
   G.resize = () => { const w = innerWidth, h = innerHeight; R.setSize(w, h, false); camera.aspect = w / h; camera.fov = G.settings.fov; camera.updateProjectionMatrix(); };
