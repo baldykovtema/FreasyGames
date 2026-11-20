@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/clips.js?v=1"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0d0f1c">
+<title>Аэрохоккей 3D — FreasyGames 3D</title>
+<meta name="description" content="Аэрохоккей 3D на FreasyGames: объёмный стол с неоновыми бортами, светящаяся шайба и биты. Матчи до пяти голов, каждая победа — новая лига. Таблица лидеров общая с 2D.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>#ov { pointer-events: none; }</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="ov"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames 3D</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ 3D</div>
+    <h1>Аэрохоккей <span>3D</span></h1>
+    <p>Объёмный стол с неоновыми бортами. Води битой по своей половине и отбивай шайбу в ворота соперника. Матч — до 5 голов.</p>
+    <p>Каждая победа — новая лига: соперник быстрее и хитрее. Проиграл матч — игра окончена. Рекорды общие с 2D.</p>
+    <p>Рекорд: <b id="bestStart">0</b> побед · голов: <b id="goalsStart">0</b></p>
+    <button class="play" id="go" type="button">На лёд ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Палец или мышь — бита едет за ним</div>
+  </div>
+</div>
+
+<div class="screen" id="between" hidden>
+  <div class="box">
+    <div class="eyebrow">Победа!</div>
+    <div class="big" id="matchScore">5 : 0</div>
+    <p id="betweenText">Следующая лига</p>
+    <button class="play" id="next" type="button">Следующий матч ↗</button>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow">Матч проигран</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">побед</p>
+    <p>Голов забито: <b id="goalsOver">0</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> побед · голов: <b id="bestGoalsOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<script src="../../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const cv = document.getElementById('c'), ov = document.getElementById('ov'), ctx = ov.getContext('2d');
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  let best = Number(store.get('hokkey-best', 0)) || 0, bestGoals = Number(store.get('hokkey-best-goals', 0)) || 0;
+  let muted = store.get('hokkey-muted', '0') === '1';
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const winsWord = (n) => plural(n, 'победа', 'победы', 'побед');
+  const goalsWord = (n) => plural(n, 'гол', 'гола', 'голов');
+
+  // The rules are the 2D game's: the rink is 400 × 680 units; the 3D scene only shows it.
+  const RW = 400, RH = 680, GOAL = 130, PUCK = 16, MALLET = 30, WIN_AT = 5;
+  let W = 0, H = 0, DPR = 1;
+  let state = 'start', time = 0, lastT = 0, flash = 0, shake = 0, pause = 0;
+  let puck, me, ai, mine, theirs, wins, goals, playTime, parts = [], pops = [], pointer = null;
+
+  const level = () => wins + 1;
+  const aiSpeed = () => 430 + Math.min(10, wins) * 60;
+  const aiAim = () => Math.min(0.9, 0.35 + wins * 0.07);
+
+  function faceOff(towardMe) {
+    puck = { x: RW / 2, y: RH / 2, vx: (Math.random() - 0.5) * 60, vy: towardMe ? 120 : -120 };
+    me = me || { x: RW / 2, y: RH - 90, vx: 0, vy: 0 };
+    ai = { x: RW / 2, y: 90, vx: 0, vy: 0 };
+    pause = 0.8;
+  }
+  function newMatch() { mine = 0; theirs = 0; me = { x: RW / 2, y: RH - 90, vx: 0, vy: 0 }; pointer = null; faceOff(Math.random() < 0.5); }
+  function start() {
+    wins = 0; goals = 0; playTime = 0; chanceUsed = false; chance.hide();
+    newMatch(); state = 'play';
+    $('start').hidden = true; $('over').hidden = true; $('between').hidden = true;
+    unlockAudio();
+  }
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'hokkey-continue', label: '🎬 Переиграть концовку за рекламу', onReward: () => {
+    chanceUsed = true; mine = Math.max(mine, WIN_AT - 1); theirs = WIN_AT - 1; faceOff(false); state = 'play'; $('over').hidden = true;
+  } });
+
+  function goal(byMe) {
+    if (byMe) { mine++; goals++; } else theirs++;
+    flash = 1; shake = 0.4; goalGlow[byMe ? 0 : 1] = 1;
+    burst(puck.x, byMe ? 0 : RH, byMe ? '#5df2a5' : '#ff7a6b', 40);
+    pops.push({ text: byMe ? 'ГОЛ!' : 'Пропустил', color: byMe ? '#5df2a5' : '#ff7a8a', life: 1.2 });
+    sound(byMe ? 'goal' : 'miss');
+    if (mine >= WIN_AT) { wins++; state = 'between'; setTimeout(() => { $('matchScore').textContent = `${mine} : ${theirs}`; $('betweenText').textContent = `Лига ${level()} — соперник быстрее`; $('between').hidden = false; }, 700); return; }
+    if (theirs >= WIN_AT) { gameOver(); return; }
+    faceOff(!byMe);
+  }
+  function gameOver() {
+    state = 'over';
+    const seconds = Math.floor(playTime), record = wins > best;
+    if (record) { best = wins; store.set('hokkey-best', best); }
+    if (goals > bestGoals) { bestGoals = goals; store.set('hokkey-best-goals', bestGoals); }
+    lb.submit({ new_wins: wins, new_goals: goals, new_time: seconds });
+    setTimeout(() => {
+      if (state !== 'over') return;
+      $('final').textContent = wins;
+      $('overText').innerHTML = (record && wins > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + winsWord(wins);
+      $('goalsOver').textContent = goals;
+      showBests(); $('over').hidden = false;
+      if (!chanceUsed) chance.show();
+    }, 900);
+  }
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('goalsStart').textContent = $('bestGoalsOver').textContent = bestGoals;
+  }
+  function burst(x, y, color, n) { for (let i = 0; i < n; i++) { const a = Math.random() * 7, v = 60 + Math.random() * 260; parts.push({ x, y, h: 6, vh: 80 + Math.random() * 200, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, color }); } }
+
+  function hit(m) {
+    const dx = puck.x - m.x, dy = puck.y - m.y, d = Math.hypot(dx, dy), min = PUCK + MALLET;
+    if (d >= min || d === 0) return;
+    const nx = dx / d, ny = dy / d;
+    puck.x = m.x + nx * min; puck.y = m.y + ny * min;
+    const rel = (puck.vx - m.vx) * nx + (puck.vy - m.vy) * ny;
+    if (rel < 0) { puck.vx -= 1.9 * rel * nx; puck.vy -= 1.9 * rel * ny; }
+    puck.vx += m.vx * 0.45; puck.vy += m.vy * 0.45;
+    const sp = Math.hypot(puck.vx, puck.vy), max = 1100;
+    if (sp > max) { puck.vx *= max / sp; puck.vy *= max / sp; }
+    sound('hit', Math.min(1, sp / 1200)); m.bump = 1;
+    burst(puck.x - nx * PUCK, puck.y - ny * PUCK, '#ffd23f', Math.round(3 + sp / 200));
+  }
+  function step(dt) {
+    playTime += dt;
+    const tx = pointer ? pointer.x : me.x, ty = pointer ? pointer.y : me.y;
+    const nx = Math.max(MALLET, Math.min(RW - MALLET, tx)), ny = Math.max(RH / 2 + MALLET, Math.min(RH - MALLET, ty));
+    me.vx = (nx - me.x) / dt; me.vy = (ny - me.y) / dt; me.x = nx; me.y = ny;
+    const s = aiSpeed();
+    let gx = RW / 2 + (puck.x - RW / 2) * 0.6, gy = 70;
+    if (puck.y < RH / 2) {
+      const aimX = RW / 2 + (Math.sin(time * 1.3) * GOAL * 0.4) * aiAim();
+      const ax = puck.x - aimX, ay = puck.y - RH, al = Math.hypot(ax, ay) || 1;
+      gx = puck.x + ax / al * (MALLET + PUCK - 4); gy = puck.y + ay / al * (MALLET + PUCK - 4);
+      if (puck.vy < -420 && puck.y > 160) { gx = puck.x + puck.vx * 0.15; gy = 80; }
+    }
+    const dx = gx - ai.x, dy = gy - ai.y, d = Math.hypot(dx, dy), stepLen = Math.min(d, s * dt);
+    ai.vx = d ? dx / d * stepLen / dt : 0; ai.vy = d ? dy / d * stepLen / dt : 0;
+    ai.x = Math.max(MALLET, Math.min(RW - MALLET, ai.x + ai.vx * dt)); ai.y = Math.max(MALLET, Math.min(RH / 2 - MALLET, ai.y + ai.vy * dt));
+    if (pause > 0) { pause -= dt; return; }
+    puck.x += puck.vx * dt; puck.y += puck.vy * dt;
+    const drag = Math.pow(0.82, dt); puck.vx *= drag; puck.vy *= drag;
+    if (puck.x < PUCK) { puck.x = PUCK; puck.vx = Math.abs(puck.vx) * 0.9; sound('wall'); }
+    if (puck.x > RW - PUCK) { puck.x = RW - PUCK; puck.vx = -Math.abs(puck.vx) * 0.9; sound('wall'); }
+    const inGoal = Math.abs(puck.x - RW / 2) < GOAL / 2 - PUCK * 0.4;
+    if (puck.y < PUCK) { if (inGoal) { if (puck.y < -PUCK) return goal(true); } else { puck.y = PUCK; puck.vy = Math.abs(puck.vy) * 0.9; sound('wall'); } }
+    if (puck.y > RH - PUCK) { if (inGoal) { if (puck.y > RH + PUCK) return goal(false); } else { puck.y = RH - PUCK; puck.vy = -Math.abs(puck.vy) * 0.9; sound('wall'); } }
+    hit(me); hit(ai);
+    // A mallet must never push the puck through a rail (it used to get stuck outside the rink in a corner).
+    const mouth = Math.abs(puck.x - RW / 2) < GOAL / 2 - PUCK * 0.4;
+    if (puck.x < PUCK) { puck.x = PUCK; puck.vx = Math.abs(puck.vx); }
+    if (puck.x > RW - PUCK) { puck.x = RW - PUCK; puck.vx = -Math.abs(puck.vx); }
+    if (!mouth && puck.y < PUCK) { puck.y = PUCK; puck.vy = Math.abs(puck.vy); }
+    if (!mouth && puck.y > RH - PUCK) { puck.y = RH - PUCK; puck.vy = -Math.abs(puck.vy); }
+    if (Math.hypot(puck.vx, puck.vy) < 8) puck.vy += (puck.y < RH / 2 ? 30 : -30) * dt;
+    // a light trail behind a fast puck
+    const sp = Math.hypot(puck.vx, puck.vy);
+    if (sp > 500 && Math.random() < dt * 40) parts.push({ x: puck.x, y: puck.y, h: 4, vh: 0, vx: 0, vy: 0, life: 0.5, color: '#ffd23f', trail: true });
+  }
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (ac && ac.state === 'suspended') ac.resume(); }
+  function tone(f, dur, type, vol, slide = 1, delay = 0) {
+    if (!ac || muted) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  let lastHit = 0;
+  function sound(kind, power = 0.5) {
+    if (kind === 'hit') { if (time - lastHit < 0.05) return; lastHit = time; tone(300 + power * 500, 0.06, 'square', 0.04 + power * 0.06, 0.6); }
+    else if (kind === 'wall') { if (time - lastHit < 0.05) return; lastHit = time; tone(180, 0.05, 'triangle', 0.05); }
+    else if (kind === 'goal') [0, 4, 7, 12].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.15, 'square', 0.06, 1, i * 0.07));
+    else if (kind === 'miss') tone(240, 0.4, 'sawtooth', 0.08, 0.5);
+  }
+
+  // ——— 3D ———
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); } catch (e) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="screen"><div class="box"><h1><span>3D</span> не запускается</h1><p>Браузер не поддерживает WebGL. Сыграй в обычный Аэрохоккей.</p><a class="play" style="display:block;text-decoration:none" href="../../hokkey/">Аэрохоккей ↗</a></div></div>');
+    throw e;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const scene = new THREE.Scene(); scene.background = new THREE.Color('#0d0f1c'); scene.fog = new THREE.Fog('#0d0f1c', 30, 70);
+  const camera = new THREE.PerspectiveCamera(40, 1, 0.3, 200);
+  scene.add(new THREE.HemisphereLight('#dfe8ff', '#141428', 0.6));
+  const sun = new THREE.DirectionalLight('#ffffff', 0.55); sun.position.set(-4, 14, 6); sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024); Object.assign(sun.shadow.camera, { left: -8, right: 8, top: 11, bottom: -11, near: 1, far: 40 }); scene.add(sun);
+  const U = 40, MX = RW / 2, MY = RH / 2;
+  const V = (x, y, h = 0) => new THREE.Vector3((x - MX) / U, h, (y - MY) / U);
+  // table: surface with markings, a dark body and neon rails with gaps for the goals
+  (() => {
+    const c = document.createElement('canvas'); c.width = 400; c.height = 680; const g = c.getContext('2d');
+    const gr = g.createLinearGradient(0, 0, 0, 680); gr.addColorStop(0, '#1d2c4a'); gr.addColorStop(0.5, '#22365a'); gr.addColorStop(1, '#1d2c4a');
+    g.fillStyle = gr; g.fillRect(0, 0, 400, 680);
+    g.fillStyle = '#ffffff10'; for (let y = 10; y < 680; y += 20) for (let x = 10; x < 400; x += 20) { g.beginPath(); g.arc(x, y, 1.3, 0, 7); g.fill(); }
+    g.strokeStyle = '#ffffff30'; g.lineWidth = 3; g.beginPath(); g.moveTo(0, 340); g.lineTo(400, 340); g.stroke();
+    g.beginPath(); g.arc(200, 340, 60, 0, 7); g.stroke(); g.beginPath(); g.arc(200, 340, 6, 0, 7); g.fillStyle = '#ffffff40'; g.fill();
+    g.lineWidth = 3; g.strokeStyle = '#ff7a8a66'; g.beginPath(); g.arc(200, 0, 65, 0, Math.PI); g.stroke();
+    g.strokeStyle = '#5df2a566'; g.beginPath(); g.arc(200, 680, 65, Math.PI, 2 * Math.PI); g.stroke();
+    const top = new THREE.Mesh(new THREE.PlaneGeometry(RW / U, RH / U), new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(c), roughness: 0.25, metalness: 0.15 }));
+    top.rotation.x = -Math.PI / 2; top.receiveShadow = true; scene.add(top);
+    const body = new THREE.Mesh(new THREE.BoxGeometry(RW / U + 0.8, 1.2, RH / U + 0.8), new THREE.MeshStandardMaterial({ color: '#15162a', roughness: 0.7 }));
+    body.position.y = -0.62; body.receiveShadow = true; scene.add(body);
+    const railMat = new THREE.MeshStandardMaterial({ color: '#6fe3ff', emissive: '#2aa8d0', emissiveIntensity: 0.9, roughness: 0.3 });
+    const rail = (w, d, x, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.32, d), railMat); m.position.set(x, 0.16, z); m.castShadow = true; scene.add(m); };
+    const w = RW / U, d = RH / U, t = 0.3, side = (RW - GOAL) / 2 / U;
+    rail(t, d + t * 2, -(w / 2 + t / 2), 0); rail(t, d + t * 2, w / 2 + t / 2, 0);
+    for (const z of [-(d / 2 + t / 2), d / 2 + t / 2]) { rail(side, t, -(w / 2 - side / 2), z); rail(side, t, w / 2 - side / 2, z); }
+    // legs
+    for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { const l = new THREE.Mesh(new THREE.BoxGeometry(0.4, 4, 0.4), new THREE.MeshStandardMaterial({ color: '#101122' })); l.position.set(x * (w / 2), -3, z * (d / 2)); scene.add(l); }
+  })();
+  // goal slots glow in the team colours
+  const goalGlow = [0, 0], goalMeshes = [];
+  for (const [y, col] of [[0, '#ff7a8a'], [RH, '#5df2a5']]) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(GOAL / U, 0.06, 0.3), new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: 0.6 }));
+    m.position.copy(V(RW / 2, y + (y ? 8 : -8), 0.03)); scene.add(m); goalMeshes.push(m);
+  }
+  // mallets: a disc with a knob
+  function makeMallet(col, dark) {
+    const g = new THREE.Group(), m1 = new THREE.MeshStandardMaterial({ color: col, roughness: 0.35, emissive: dark, emissiveIntensity: 0.35 });
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(MALLET / U, MALLET / U, 0.22, 32), m1); base.position.y = 0.11; base.castShadow = true; g.add(base);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(MALLET / U * 0.62, 0.05, 8, 32), new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.3 })); ring.rotation.x = Math.PI / 2; ring.position.y = 0.23; g.add(ring);
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, 0.4, 16), m1); stem.position.y = 0.42; stem.castShadow = true; g.add(stem);
+    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.28, 20, 14), m1); knob.position.y = 0.72; knob.castShadow = true; g.add(knob);
+    scene.add(g); return g;
+  }
+  const meMesh = makeMallet('#5df2a5', '#1f7a4e'), aiMesh = makeMallet('#ff7a8a', '#a8243e');
+  const puckMesh = new THREE.Mesh(new THREE.CylinderGeometry(PUCK / U, PUCK / U, 0.14, 32), new THREE.MeshStandardMaterial({ color: '#ffd23f', emissive: '#ffb000', emissiveIntensity: 0.6, roughness: 0.3 }));
+  puckMesh.castShadow = true; scene.add(puckMesh);
+  const puckLight = new THREE.PointLight('#ffd23f', 0.8, 4); scene.add(puckLight);
+  const MAXP = 400, pGeo = new THREE.BufferGeometry(), pPos = new Float32Array(MAXP * 3), pCol = new Float32Array(MAXP * 3);
+  pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3)); pGeo.setAttribute('color', new THREE.BufferAttribute(pCol, 3));
+  const ptsM = new THREE.Points(pGeo, new THREE.PointsMaterial({ size: 0.14, vertexColors: true, transparent: true, depthWrite: false })); ptsM.frustumCulled = false; scene.add(ptsM);
+  const tmpC = new THREE.Color();
+
+  const camDir = new THREE.Vector3(), camTarget = new THREE.Vector3();
+  function fitCamera() {
+    const A = W / Math.max(1, H), tilt = (A < 0.85 ? 64 : 56) * Math.PI / 180;
+    camDir.set(0, Math.sin(tilt), Math.cos(tilt)); camTarget.set(0, 0, 0);
+    camera.aspect = A; camera.updateProjectionMatrix(); camera.clearViewOffset();
+    const corners = [V(-16, -16, 0.9), V(RW + 16, -16, 0.9), V(-16, RH + 16, 0.3), V(RW + 16, RH + 16, 0.3)];
+    const topLimit = 1 - 2 * Math.min(0.16, 100 / H);
+    let lo = 3, hi = 200;
+    for (let i = 0; i < 30; i++) {
+      const d = (lo + hi) / 2;
+      camera.position.copy(camTarget).addScaledVector(camDir, d); camera.lookAt(camTarget); camera.updateMatrixWorld();
+      const ok = corners.every((c) => { const v = c.clone().project(camera); return Math.abs(v.x) < 0.95 && v.y < topLimit && v.y > -0.97; });
+      if (ok) hi = d; else lo = d;
+    }
+    camera.position.copy(camTarget).addScaledVector(camDir, hi); camera.lookAt(camTarget); camera.updateMatrixWorld();
+    const ys = corners.map((c) => c.clone().project(camera).y), mid = (Math.max(...ys) + Math.min(...ys)) / 2, want = (topLimit - 0.97) / 2;
+    camera.setViewOffset(W, H, 0, (want - mid) / 2 * H, W, H);
+  }
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    ov.width = Math.round(W * DPR); ov.height = Math.round(H * DPR);
+    renderer.setSize(W, H, false);
+    fitCamera();
+  }
+  // The pointer is projected onto the table at the mallet's height.
+  const raycaster = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.2), hitV = new THREE.Vector3();
+  function toRink(e) {
+    raycaster.setFromCamera({ x: e.clientX / W * 2 - 1, y: -(e.clientY / H) * 2 + 1 }, camera);
+    if (!raycaster.ray.intersectPlane(plane, hitV)) return null;
+    return { x: hitV.x * U + MX, y: hitV.z * U + MY };
+  }
+  function screenOf(x, y, h = 0.3) { const v = V(x, y, h).project(camera); return [(v.x + 1) / 2 * W, (1 - v.y) / 2 * H]; }
+
+  function draw() {
+    for (const [m, o] of [[meMesh, me], [aiMesh, ai]]) { o.bump = Math.max(0, (o.bump || 0) - 0.1); m.position.copy(V(o.x, o.y, 0)); m.scale.set(1 + o.bump * 0.12, 1 - o.bump * 0.15, 1 + o.bump * 0.12); }
+    if (puck) { puckMesh.position.copy(V(puck.x, puck.y, 0.07)); puckMesh.visible = puck.y > -PUCK * 2 && puck.y < RH + PUCK * 2; puckLight.position.copy(V(puck.x, puck.y, 0.6)); }
+    goalGlow[0] = Math.max(0, goalGlow[0] - 0.02); goalGlow[1] = Math.max(0, goalGlow[1] - 0.02);
+    goalMeshes[0].material.emissiveIntensity = 0.6 + goalGlow[0] * 3; goalMeshes[1].material.emissiveIntensity = 0.6 + goalGlow[1] * 3;
+    let n = 0;
+    for (const q of parts) { if (n >= MAXP) break; const v = V(q.x, q.y, q.h / U); pPos[n * 3] = v.x; pPos[n * 3 + 1] = v.y; pPos[n * 3 + 2] = v.z; tmpC.set(q.color).multiplyScalar(Math.max(0, q.life)); pCol[n * 3] = tmpC.r; pCol[n * 3 + 1] = tmpC.g; pCol[n * 3 + 2] = tmpC.b; n++; }
+    pGeo.setDrawRange(0, n); pGeo.attributes.position.needsUpdate = true; pGeo.attributes.color.needsUpdate = true;
+    const sh = shake > 0 ? (Math.random() - 0.5) * 0.35 * shake : 0;
+    camera.position.x += sh; renderer.render(scene, camera); camera.position.x -= sh;
+    // overlay: score, league and goal texts
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.clearRect(0, 0, W, H);
+    if (state !== 'start') {
+      ctx.textAlign = 'center'; ctx.shadowColor = '#000c'; ctx.shadowBlur = 12;
+      ctx.font = '800 40px Manrope, system-ui';
+      ctx.fillStyle = '#5df2a5'; ctx.fillText(mine, W / 2 - 42, 96); ctx.fillStyle = '#ffffff88'; ctx.fillText(':', W / 2, 94); ctx.fillStyle = '#ff7a8a'; ctx.fillText(theirs, W / 2 + 42, 96);
+      ctx.fillStyle = '#bca0ff'; ctx.font = '800 13px Manrope, system-ui'; ctx.fillText(`ЛИГА ${level()} · ПОБЕД ${wins}`, W / 2, 116);
+      for (const p of pops) { ctx.globalAlpha = Math.min(1, p.life * 2); ctx.fillStyle = p.color; ctx.font = '800 48px Manrope, system-ui'; ctx.fillText(p.text, W / 2, H / 2 - (1 - p.life) * 40); }
+      ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+    }
+    if (flash > 0) { ctx.fillStyle = `rgba(255,255,255,${flash * 0.12})`; ctx.fillRect(0, 0, W, H); }
+  }
+
+  function frame(now) {
+    const dt = Math.min(0.05, (now - lastT) / 1000 || 0); lastT = now; time += dt;
+    if (state === 'play' && !lb.isOpen()) { const n = 4; for (let i = 0; i < n && state === 'play'; i++) step(dt / n); }
+    if (state !== 'preview') for (const p of parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.h = Math.max(2, p.h + p.vh * dt); p.vh -= 600 * dt; p.vx *= 0.95; p.vy *= 0.95; p.life -= dt * (p.trail ? 2.4 : 1.3); }
+    parts = parts.filter((p) => p.life > 0);
+    for (const p of pops) p.life -= dt * 0.9; pops = pops.filter((p) => p.life > 0);
+    flash = Math.max(0, flash - dt * 2); shake = Math.max(0, shake - dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'hokkey',
+    boards: [
+      { id: 'wins', title: 'Победы', column: 'best_wins', order: 'desc', note: 'Больше всего выигранных матчей подряд.', format: (v) => `${v} ${winsWord(v)}` },
+      { id: 'goals', title: 'Голы', column: 'best_goals', order: 'desc', note: 'Больше всего голов за одну игру.', format: (v) => `${v} ${goalsWord(v)}` },
+    ],
+    bests: () => null,
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); unlockAudio(); const p = toRink(e); if (p) pointer = p; });
+  cv.addEventListener('pointermove', (e) => { if (state === 'play') { const p = toRink(e); if (p) pointer = p; } });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.target.closest && e.target.closest('.box button, a')) return;
+    if ((e.code === 'Space' || e.code === 'Enter')) {
+      if (!$('between').hidden) { e.preventDefault(); nextMatch(); }
+      else if (state !== 'play' && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); }
+    }
+  });
+  function nextMatch() { $('between').hidden = true; newMatch(); state = 'play'; }
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  $('next').addEventListener('click', nextMatch);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('hokkey-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+  document.addEventListener('visibilitychange', () => { lastT = performance.now(); });
+  addEventListener('resize', resize);
+  resize(); wins = 0; mine = 0; theirs = 0; me = { x: RW / 2, y: RH - 90, vx: 0, vy: 0 }; faceOff(true); showBests();
+  // For automated checks only (?test=1).
+  if (new URLSearchParams(location.search).get('test') === '1') window.__hokkey = { get: () => ({ state, puck, me, ai, mine, theirs, wins, goals }), start, step, screenOf, setPointer: (p) => { pointer = p; } };
+  // #preview: a match in play with the puck flying, for the catalog.
+  if (location.hash === '#preview') {
+    $('start').hidden = true; wins = 2; goals = 13; newMatch(); mine = 3; theirs = 2; state = 'preview';
+    me.x = 170; me.y = 560; ai.x = 250; ai.y = 120; puck = { x: 215, y: 300, vx: 300, vy: -700 }; pause = 0;
+    for (let i = 0; i < 26; i++) parts.push({ x: 215 - i * 4, y: 300 + i * 10, h: 4, vh: 0, vx: 0, vy: 0, life: 1 - i / 30, color: '#ffd23f', trail: true });
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

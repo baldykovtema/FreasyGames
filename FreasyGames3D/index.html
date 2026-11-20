@@ -6,7 +6,7 @@
 <script src="../shared/theme.js?v=1"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0d0f1c">
-  <meta name="description" content="FreasyGames 3D — бесплатные 3D-игры прямо в браузере: RCFCG 3D, Растения против Зомби 3D, Мемный Кот: Прыг 3D, Отель «Полночь», Трасса 3D, Шариковый рекорд 3D, Лиана 3D, Слияние звёзд 3D, Звёздная башня 3D, Кирпичики 3D, Нарезка 3D, Лабиринт 3D и Блоки 3D.">
+  <meta name="description" content="FreasyGames 3D — бесплатные 3D-игры прямо в браузере: RCFCG 3D, Растения против Зомби 3D, Мемный Кот: Прыг 3D, Отель «Полночь», Трасса 3D, Шариковый рекорд 3D, Лиана 3D, Слияние звёзд 3D, Звёздная башня 3D, Кирпичики 3D, Нарезка 3D, Лабиринт 3D, Блоки 3D, Лунка 3D и Аэрохоккей 3D.">
   <title>FreasyGames 3D</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -296,6 +296,10 @@
     .art.fruit3d { background: url(../images/narezka3d.jpg) center / cover; }
     .art.maze3d { background: #07080f url(../images/labirint3d.jpg) 50% 45% / 150% auto no-repeat; }
     .art.blocks3d { background: #0d0f1c url(../images/bloki3d.jpg) 50% 35% / 150% auto no-repeat; }
+    .art.golf3d { background: #0f1a14 url(../images/lunka3d.jpg) 50% 45% / 150% auto no-repeat; }
+    .art.hockey3d { background: #0d0f1c url(../images/hokkey3d.jpg) 50% 22% / 150% auto no-repeat; }
+    .art.golf3d::after, .art.hockey3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, var(--card)); pointer-events: none; }
+    .art .pct.golfp { color: #5df2a5; font-size: 13px; } .art .pct.hockeyp { color: #6fe3ff; font-size: 13px; }
     .art.maze3d::after, .art.blocks3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, var(--card)); pointer-events: none; }
     .art .pct.mazep { color: #ffd23f; font-size: 13px; } .art .pct.blockp { color: #5df2a5; font-size: 13px; }
     .art.bricks3d::after, .art.fruit3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, var(--card)); pointer-events: none; }
@@ -341,7 +345,7 @@
     <section class="wrap hero">
       <span class="eyebrow">Только 3D</span>
       <h1>Freasy<span class="three">Games 3D</span></h1>
-      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже двадцать одна игра, и будут ещё.</p>
+      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже двадцать три игры, и будут ещё.</p>
       <a class="hero-action" href="#games">Смотреть игры ↓</a>
       <div class="hint">Двигай мышкой или пальцем — сцена повернётся</div>
     </section>
@@ -413,6 +417,10 @@
           <span class="tag live">Играть</span><h3>Кубомир</h3><p>Бесконечный мир из кубиков: шахты, крафт, механизмы, три измерения и стражи. Сохранения и игра по сети.</p></div>
         <div class="slot game" data-game="3d-neograd" data-tags="Экшен, Онлайн"><a class="slot-link" href="neograd/" aria-label="Играть: Неоград"></a><div class="art neo3d" aria-hidden="true"><span class="pct cubep">🌐 онлайн</span></div>
           <span class="tag live">Играть</span><h3>Неоград</h3><p>Открытый город: машины, самолёты, вертолёты, погони, задания и миникарта. Игра по сети с друзьями.</p></div>
+        <div class="slot game" data-game="3d-lunka" data-tags="Спорт, Мини-гольф, Таблица лидеров"><a class="slot-link" href="lunka/" aria-label="Играть: Лунка 3D"></a><div class="art golf3d" aria-hidden="true"><span class="pct golfp">⛳ пар 4</span></div>
+          <span class="tag live">Играть</span><h3>Лунка 3D</h3><p>Объёмный мини-гольф: деревянные бортики, песок, пруды и мельница, флаг колышется на ветру. Те же поля, удары и рекорды, что в 2D.</p></div>
+        <div class="slot game" data-game="3d-hokkey" data-tags="Спорт, Таблица лидеров"><a class="slot-link" href="hokkey/" aria-label="Играть: Аэрохоккей 3D"></a><div class="art hockey3d" aria-hidden="true"><span class="pct hockeyp">3 : 2</span></div>
+          <span class="tag live">Играть</span><h3>Аэрохоккей 3D</h3><p>Объёмный стол с неоновыми бортами, светящаяся шайба оставляет след. Те же лиги, соперник и рекорды, что в 2D.</p></div>
       </div>
     </section>
 

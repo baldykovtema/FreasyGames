@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../shared/session.js?v=2"></script>
+<script src="../shared/clips.js?v=1"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Бургерная — FreasyGames</title>
+<meta name="description" content="Бургерная на FreasyGames: собирай бургеры точно по заказу, пока посетители не потеряли терпение. Новые начинки каждый день, чаевые за скорость и таблица лидеров.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">🍔 Новая игра</div>
+    <h1><span>Бургерная</span></h1>
+    <p>Посетители показывают заказ на чеке. Собирай бургер снизу вверх — слой за слоем, ровно как на чеке, и нажимай «Подать».</p>
+    <p>Чем быстрее подаёшь, тем больше чаевых. Ушёл злой посетитель или бургер не тот — минус сердечко. Каждый день новые начинки и больше гостей.</p>
+    <p>Рекорд: <b id="bestStart">0</b> монет · заказов: <b id="ordersStart">0</b></p>
+    <button class="play" id="go" type="button">Открыть кафе ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Касание или клик. На клавиатуре: 1–8 — начинки, Backspace — убрать слой, Enter — подать</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow">Кафе закрылось</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">монет</p>
+    <p>Заказов подано: <b id="ordersOver">0</b> · день: <b id="dayOver">1</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · заказов: <b id="bestOrdersOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), g = cv.getContext('2d');
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const coinsWord = (n) => plural(n, 'монета', 'монеты', 'монет');
+  const ordersWord = (n) => plural(n, 'заказ', 'заказа', 'заказов');
+
+  // A fixed 480 × 800 layout scaled to the screen.
+  const FW = 480, FH = 800;
+  // Ingredients: layer height and the day it first appears on the menu.
+  const ING = [
+    { id: 'bun', n: 'Низ булки', key: '1', h: 26, day: 1 },
+    { id: 'patty', n: 'Котлета', key: '2', h: 24, day: 1 },
+    { id: 'cheese', n: 'Сыр', key: '3', h: 11, day: 1 },
+    { id: 'salad', n: 'Салат', key: '4', h: 13, day: 1 },
+    { id: 'tomato', n: 'Помидор', key: '5', h: 12, day: 2 },
+    { id: 'bacon', n: 'Бекон', key: '6', h: 11, day: 3 },
+    { id: 'onion', n: 'Лук', key: '7', h: 9, day: 4 },
+    { id: 'top', n: 'Верх булки', key: '8', h: 40, day: 1 },
+  ];
+  const BY = Object.fromEntries(ING.map((x) => [x.id, x]));
+  const FACES = ['😊', '🙂', '😐', '😟', '😠'];
+  let W = 0, H = 0, dpr = 1, scale = 1, ox = 0, oy = 0;
+  let state = 'start', time = 0, playTime = 0, day, served, coins, shownCoins, hearts, streak, guests, stack, sel, spawnT, parts, pops, shake = 0, dayBanner = 0, flash = null;
+  let best = +store.get('burgernaya-best', 0) || 0, bestOrders = +store.get('burgernaya-best-orders', 0) || 0;
+  let runs = {}; try { runs = JSON.parse(store.get('burgernaya-runs', '{}')) || {}; } catch { runs = {}; }
+  let muted = store.get('burgernaya-muted', '0') === '1';
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'sine', v = 0.06, slide = 1, delay = 0) {
+    if (muted || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  const sfx = {
+    put: (i) => tone(360 + i * 40, 0.07, 'triangle', 0.07, 1.3),
+    pop: () => tone(300, 0.07, 'sine', 0.06, 0.6),
+    serve: () => [0, 4, 7, 12].forEach((s, i) => tone(660 * Math.pow(2, s / 12), 0.12, 'triangle', 0.07, 1, i * 0.06)),
+    coin: () => { tone(1320, 0.06, 'square', 0.03); tone(1760, 0.1, 'square', 0.03, 1, 0.05); },
+    bad: () => tone(170, 0.35, 'sawtooth', 0.07, 0.6),
+    bell: () => { tone(1500, 0.3, 'sine', 0.05); tone(2250, 0.25, 'sine', 0.03); },
+    day: () => [0, 7, 12, 16].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.18, 'triangle', 0.07, 1, i * 0.09)),
+  };
+
+  // ——— Orders ———
+  const menu = () => ING.filter((x) => x.day <= day && x.id !== 'bun' && x.id !== 'top');
+  function makeOrder() {
+    const fill = menu(), n = Math.min(7, 1 + Math.floor(day / 1.5) + Math.floor(Math.random() * 2));
+    const mid = [];
+    for (let i = 0; i < n; i++) {
+      let pick;
+      // Patties are more common; the same filling twice in a row is rare.
+      do { pick = Math.random() < 0.3 ? 'patty' : fill[Math.floor(Math.random() * fill.length)].id; } while (mid.length && pick === mid[mid.length - 1] && Math.random() < 0.7);
+      mid.push(pick);
+    }
+    if (!mid.includes('patty')) mid[0] = 'patty';
+    return ['bun', ...mid, 'top'];
+  }
+  const patienceFor = (o) => Math.max(14, (26 + o.length * 3.2) * Math.pow(0.93, day - 1));
+  const maxGuests = () => Math.min(3, 1 + Math.floor((day + 1) / 2));
+  function addGuest() {
+    const o = makeOrder(), p = patienceFor(o);
+    const slots = [0, 1, 2].filter((s) => !guests.some((x) => x.slot === s));
+    if (!slots.length) return;
+    guests.push({ order: o, patience: p, max: p, slot: slots[0], arrive: 0, leave: 0, hue: Math.floor(Math.random() * 360) });
+    sfx.bell();
+    if (!guests.some((x) => x === sel)) sel = guests[guests.length - 1];
+  }
+  function reset() {
+    day = 1; served = 0; coins = 0; shownCoins = 0; hearts = 3; streak = 0; guests = []; stack = []; sel = null; spawnT = 0.6; parts = []; pops = []; playTime = 0; dayBanner = 1.6;
+  }
+
+  // ——— Actions ———
+  function put(id) {
+    if (state !== 'play' || !BY[id] || BY[id].day > day) return;
+    if (stack.length >= 10) { popup(FW / 2, 440, 'Тарелка полна', '#ff9aaa'); sfx.bad(); return; }
+    stack.push({ id, t: 0 }); sfx.put(stack.length);
+  }
+  function undo() { if (state === 'play' && stack.length) { stack.pop(); sfx.pop(); } }
+  function clearPlate() { if (state === 'play' && stack.length) { for (const l of stack) burst(FW / 2, 520, colorOf(l.id), 3); stack = []; sfx.pop(); } }
+  function serve() {
+    if (state !== 'play' || !stack.length) return;
+    const gst = sel && guests.includes(sel) && !sel.leave ? sel : guests.find((x) => !x.leave);
+    if (!gst) { popup(FW / 2, 420, 'Пока некому подать', '#ffd23f'); return; }
+    const ok = gst.order.length === stack.length && gst.order.every((id, i) => stack[i].id === id);
+    const c = ticketPos(gst.slot);
+    if (ok) {
+      const quick = gst.patience / gst.max, base = 10 + gst.order.length * 5, tip = Math.round(base * quick * 0.8);
+      streak++; const mult = 1 + Math.min(4, Math.floor(streak / 3)) * 0.25;
+      const gain = Math.round((base + tip) * mult);
+      coins += gain; served++;
+      popup(c.x, c.y + 60, '+' + gain, '#ffd23f', true);
+      if (tip > base * 0.35) popup(c.x, c.y + 86, 'Чаевые +' + tip, '#5df2a5');
+      if (mult > 1) popup(FW / 2, 400, `Серия ×${mult}`, '#bca0ff');
+      burst(c.x, c.y + 40, '#ffd23f', 20); sfx.serve(); setTimeout(sfx.coin, 200);
+      gst.leave = 1; gst.happy = true;
+      if (served % 6 === 0) nextDay();
+    } else {
+      streak = 0; loseHeart(gst, 'Не тот бургер!');
+    }
+    stack = [];
+  }
+  function loseHeart(gst, text) {
+    hearts--; shake = 0.4; sfx.bad();
+    const c = ticketPos(gst.slot); popup(c.x, c.y + 70, text, '#ff7a8a', true);
+    gst.leave = 1; gst.happy = false;
+    if (hearts <= 0) setTimeout(gameOver, 700);
+  }
+  function nextDay() {
+    day++; dayBanner = 2.2; sfx.day();
+    const fresh = ING.filter((x) => x.day === day);
+    if (fresh.length) setTimeout(() => popup(FW / 2, 470, 'Новое в меню: ' + fresh.map((x) => x.n.toLowerCase()).join(', '), '#5df2a5', true), 900);
+    if (day % 2 === 0 && hearts < 3) { hearts++; setTimeout(() => popup(FW / 2, 500, '+1 ❤', '#ff7a8a', true), 1500); }
+  }
+
+  function step(dt) {
+    if (state !== 'play' || lb.isOpen()) return;
+    playTime += dt; dayBanner = Math.max(0, dayBanner - dt);
+    const live = guests.filter((x) => !x.leave);
+    spawnT -= dt;
+    if (spawnT <= 0 && live.length < maxGuests() && guests.length < 3) { addGuest(); spawnT = Math.max(2.5, 7 - day * 0.5) + Math.random() * 3; }
+    if (!live.length && spawnT > 1.2) spawnT = 1.2;
+    for (const x of guests) {
+      x.arrive = Math.min(1, x.arrive + dt * 3);
+      if (x.leave) { x.leave += dt * 2; continue; }
+      if (dayBanner > 1.2) continue;
+      x.patience -= dt;
+      if (x.patience <= 0) { streak = 0; loseHeart(x, 'Ушёл злой'); }
+    }
+    guests = guests.filter((x) => x.leave < 2);
+    if (sel && !guests.includes(sel)) sel = null;
+    if (!sel || sel.leave) sel = guests.filter((x) => !x.leave).sort((a, b) => a.patience - b.patience)[0] || null;
+    for (const l of stack) l.t = Math.min(1, l.t + dt * 6);
+    if (shownCoins < coins) shownCoins = Math.min(coins, shownCoins + Math.max(1, (coins - shownCoins) * dt * 6));
+  }
+
+  function burst(x, y, col, n = 14) { for (let i = 0; i < n; i++) { const a = Math.random() * 7, v = 60 + Math.random() * 200; parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 100, life: 1, col }); } }
+  function popup(x, y, text, col, big = false) { pops.push({ x, y, text, col, life: 1.4, big }); }
+
+  // ——— Layout ———
+  const ticketPos = (slot) => ({ x: 88 + slot * 152, y: 128, w: 140, h: 196 });
+  const BTN = (() => {
+    const b = [];
+    ING.forEach((x, i) => b.push({ kind: 'ing', id: x.id, x: 12 + (i % 4) * 116, y: 574 + Math.floor(i / 4) * 72, w: 108, h: 64 }));
+    b.push({ kind: 'undo', x: 12, y: 722, w: 108, h: 64 }, { kind: 'clear', x: 128, y: 722, w: 108, h: 64 }, { kind: 'serve', x: 244, y: 722, w: 224, h: 64 });
+    return b;
+  })();
+
+  // ——— Drawing ———
+  function rr(x, y, w, h, r) { g.beginPath(); if (g.roundRect) g.roundRect(x, y, w, h, r); else g.rect(x, y, w, h); }
+  const colorOf = (id) => ({ bun: '#e3a04f', top: '#e3a04f', patty: '#6b3a22', cheese: '#ffcf3a', salad: '#5fc05a', tomato: '#e8443c', bacon: '#c8584f', onion: '#e9d6f2' }[id]);
+  // Draws one layer centred at cx with its bottom at y; returns the layer height.
+  function layer(id, cx, y, w, s = 1) {
+    const h = BY[id].h * s, x = cx - w / 2;
+    if (id === 'bun') {
+      g.fillStyle = '#c97f33'; rr(x, y - h, w, h, [6 * s, 6 * s, 14 * s, 14 * s]); g.fill();
+      g.fillStyle = '#e8a95a'; rr(x + 3 * s, y - h, w - 6 * s, h * 0.45, 6 * s); g.fill();
+    } else if (id === 'top') {
+      g.fillStyle = '#c97f33'; g.beginPath(); g.moveTo(x, y); g.lineTo(x, y - h * 0.35); g.quadraticCurveTo(x, y - h * 1.1, cx, y - h * 1.1); g.quadraticCurveTo(x + w, y - h * 1.1, x + w, y - h * 0.35); g.lineTo(x + w, y); g.closePath(); g.fill();
+      g.fillStyle = '#e8a95a'; g.beginPath(); g.ellipse(cx - w * 0.12, y - h * 0.72, w * 0.28, h * 0.2, -0.15, 0, 7); g.fill();
+      g.fillStyle = '#fff4d6'; for (let i = 0; i < 9; i++) { const a = i * 2.4, rx = Math.cos(a) * w * 0.32, ry = Math.sin(a * 1.7) * h * 0.22; g.beginPath(); g.ellipse(cx + rx, y - h * 0.62 + ry, 3.2 * s, 1.7 * s, a, 0, 7); g.fill(); }
+      return h * 1.1;
+    } else if (id === 'patty') {
+      g.fillStyle = '#4a2716'; rr(x + 2 * s, y - h, w - 4 * s, h, 10 * s); g.fill();
+      g.fillStyle = '#7a4426'; rr(x + 5 * s, y - h + 3 * s, w - 10 * s, h * 0.35, 6 * s); g.fill();
+      g.fillStyle = '#2e170c'; for (let i = 0; i < 7; i++) { g.beginPath(); g.arc(x + w * (0.15 + i * 0.12), y - h * 0.4 + (i % 2) * 4 * s, 2 * s, 0, 7); g.fill(); }
+    } else if (id === 'cheese') {
+      g.fillStyle = '#ffcf3a'; rr(x - 4 * s, y - h, w + 8 * s, h, 3 * s); g.fill();
+      for (const k of [0.18, 0.5, 0.8]) { g.beginPath(); g.moveTo(x + w * k - 9 * s, y); g.lineTo(x + w * k + 9 * s, y); g.lineTo(x + w * k, y + 9 * s); g.fill(); }
+    } else if (id === 'salad') {
+      g.fillStyle = '#5fc05a'; g.beginPath(); g.moveTo(x - 6 * s, y);
+      for (let i = 0; i <= 12; i++) g.quadraticCurveTo(x - 6 * s + (i - 0.5) * (w + 12 * s) / 12, y - h - 4 * s * (i % 2), x - 6 * s + i * (w + 12 * s) / 12, y - h * 0.5);
+      g.lineTo(x + w + 6 * s, y); g.closePath(); g.fill();
+      g.fillStyle = '#8be27f'; rr(x, y - h * 0.75, w, 3 * s, 2); g.fill();
+    } else if (id === 'tomato') {
+      for (let i = 0; i < 3; i++) { const tx = x + w * (0.18 + i * 0.32); g.fillStyle = '#e8443c'; rr(tx - w * 0.17, y - h, w * 0.34, h, 6 * s); g.fill(); g.fillStyle = '#ff8a73'; rr(tx - w * 0.12, y - h + 3 * s, w * 0.24, h * 0.4, 3 * s); g.fill(); }
+    } else if (id === 'bacon') {
+      g.strokeStyle = '#c8584f'; g.lineWidth = h; g.lineCap = 'round'; g.beginPath();
+      for (let i = 0; i <= 16; i++) { const px = x + 2 * s + i * (w - 4 * s) / 16, py = y - h / 2 + Math.sin(i * 1.2) * 3 * s; i ? g.lineTo(px, py) : g.moveTo(px, py); } g.stroke();
+      g.strokeStyle = '#f2b2a0'; g.lineWidth = h * 0.3; g.stroke();
+    } else if (id === 'onion') {
+      g.strokeStyle = '#d7b8e6'; g.lineWidth = 3.5 * s;
+      for (let i = 0; i < 4; i++) { g.beginPath(); g.ellipse(x + w * (0.15 + i * 0.23), y - h / 2, w * 0.11, h * 0.42, 0, 0, 7); g.stroke(); }
+    }
+    return h;
+  }
+  function burgerHeight(ids, s) { return ids.reduce((a, id) => a + BY[id].h * (id === 'top' ? 1.1 : 1) * s, 0); }
+  function drawTicket(gst) {
+    const p = ticketPos(gst.slot), k = gst.leave ? Math.max(0, 1 - gst.leave * 0.7) : 1, slide = (1 - gst.arrive) * -60 + (gst.leave ? gst.leave * 40 : 0);
+    g.save(); g.globalAlpha = k; g.translate(0, slide);
+    const x = p.x - p.w / 2, y = p.y;
+    const on = gst === sel && !gst.leave;
+    g.fillStyle = '#00000040'; rr(x + 3, y + 6, p.w, p.h, 14); g.fill();
+    g.fillStyle = '#fbf6ea'; rr(x, y, p.w, p.h, 14); g.fill();
+    if (on) { g.strokeStyle = '#ffd23f'; g.lineWidth = 4; rr(x - 2, y - 2, p.w + 4, p.h + 4, 16); g.stroke(); }
+    // face and patience
+    const r = gst.patience / gst.max, face = gst.leave ? (gst.happy ? '😋' : '😡') : FACES[Math.min(4, Math.floor((1 - r) * 5))];
+    g.font = '34px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(face, p.x, y + 26);
+    g.fillStyle = '#e4dccb'; rr(x + 12, y + 50, p.w - 24, 8, 4); g.fill();
+    g.fillStyle = r > 0.5 ? '#3fbf6a' : r > 0.25 ? '#f0b429' : '#e5484d'; rr(x + 12, y + 50, (p.w - 24) * Math.max(0, r), 8, 4); g.fill();
+    // order: the matching part of what is on the plate is ticked
+    const ids = gst.order, s = Math.min(0.62, 118 / burgerHeight(ids, 1));
+    let by = y + p.h - 14 - Math.max(0, (118 - burgerHeight(ids, s)) / 2);
+    const match = on ? stack.findIndex((l, i) => l.id !== ids[i]) : -2, good = on ? (match === -1 ? Math.min(stack.length, ids.length) : match) : 0;
+    ids.forEach((id, i) => {
+      const h = layer(id, p.x - 8, by, 100, s);
+      if (on && i < good) { g.fillStyle = '#3fbf6a'; g.beginPath(); g.arc(p.x + 50, by - h / 2, 5, 0, 7); g.fill(); }
+      by -= h;
+    });
+    g.restore(); g.textBaseline = 'alphabetic';
+  }
+  function drawButton(b) {
+    let label = '', sub = '', ok = true, col = '#2a2b45';
+    if (b.kind === 'ing') { const x = BY[b.id]; ok = x.day <= day; label = x.n; sub = x.key; }
+    else if (b.kind === 'undo') { label = '↶ Убрать'; ok = stack.length > 0; }
+    else if (b.kind === 'clear') { label = '🗑 Сброс'; ok = stack.length > 0; }
+    else { label = 'Подать ✓'; ok = stack.length > 0; col = ok ? '#3fbf6a' : '#2a2b45'; }
+    const pr = pressed && pressed.b === b ? 3 : 0;
+    g.globalAlpha = ok ? 1 : 0.4;
+    g.fillStyle = '#00000050'; rr(b.x, b.y + 5, b.w, b.h, 14); g.fill();
+    g.fillStyle = col; rr(b.x, b.y + pr, b.w, b.h - 2, 14); g.fill();
+    if (b.kind === 'ing') {
+      g.save(); g.beginPath(); rr(b.x, b.y + pr, b.w, b.h - 2, 14); g.clip();
+      layer(b.id, b.x + b.w / 2, b.y + pr + 36 + (b.id === 'top' ? 4 : 0), 62, 0.75); g.restore();
+      g.fillStyle = '#fff'; g.font = '800 12px Manrope, system-ui'; g.textAlign = 'center'; g.fillText(ok ? label : '🔒 день ' + BY[b.id].day, b.x + b.w / 2, b.y + pr + 54);
+      g.fillStyle = '#ffffff55'; g.font = '800 10px Manrope, system-ui'; g.textAlign = 'left'; g.fillText(sub, b.x + 8, b.y + pr + 14);
+    } else { g.fillStyle = '#fff'; g.font = `800 ${b.kind === 'serve' ? 20 : 15}px Manrope, system-ui`; g.textAlign = 'center'; g.fillText(label, b.x + b.w / 2, b.y + pr + b.h / 2 + 5); }
+    g.globalAlpha = 1;
+  }
+  function draw() {
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const bg = g.createRadialGradient(W / 2, -H * 0.1, 0, W / 2, -H * 0.1, H * 1.1);
+    bg.addColorStop(0, '#4a3326'); bg.addColorStop(0.4, '#1d1a24'); bg.addColorStop(1, '#111321');
+    g.fillStyle = bg; g.fillRect(0, 0, W, H);
+    const sh = shake > 0 ? (Math.random() - 0.5) * 12 * shake : 0;
+    g.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * (ox + sh), dpr * oy);
+    // counter and plate
+    g.fillStyle = '#5a3b26'; rr(0, 344, FW, 222, 20); g.fill();
+    g.fillStyle = '#6e4a30'; rr(0, 344, FW, 14, [20, 20, 0, 0]); g.fill();
+    g.fillStyle = '#00000033'; g.beginPath(); g.ellipse(FW / 2, 548, 150, 18, 0, 0, 7); g.fill();
+    g.fillStyle = '#e9edf3'; g.beginPath(); g.ellipse(FW / 2, 540, 150, 20, 0, 0, 7); g.fill();
+    g.fillStyle = '#cfd5de'; g.beginPath(); g.ellipse(FW / 2, 538, 118, 12, 0, 0, 7); g.fill();
+    if (guests) {
+      const total = burgerHeight(stack.map((l) => l.id), 1), s = Math.min(1, 176 / Math.max(1, total));
+      let y = 536;
+      for (const l of stack) { const drop = (1 - l.t) * 40; y -= layer(l.id, FW / 2, y - drop, 220 * Math.max(0.75, s), s); }
+      if (!stack.length && state === 'play') { g.fillStyle = '#ffffff55'; g.font = '800 15px Manrope, system-ui'; g.textAlign = 'center'; g.fillText('Начни с нижней булки', FW / 2, 470); }
+      for (const gst of guests) drawTicket(gst);
+      for (let s2 = 0; s2 < 3; s2++) if (!guests.some((x) => x.slot === s2) && state === 'play') { const p = ticketPos(s2); g.strokeStyle = '#ffffff1a'; g.setLineDash([6, 6]); g.lineWidth = 2; rr(p.x - p.w / 2, p.y, p.w, p.h, 14); g.stroke(); g.setLineDash([]); }
+    }
+    for (const b of BTN) drawButton(b);
+    for (const q of parts) { g.globalAlpha = Math.max(0, q.life); g.fillStyle = q.col; g.beginPath(); g.arc(q.x, q.y, 3.5, 0, 7); g.fill(); } g.globalAlpha = 1;
+    for (const p of pops) { g.globalAlpha = Math.min(1, p.life * 1.5); g.fillStyle = p.col; g.font = `800 ${p.big ? 24 : 16}px Manrope, system-ui`; g.textAlign = 'center'; g.fillText(p.text, p.x, p.y - (1.4 - p.life) * 30); } g.globalAlpha = 1;
+    if (state !== 'start') {
+      g.textAlign = 'center'; g.fillStyle = '#fff'; g.font = '800 40px Manrope, system-ui'; g.fillText(Math.floor(shownCoins), FW / 2, 70);
+      g.font = '800 13px Manrope, system-ui'; g.fillStyle = '#ffd9a8'; g.fillText(`ДЕНЬ ${day} · ЗАКАЗОВ ${served}${streak >= 3 ? ' · СЕРИЯ ' + streak : ''}`, FW / 2, 92);
+      g.font = '18px system-ui'; g.fillText('❤️'.repeat(Math.max(0, hearts)) + '🖤'.repeat(Math.max(0, 3 - hearts)), FW / 2, 116);
+    }
+    if (dayBanner > 0 && state === 'play') { g.globalAlpha = Math.min(1, dayBanner); g.fillStyle = '#000a'; rr(90, 380, 300, 74, 18); g.fill(); g.fillStyle = '#fff'; g.font = '800 34px Manrope, system-ui'; g.textAlign = 'center'; g.fillText('День ' + day, FW / 2, 430); g.globalAlpha = 1; }
+  }
+
+  let pressed = null, last = performance.now();
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; time += dt;
+    step(dt);
+    for (const q of parts) { q.x += q.vx * dt; q.y += q.vy * dt; q.vy += 500 * dt; q.life -= dt * 1.3; } parts = parts.filter((q) => q.life > 0);
+    for (const p of pops) p.life -= dt; pops = pops.filter((p) => p.life > 0);
+    if (pressed) { pressed.t -= dt; if (pressed.t <= 0) pressed = null; }
+    shake = Math.max(0, shake - dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr;
+    scale = Math.min(W / FW, H / FH); ox = (W - FW * scale) / 2; oy = (H - FH * scale) / 2;
+  }
+  const toField = (e) => ({ x: (e.clientX - ox) / scale, y: (e.clientY - oy) / scale });
+  function press(b) {
+    pressed = { b, t: 0.12 };
+    if (b.kind === 'ing') put(b.id); else if (b.kind === 'undo') undo(); else if (b.kind === 'clear') clearPlate(); else serve();
+  }
+
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('ordersStart').textContent = $('bestOrdersOver').textContent = bestOrders;
+  }
+  function start() { unlockAudio(); reset(); state = 'play'; chanceUsed = false; chance.hide(); $('start').hidden = true; $('over').hidden = true; }
+  // Once a game, an ad brings the café back with one heart and the queue cleared.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'burgernaya-heart', label: '🎬 Ещё одно сердечко за рекламу', onReward: () => {
+    chanceUsed = true; hearts = 1; guests = []; stack = []; spawnT = 1.5; state = 'play'; $('over').hidden = true;
+  } });
+  function gameOver() {
+    if (state !== 'play') return;
+    state = 'over';
+    const run = { new_score: coins, new_orders: served, new_time: Math.floor(playTime) }, record = coins > best;
+    if (record) { best = coins; store.set('burgernaya-best', best); runs.score = run; }
+    if (served > bestOrders) { bestOrders = served; store.set('burgernaya-best-orders', bestOrders); runs.orders = run; }
+    store.set('burgernaya-runs', JSON.stringify(runs));
+    lb.submit(run);
+    $('final').textContent = coins;
+    $('overText').innerHTML = (record && coins > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + coinsWord(coins);
+    $('ordersOver').textContent = served; $('dayOver').textContent = day;
+    showBests(); $('over').hidden = false;
+    if (!chanceUsed) chance.show();
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'burgernaya',
+    boards: [
+      { id: 'score', title: 'Монеты', column: 'best_score', order: 'desc', note: 'Больше всего монет за одну смену.', format: (v) => `${v} ${coinsWord(v)}` },
+      { id: 'orders', title: 'Заказы', column: 'best_orders', order: 'desc', note: 'Больше всего поданных заказов за одну смену.', format: (v) => `${v} ${ordersWord(v)}` },
+    ],
+    bests: () => [runs.score, runs.orders].filter(Boolean),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  cv.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); unlockAudio();
+    if (state !== 'play') return;
+    const p = toField(e);
+    const b = BTN.find((b) => p.x > b.x && p.x < b.x + b.w && p.y > b.y && p.y < b.y + b.h); if (b) { press(b); return; }
+    const gst = guests.find((x) => { const t = ticketPos(x.slot); return !x.leave && Math.abs(p.x - t.x) < t.w / 2 && p.y > t.y && p.y < t.y + t.h; });
+    if (gst) { sel = gst; sfx.pop(); }
+  });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && e.target.closest && e.target.closest('.screen button')) return;
+    if (state !== 'play') { if ((e.code === 'Space' || e.code === 'Enter') && !e.repeat && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); } return; }
+    const ing = ING.find((x) => e.key === x.key); if (ing) { press(BTN.find((b) => b.id === ing.id)); return; }
+    if (e.code === 'Backspace') { e.preventDefault(); press(BTN.find((b) => b.kind === 'undo')); }
+    if (e.code === 'Delete') press(BTN.find((b) => b.kind === 'clear'));
+    if (e.code === 'Enter' || e.code === 'Space') { e.preventDefault(); press(BTN.find((b) => b.kind === 'serve')); }
+    if (e.code === 'Tab') { e.preventDefault(); const live = guests.filter((x) => !x.leave); if (live.length) { sel = live[(live.indexOf(sel) + 1) % live.length]; sfx.pop(); } }
+  });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('burgernaya-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  // For automated checks only (?test=1).
+  if (new URLSearchParams(location.search).get('test') === '1') window.__burger = { get: () => ({ state, day, served, coins, hearts, guests, stack: stack.map((l) => l.id), sel }), put, serve, start, step };
+
+  addEventListener('resize', resize);
+  resize(); reset(); showBests();
+  // #preview: a busy lunch on day 4, for the catalog.
+  if (location.hash === '#preview') {
+    $('start').hidden = true; state = 'play'; day = 4; served = 19; coins = 1240; shownCoins = coins; hearts = 2; streak = 4; dayBanner = 0;
+    for (let i = 0; i < 3; i++) addGuest();
+    guests.forEach((x, i) => { x.arrive = 1; x.patience = x.max * [0.85, 0.5, 0.2][i]; });
+    sel = guests[0]; stack = sel.order.slice(0, 4).map((id) => ({ id, t: 1 }));
+    step = () => {};
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

@@ -180,6 +180,12 @@
     if (puck.y < PUCK) { if (inGoal) { if (puck.y < -PUCK) return goal(true); } else { puck.y = PUCK; puck.vy = Math.abs(puck.vy) * 0.9; sound('wall'); } }
     if (puck.y > RH - PUCK) { if (inGoal) { if (puck.y > RH + PUCK) return goal(false); } else { puck.y = RH - PUCK; puck.vy = -Math.abs(puck.vy) * 0.9; sound('wall'); } }
     hit(me); hit(ai);
+    // A mallet must never push the puck through a rail (it used to get stuck outside the rink in a corner).
+    const mouth = Math.abs(puck.x - RW / 2) < GOAL / 2 - PUCK * 0.4;
+    if (puck.x < PUCK) { puck.x = PUCK; puck.vx = Math.abs(puck.vx); }
+    if (puck.x > RW - PUCK) { puck.x = RW - PUCK; puck.vx = -Math.abs(puck.vx); }
+    if (!mouth && puck.y < PUCK) { puck.y = PUCK; puck.vy = Math.abs(puck.vy); }
+    if (!mouth && puck.y > RH - PUCK) { puck.y = RH - PUCK; puck.vy = -Math.abs(puck.vy); }
     // A puck stuck still on the AI side gets a nudge, so a match can never freeze.
     if (Math.hypot(puck.vx, puck.vy) < 8) puck.vy += (puck.y < RH / 2 ? 30 : -30) * dt;
   }

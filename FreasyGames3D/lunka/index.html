@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/clips.js?v=1"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0d0f1c">
+<title>Лунка 3D — FreasyGames 3D</title>
+<meta name="description" content="Лунка 3D на FreasyGames: объёмный мини-гольф без конца. Деревянные бортики, песок, пруды и вращающаяся мельница, мяч катится по траве с тенью. Таблица лидеров общая с 2D.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>#ov { pointer-events: none; }</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="ov"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames 3D</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ 3D</div>
+    <h1>Лунка <span>3D</span></h1>
+    <p>Объёмный мини-гольф без конца. Потяни назад в любом месте поля и отпусти — чем дальше тянешь, тем сильнее удар.</p>
+    <p>У тебя 10 ударов на всё поле. Забил быстрее пара — удары возвращаются, с одного удара — больше всего. Вода стоит удар, песок тормозит, мельница отбивает. Рекорды общие с 2D.</p>
+    <p>Рекорд: <b id="bestStart">0</b> лунок · с одного удара: <b id="acesStart">0</b></p>
+    <button class="play" id="go" type="button">Начать ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Тяни мышью или пальцем в любом месте поля, отпусти — удар</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow">Удары кончились</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">лунок</p>
+    <p>С одного удара: <b id="acesOver">0</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · с одного удара: <b id="bestAcesOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<script src="../../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), ov = $('ov'), ctx = ov.getContext('2d');
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const holesWord = (n) => plural(n, 'лунка', 'лунки', 'лунок');
+  const strokesWord = (n) => plural(n, 'удар', 'удара', 'ударов');
+
+  // The rules are the 2D game's: a fixed 480 × 800 field in "field pixels"; the 3D scene only shows it.
+  const FW = 480, FH = 800, BR = 9, HR = 15, MAXPULL = 170, MAXV = 1150;
+  const C = { x: 30, y: 150, w: 420, h: 620 };
+  let W = 0, H = 0, DPR = 1;
+  let state = 'start', hole, strokes, holes, aces, shots, par, ball, cup, blocks, sands, waters, mill, lastPos, aim = null, parts, popups, sink = 0, time = 0, playTime = 0, shake = 0;
+  let best = +store.get('lunka-best', 0) || 0, bestAces = +store.get('lunka-best-aces', 0) || 0;
+  let runs = {}; try { runs = JSON.parse(store.get('lunka-runs', '{}')) || {}; } catch { runs = {}; }
+  let muted = store.get('lunka-muted', '0') === '1';
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'sine', v = 0.06, slide = 1, delay = 0) {
+    if (muted || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  function noise(dur, vol) {
+    if (!ac || muted) return;
+    const len = Math.floor(ac.sampleRate * dur), buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const s = ac.createBufferSource(), gn = ac.createGain(); s.buffer = buf; gn.gain.value = vol; s.connect(gn).connect(ac.destination); s.start();
+  }
+  const sfx = {
+    hit: (p) => { tone(180 + p * 160, 0.08, 'triangle', 0.12, 0.6); noise(0.04, 0.12); },
+    bump: (v) => tone(260 + Math.random() * 60, 0.05, 'square', Math.min(0.06, v / 9000)),
+    cup: () => [0, 4, 7, 12].forEach((s, i) => tone(660 * Math.pow(2, s / 12), 0.14, 'triangle', 0.08, 1, 0.12 + i * 0.07)),
+    ace: () => [0, 4, 7, 12, 16, 19].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.16, 'square', 0.05, 1, i * 0.06)),
+    splash: () => { noise(0.4, 0.3); tone(300, 0.3, 'sine', 0.1, 0.4); },
+    lip: () => tone(700, 0.06, 'sine', 0.06, 0.6),
+  };
+
+  // ——— Courses (same as 2D) ———
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  function rectNear(r, x, y, d) { const cx = Math.max(r.x, Math.min(r.x + r.w, x)), cy = Math.max(r.y, Math.min(r.y + r.h, y)); return Math.hypot(cx - x, cy - y) < d; }
+  const rectsTouch = (a, b, pad) => a.x - pad < b.x + b.w && a.x + a.w + pad > b.x && a.y - pad < b.y + b.h && a.y + a.h + pad > b.y;
+  function buildHole() {
+    hole++;
+    const k = hole;
+    ball = { x: rnd(150, 330), y: 715, vx: 0, vy: 0, z: 0 };
+    cup = { x: rnd(110, 370), y: rnd(215, 300) };
+    blocks = []; sands = []; waters = []; mill = null;
+    const free = (r, pad = 0) => !rectNear(r, ball.x, ball.y, 70 + pad) && !rectNear(r, cup.x, cup.y, 64 + pad) && !blocks.some((b) => rectsTouch(b, r, 24)) && !waters.some((b) => rectsTouch(b, r, 24));
+    if (k % 3 === 0) {
+      const y = rnd(430, 560), gap = rnd(C.x + 60, C.x + C.w - 150), gw = 95;
+      blocks.push({ x: C.x, y, w: gap - C.x, h: 18 }, { x: gap + gw, y, w: C.x + C.w - gap - gw, h: 18 });
+    }
+    const nBlocks = Math.min(5, 1 + Math.floor(k / 2));
+    for (let i = 0, t = 0; i < nBlocks && t < 60; t++) {
+      const horiz = Math.random() < 0.6, r = horiz ? { x: 0, y: 0, w: rnd(60, 150), h: rnd(18, 28) } : { x: 0, y: 0, w: rnd(18, 28), h: rnd(60, 130) };
+      r.x = rnd(C.x + 10, C.x + C.w - r.w - 10); r.y = rnd(320, 650 - r.h);
+      if (free(r)) { blocks.push(r); i++; }
+    }
+    if (k >= 3) for (let i = 0, t = 0; i < (k >= 7 ? 2 : 1) && t < 40; t++) {
+      const s = { x: rnd(C.x + 20, C.x + C.w - 120), y: rnd(300, 640), w: rnd(80, 130), h: rnd(50, 80) };
+      if (!rectNear(s, ball.x, ball.y, 50) && !rectNear(s, cup.x, cup.y, 40)) { sands.push(s); i++; }
+    }
+    if (k >= 5 && k % 2 === 1) for (let t = 0; t < 40; t++) {
+      const w = { x: rnd(C.x + 10, C.x + C.w - 160), y: rnd(340, 600), w: rnd(110, 160), h: rnd(46, 70) };
+      if (free(w, 10)) { waters.push(w); break; }
+    }
+    if (k >= 4 && k % 2 === 0) {
+      for (let t = 0; t < 40; t++) {
+        const m = { x: rnd(150, 330), y: rnd(360, 560), len: rnd(110, 150), a: Math.random() * 6, w: (Math.random() < 0.5 ? -1 : 1) * rnd(1.2, 1.4 + Math.min(1.2, k * 0.05)) };
+        const box = { x: m.x - m.len / 2, y: m.y - m.len / 2, w: m.len, h: m.len };
+        if (!rectNear(box, ball.x, ball.y, 30) && !rectNear(box, cup.x, cup.y, 30) && !blocks.some((b) => rectsTouch(b, box, 6))) { mill = m; break; }
+      }
+    }
+    par = 2 + (blocks.length >= 3 || waters.length ? 1 : 0) + (mill && (k % 3 === 0) ? 1 : 0);
+    shots = 0; lastPos = { x: ball.x, y: ball.y }; sink = 0;
+    rebuildCourse();
+  }
+  function reset() { hole = 0; strokes = 10; holes = 0; aces = 0; playTime = 0; parts = []; popups = []; buildHole(); }
+
+  // ——— Physics (same as 2D) ———
+  const inRect = (r, x, y) => x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h;
+  const moving = () => Math.hypot(ball.vx, ball.vy) > 0.5;
+  function bounceRect(r) {
+    const cx = Math.max(r.x, Math.min(r.x + r.w, ball.x)), cy = Math.max(r.y, Math.min(r.y + r.h, ball.y));
+    let dx = ball.x - cx, dy = ball.y - cy, d = Math.hypot(dx, dy);
+    if (d >= BR) return;
+    if (d === 0) { const l = ball.x - r.x, rr = r.x + r.w - ball.x, t = ball.y - r.y, b = r.y + r.h - ball.y, m = Math.min(l, rr, t, b); dx = m === l ? -1 : m === rr ? 1 : 0; dy = m === t ? -1 : m === b ? 1 : 0; d = 1; }
+    const nx = dx / d, ny = dy / d, vn = ball.vx * nx + ball.vy * ny;
+    ball.x = cx + nx * BR; ball.y = cy + ny * BR;
+    if (vn < 0) { ball.vx -= 1.75 * vn * nx; ball.vy -= 1.75 * vn * ny; sfx.bump(-vn); }
+  }
+  function millEnds() { const c = Math.cos(mill.a) * mill.len / 2, s = Math.sin(mill.a) * mill.len / 2; return [mill.x - c, mill.y - s, mill.x + c, mill.y + s]; }
+  function bounceMill() {
+    const [ax, ay, bx, by] = millEnds(), dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+    const t = Math.max(0, Math.min(1, ((ball.x - ax) * dx + (ball.y - ay) * dy) / L2)), px = ax + dx * t, py = ay + dy * t;
+    let nx = ball.x - px, ny = ball.y - py; const d = Math.hypot(nx, ny), R = BR + 6;
+    if (d >= R || d === 0) return;
+    nx /= d; ny /= d;
+    const rx = px - mill.x, ry = py - mill.y, bvx = -mill.w * ry, bvy = mill.w * rx;
+    const rvx = ball.vx - bvx, rvy = ball.vy - bvy, vn = rvx * nx + rvy * ny;
+    ball.x = px + nx * R; ball.y = py + ny * R;
+    if (vn < 0) { ball.vx -= 1.8 * vn * nx; ball.vy -= 1.8 * vn * ny; sfx.bump(-vn + 200); }
+  }
+  function physics(dt) {
+    if (mill) mill.a += mill.w * dt;
+    if (sink > 0 || ball.z) return;
+    const n = 8, h = dt / n;
+    for (let i = 0; i < n; i++) {
+      if (mill) bounceMill();
+      const sp = Math.hypot(ball.vx, ball.vy);
+      if (sp < 0.5) { ball.vx = ball.vy = 0; break; }
+      ball.x += ball.vx * h; ball.y += ball.vy * h; ball.roll = (ball.roll || 0) + sp * h / BR;
+      if (ball.x < C.x + BR) { ball.x = C.x + BR; ball.vx = Math.abs(ball.vx) * 0.75; sfx.bump(sp); }
+      if (ball.x > C.x + C.w - BR) { ball.x = C.x + C.w - BR; ball.vx = -Math.abs(ball.vx) * 0.75; sfx.bump(sp); }
+      if (ball.y < C.y + BR) { ball.y = C.y + BR; ball.vy = Math.abs(ball.vy) * 0.75; sfx.bump(sp); }
+      if (ball.y > C.y + C.h - BR) { ball.y = C.y + C.h - BR; ball.vy = -Math.abs(ball.vy) * 0.75; sfx.bump(sp); }
+      for (const b of blocks) bounceRect(b);
+      const sand = sands.some((s) => inRect(s, ball.x, ball.y)), dec = (sand ? 620 : 95) * h, k = Math.max(0, 1 - 0.55 * h);
+      const s2 = Math.hypot(ball.vx, ball.vy), f = s2 > 0 ? Math.max(0, s2 - dec) / s2 * k : 0;
+      ball.vx *= f; ball.vy *= f;
+      const dc = Math.hypot(ball.x - cup.x, ball.y - cup.y);
+      if (dc < HR - 2) {
+        const v = Math.hypot(ball.vx, ball.vy);
+        if (v < 520) { sunk(); return; }
+        if (!ball.lipped) { ball.lipped = true; const a = (Math.random() - 0.5) * 0.9, c = Math.cos(a), s = Math.sin(a); [ball.vx, ball.vy] = [(ball.vx * c - ball.vy * s) * 0.8, (ball.vx * s + ball.vy * c) * 0.8]; sfx.lip(); }
+      } else if (dc > HR + 4) ball.lipped = false;
+      if (dc < HR + 8 && dc > 0.1) { const pull = 220 * h; ball.vx += (cup.x - ball.x) / dc * pull; ball.vy += (cup.y - ball.y) / dc * pull; }
+      if (waters.some((w) => inRect(w, ball.x, ball.y))) { splash(); return; }
+    }
+    if (!moving() && state === 'play' && sink === 0 && strokes <= 0) setTimeout(() => { if (state === 'play' && !moving() && sink === 0 && strokes <= 0) gameOver(); }, 400);
+  }
+  function splash() {
+    burst(ball.x, ball.y, '#7cc4ff', 24); sfx.splash(); shake = 0.3;
+    strokes = Math.max(0, strokes - 1); popup(ball.x, ball.y, 'Вода! −1 удар', '#7cc4ff');
+    ball.x = lastPos.x; ball.y = lastPos.y; ball.vx = ball.vy = 0;
+  }
+  function sunk() {
+    ball.vx = ball.vy = 0; ball.x = cup.x; ball.y = cup.y; sink = 1;
+    holes++; const ace = shots === 1; if (ace) aces++;
+    const back = Math.max(0, par - shots + 1) + (ace ? 1 : 0);
+    strokes += back;
+    const name = ace ? 'С одного удара!' : shots < par ? 'Меньше пара!' : shots === par ? 'Пар' : 'Забил';
+    popup(cup.x, cup.y, name, ace ? '#ffd23f' : '#5df2a5', true, 40);
+    if (back) popup(cup.x, cup.y, `+${back} ${strokesWord(back)}`, '#ffffff', false, 12);
+    burst(cup.x, cup.y, ace ? '#ffd23f' : '#5df2a5', ace ? 40 : 22);
+    ace ? sfx.ace() : sfx.cup();
+    setTimeout(() => { if (state === 'play') { buildHole(); banner = 1.3; } }, 1300);
+  }
+  let banner = 0;
+  function burst(x, y, col, n = 14) { for (let i = 0; i < n; i++) { const a = Math.random() * 7, v = 40 + Math.random() * 200; parts.push({ x, y, h: 4, vx: Math.cos(a) * v, vy: Math.sin(a) * v, vh: 60 + Math.random() * 140, life: 1, col }); } }
+  function popup(x, y, text, col, big = false, lift = 24) { popups.push({ x, y, text, col, life: 1.3, big, lift }); }
+  function shoot(px, py) {
+    const len = Math.min(MAXPULL, Math.hypot(px, py));
+    if (len < 12) return false;
+    const p = len / MAXPULL, v = MAXV * Math.pow(p, 1.15);
+    ball.vx = px / Math.hypot(px, py) * v; ball.vy = py / Math.hypot(px, py) * v;
+    lastPos = { x: ball.x, y: ball.y }; shots++; strokes--; sfx.hit(p);
+    return true;
+  }
+  function step(dt) {
+    if (lb.isOpen()) return;
+    if (state === 'play') playTime += dt;
+    banner = Math.max(0, banner - dt);
+    physics(dt);
+    if (sink > 0) sink = Math.min(2, sink + dt * 3);
+  }
+
+  // ——— 3D ———
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); } catch (e) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="screen"><div class="box"><h1><span>3D</span> не запускается</h1><p>Браузер не поддерживает WebGL. Сыграй в обычную Лунку.</p><a class="play" style="display:block;text-decoration:none" href="../../lunka/">Лунка ↗</a></div></div>');
+    throw e;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const scene = new THREE.Scene(); scene.background = new THREE.Color('#0f1a14'); scene.fog = new THREE.Fog('#0f1a14', 30, 60);
+  const camera = new THREE.PerspectiveCamera(40, 1, 0.3, 200);
+  scene.add(new THREE.HemisphereLight('#f2ffe9', '#203018', 0.6));
+  const sun = new THREE.DirectionalLight('#fff6e0', 0.7); sun.position.set(-6, 14, 4); sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024); Object.assign(sun.shadow.camera, { left: -10, right: 10, top: 10, bottom: -10, near: 1, far: 40 }); scene.add(sun);
+  const U = 40, MX = FW / 2, MY = C.y + C.h / 2;
+  const V = (x, y, h = 0) => new THREE.Vector3((x - MX) / U, h, (y - MY) / U);
+  const wood = new THREE.MeshStandardMaterial({ color: '#8a6240', roughness: 0.8 }), woodTop = new THREE.MeshStandardMaterial({ color: '#a77a52', roughness: 0.7 });
+  // ground under the course and the border
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshStandardMaterial({ color: '#16241c', roughness: 1 }));
+  ground.rotation.x = -Math.PI / 2; ground.position.y = -0.6; ground.receiveShadow = true; scene.add(ground);
+  (() => {
+    const w = C.w / U, d = C.h / U, t = 0.3, hgt = 0.55;
+    for (const [sx, sz, px, pz] of [[w + t * 2, t, 0, -(d / 2 + t / 2)], [w + t * 2, t, 0, d / 2 + t / 2], [t, d, -(w / 2 + t / 2), 0], [t, d, w / 2 + t / 2, 0]]) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(sx, hgt, sz), [wood, wood, woodTop, wood, wood, wood]); m.position.set(px, hgt / 2 - 0.1, pz); m.castShadow = m.receiveShadow = true; scene.add(m);
+    }
+    const base = new THREE.Mesh(new THREE.BoxGeometry(w + t * 2, 0.5, d + t * 2), new THREE.MeshStandardMaterial({ color: '#4a3424', roughness: 0.9 }));
+    base.position.y = -0.36; base.receiveShadow = true; scene.add(base);
+  })();
+  // grass with stripes, sand and the cup painted on one texture per hole
+  const tc = document.createElement('canvas'); tc.width = 512; tc.height = Math.round(512 * C.h / C.w);
+  const tg = tc.getContext('2d'), grassTex = new THREE.CanvasTexture(tc); grassTex.anisotropy = 4;
+  const grass = new THREE.Mesh(new THREE.PlaneGeometry(C.w / U, C.h / U), new THREE.MeshStandardMaterial({ map: grassTex, roughness: 0.95 }));
+  grass.rotation.x = -Math.PI / 2; grass.receiveShadow = true; scene.add(grass);
+  const courseGroup = new THREE.Group(); scene.add(courseGroup);
+  const waterMat = new THREE.MeshStandardMaterial({ color: '#2f7fd1', roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.88, emissive: '#0d3a70', emissiveIntensity: 0.4, side: THREE.DoubleSide });
+  let waterMeshes = [], millBar = null;
+  function paintCourse() {
+    const k = tc.width / C.w, X = (x) => (x - C.x) * k, Y = (y) => (y - C.y) * k;
+    for (let i = 0; i < 14; i++) { tg.fillStyle = i % 2 ? '#3fae5a' : '#46b962'; tg.fillRect(0, i * tc.height / 14, tc.width, tc.height / 14 + 1); }
+    for (let i = 0; i < 900; i++) { tg.fillStyle = Math.random() < 0.5 ? '#ffffff0c' : '#0000000c'; tg.fillRect(Math.random() * tc.width, Math.random() * tc.height, 2, 3); }
+    for (const s of sands) {
+      tg.fillStyle = '#d4b874'; tg.beginPath(); tg.ellipse(X(s.x + s.w / 2), Y(s.y + s.h / 2), s.w / 2 * k + 3, s.h / 2 * k + 3, 0, 0, 7); tg.fill();
+      tg.fillStyle = '#e8cf8f'; tg.beginPath(); tg.ellipse(X(s.x + s.w / 2), Y(s.y + s.h / 2), s.w / 2 * k, s.h / 2 * k, 0, 0, 7); tg.fill();
+      tg.fillStyle = '#c9ab66'; for (let i = 0; i < 40; i++) { tg.beginPath(); tg.arc(X(s.x + s.w / 2) + (Math.random() - 0.5) * s.w * k * 0.8, Y(s.y + s.h / 2) + (Math.random() - 0.5) * s.h * k * 0.7, 1.4, 0, 7); tg.fill(); }
+    }
+    for (const w of waters) { tg.fillStyle = '#1f5a3a'; tg.beginPath(); if (tg.roundRect) tg.roundRect(X(w.x) - 4, Y(w.y) - 4, w.w * k + 8, w.h * k + 8, 22); else tg.rect(X(w.x) - 4, Y(w.y) - 4, w.w * k + 8, w.h * k + 8); tg.fill(); }
+    tg.fillStyle = '#1b3a22'; tg.beginPath(); tg.arc(X(cup.x), Y(cup.y), (HR + 4) * k, 0, 7); tg.fill();
+    tg.fillStyle = '#ffffff30'; tg.beginPath(); if (tg.roundRect) tg.roundRect(X(ball.x) - 20 * k, Y(ball.y) - 20 * k, 40 * k, 40 * k, 8); else tg.rect(X(ball.x) - 20 * k, Y(ball.y) - 20 * k, 40 * k, 40 * k); tg.fill();
+    grassTex.needsUpdate = true;
+  }
+  function rebuildCourse() {
+    while (courseGroup.children.length) { const o = courseGroup.children.pop(); if (o.geometry) o.geometry.dispose(); }
+    waterMeshes = []; millBar = null;
+    paintCourse();
+    for (const b of blocks) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(b.w / U, 0.45, b.h / U), [wood, wood, woodTop, wood, wood, wood]);
+      m.position.copy(V(b.x + b.w / 2, b.y + b.h / 2, 0.225)); m.castShadow = m.receiveShadow = true; courseGroup.add(m);
+    }
+    for (const w of waters) {
+      const sh = new THREE.Shape(), x0 = (w.x - MX) / U, z0 = (w.y - MY) / U, ww = w.w / U, hh = w.h / U, r = 0.35;
+      sh.moveTo(x0 + r, z0); sh.lineTo(x0 + ww - r, z0); sh.quadraticCurveTo(x0 + ww, z0, x0 + ww, z0 + r); sh.lineTo(x0 + ww, z0 + hh - r); sh.quadraticCurveTo(x0 + ww, z0 + hh, x0 + ww - r, z0 + hh);
+      sh.lineTo(x0 + r, z0 + hh); sh.quadraticCurveTo(x0, z0 + hh, x0, z0 + hh - r); sh.lineTo(x0, z0 + r); sh.quadraticCurveTo(x0, z0, x0 + r, z0);
+      const m = new THREE.Mesh(new THREE.ShapeGeometry(sh), waterMat); m.rotation.x = Math.PI / 2; m.position.y = 0.02; m.receiveShadow = true; courseGroup.add(m); waterMeshes.push(m);
+    }
+    if (mill) {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, 0.7, 16), new THREE.MeshStandardMaterial({ color: '#7b67fc', roughness: 0.4 }));
+      post.position.copy(V(mill.x, mill.y, 0.35)); post.castShadow = true; courseGroup.add(post);
+      millBar = new THREE.Mesh(new THREE.BoxGeometry(mill.len / U, 0.26, 0.26), new THREE.MeshStandardMaterial({ color: '#bca0ff', roughness: 0.35, emissive: '#5a3cff', emissiveIntensity: 0.25 }));
+      millBar.position.copy(V(mill.x, mill.y, 0.42)); millBar.castShadow = true; courseGroup.add(millBar);
+    }
+    flagGroup.position.copy(V(cup.x, cup.y, 0)); cupMesh.position.copy(V(cup.x, cup.y, 0.005));
+  }
+  // cup: a dark hole with a white rim, and the flag
+  const cupMesh = new THREE.Group(); scene.add(cupMesh);
+  { const hole = new THREE.Mesh(new THREE.CircleGeometry(HR / U, 32), new THREE.MeshBasicMaterial({ color: '#06110a' })); hole.rotation.x = -Math.PI / 2; hole.position.y = 0.006; cupMesh.add(hole);
+    const rim = new THREE.Mesh(new THREE.RingGeometry(HR / U, HR / U + 0.05, 32), new THREE.MeshStandardMaterial({ color: '#f2f2f2' })); rim.rotation.x = -Math.PI / 2; rim.position.y = 0.007; cupMesh.add(rim); }
+  const flagGroup = new THREE.Group(); scene.add(flagGroup);
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 2.2, 8), new THREE.MeshStandardMaterial({ color: '#f2f2f2', roughness: 0.3 }));
+  pole.position.y = 1.1; pole.castShadow = true; flagGroup.add(pole);
+  const flagGeo = new THREE.PlaneGeometry(0.8, 0.5, 10, 1), flagBase = flagGeo.attributes.position.array.slice();
+  const flag = new THREE.Mesh(flagGeo, new THREE.MeshStandardMaterial({ color: '#ff5f7a', side: THREE.DoubleSide, roughness: 0.6 }));
+  flag.position.set(0.4, 1.95, 0); flag.castShadow = true; flagGroup.add(flag);
+  // ball
+  const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(BR / U, 24, 16), new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.35 }));
+  ballMesh.castShadow = true; scene.add(ballMesh);
+  // aim dots
+  const dotMat = new THREE.MeshBasicMaterial({ color: '#5df2a5', transparent: true });
+  const dots = []; for (let i = 0; i < 9; i++) { const d = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), dotMat.clone()); d.visible = false; scene.add(d); dots.push(d); }
+  // particles
+  const MAXP = 300, pGeo = new THREE.BufferGeometry(), pPos = new Float32Array(MAXP * 3), pCol = new Float32Array(MAXP * 3);
+  pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3)); pGeo.setAttribute('color', new THREE.BufferAttribute(pCol, 3));
+  const ptsM = new THREE.Points(pGeo, new THREE.PointsMaterial({ size: 0.12, vertexColors: true, transparent: true, depthWrite: false })); ptsM.frustumCulled = false; scene.add(ptsM);
+  const tmpC = new THREE.Color();
+
+  // The camera looks over the course from the tee, as close as the screen allows.
+  const camDir = new THREE.Vector3(), camTarget = new THREE.Vector3();
+  function fitCamera() {
+    const A = W / Math.max(1, H), tilt = (A < 0.85 ? 62 : 55) * Math.PI / 180;
+    camDir.set(0, Math.sin(tilt), Math.cos(tilt)); camTarget.set(0, 0, 0);
+    camera.aspect = A; camera.updateProjectionMatrix(); camera.clearViewOffset();
+    const corners = [V(C.x - 14, C.y - 14, 2.3), V(C.x + C.w + 14, C.y - 14, 0.5), V(C.x - 14, C.y + C.h + 14, 0.5), V(C.x + C.w + 14, C.y + C.h + 14, 0.5)];
+    const topLimit = 1 - 2 * Math.min(0.2, 130 / H);
+    let lo = 3, hi = 200;
+    for (let i = 0; i < 30; i++) {
+      const d = (lo + hi) / 2;
+      camera.position.copy(camTarget).addScaledVector(camDir, d); camera.lookAt(camTarget); camera.updateMatrixWorld();
+      const ok = corners.every((c) => { const v = c.clone().project(camera); return Math.abs(v.x) < 0.96 && v.y < topLimit && v.y > -0.97; });
+      if (ok) hi = d; else lo = d;
+    }
+    camera.position.copy(camTarget).addScaledVector(camDir, hi); camera.lookAt(camTarget); camera.updateMatrixWorld();
+    const ys = corners.map((c) => c.clone().project(camera).y), mid = (Math.max(...ys) + Math.min(...ys)) / 2, want = (topLimit - 0.97) / 2;
+    camera.setViewOffset(W, H, 0, (want - mid) / 2 * H, W, H);
+  }
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    ov.width = Math.round(W * DPR); ov.height = Math.round(H * DPR);
+    renderer.setSize(W, H, false);
+    fitCamera();
+  }
+  const raycaster = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hitV = new THREE.Vector3();
+  function toField(e) {
+    raycaster.setFromCamera({ x: e.clientX / W * 2 - 1, y: -(e.clientY / H) * 2 + 1 }, camera);
+    if (!raycaster.ray.intersectPlane(plane, hitV)) return null;
+    return { x: hitV.x * U + MX, y: hitV.z * U + MY };
+  }
+  function screenOf(x, y, h = 0.3) { const v = V(x, y, h).project(camera); return [(v.x + 1) / 2 * W, (1 - v.y) / 2 * H]; }
+
+  function draw() {
+    // ball rolls, sinks into the cup
+    const k = sink > 0 ? Math.max(0, 1 - (sink - 1) * 1.2) : 1;
+    ballMesh.visible = sink < 1.9;
+    ballMesh.position.copy(V(ball.x, ball.y, BR / U - (sink > 0 ? Math.min(1, sink) * 0.35 : 0)));
+    ballMesh.scale.setScalar(sink > 0 ? 0.7 + 0.3 * k : 1);
+    if (moving()) { const sp = Math.hypot(ball.vx, ball.vy); ballMesh.rotation.x += ball.vy / sp * 0.12 * (sp / 400); ballMesh.rotation.z -= ball.vx / sp * 0.12 * (sp / 400); }
+    if (millBar) millBar.rotation.y = -mill.a;
+    for (const m of waterMeshes) m.material.emissiveIntensity = 0.35 + Math.sin(time * 2) * 0.1;
+    // the flag waves
+    const p = flagGeo.attributes.position;
+    for (let i = 0; i < p.count; i++) { const x = flagBase[i * 3] + 0.4; p.setZ(i, Math.sin(time * 5 - x * 6) * 0.08 * x); }
+    p.needsUpdate = true;
+    // aim
+    const aiming = aim && state === 'play' && !moving() && !sink;
+    let power = 0, aimCol = '#5df2a5';
+    if (aiming) {
+      const len = Math.min(MAXPULL, Math.hypot(aim.dx, aim.dy)); power = len / MAXPULL;
+      aimCol = power < 0.5 ? '#5df2a5' : power < 0.8 ? '#ffd23f' : '#ff5f7a';
+      const nx = aim.dx / (Math.hypot(aim.dx, aim.dy) || 1), ny = aim.dy / (Math.hypot(aim.dx, aim.dy) || 1);
+      dots.forEach((d, i) => { const dd = (i + 1) * (14 + power * 22); d.visible = len > 12; d.position.copy(V(ball.x + nx * dd, ball.y + ny * dd, 0.1)); d.material.color.set(aimCol); d.material.opacity = 1 - i / 11; });
+    } else dots.forEach((d) => { d.visible = false; });
+    // particles
+    let n = 0;
+    for (const q of parts) { if (n >= MAXP) break; const v = V(q.x, q.y, q.h / U); pPos[n * 3] = v.x; pPos[n * 3 + 1] = v.y; pPos[n * 3 + 2] = v.z; tmpC.set(q.col); pCol[n * 3] = tmpC.r; pCol[n * 3 + 1] = tmpC.g; pCol[n * 3 + 2] = tmpC.b; n++; }
+    pGeo.setDrawRange(0, n); pGeo.attributes.position.needsUpdate = true; pGeo.attributes.color.needsUpdate = true;
+    const sh = shake > 0 ? (Math.random() - 0.5) * 0.3 * shake : 0;
+    camera.position.x += sh; renderer.render(scene, camera); camera.position.x -= sh;
+    // overlay: power bar, popups, banner, HUD
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.clearRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    if (aiming && power * MAXPULL > 12) {
+      const [bx, by] = screenOf(ball.x, ball.y, 0);
+      ctx.fillStyle = '#00000088'; ctx.fillRect(bx - 32, by + 22, 64, 9); ctx.fillStyle = aimCol; ctx.fillRect(bx - 32, by + 22, 64 * power, 9);
+    }
+    for (const q of popups) {
+      const [x, y] = screenOf(q.x, q.y, 0.5);
+      ctx.globalAlpha = Math.min(1, q.life * 1.5); ctx.fillStyle = q.col; ctx.font = `800 ${q.big ? 26 : 18}px Manrope, system-ui`;
+      ctx.shadowColor = '#000c'; ctx.shadowBlur = 8; ctx.fillText(q.text, x, y - q.lift - (1.3 - q.life) * 30); ctx.shadowBlur = 0;
+    }
+    ctx.globalAlpha = 1;
+    if (banner > 0) { ctx.globalAlpha = Math.min(1, banner); ctx.fillStyle = '#fff'; ctx.font = '800 34px Manrope, system-ui'; ctx.shadowColor = '#000'; ctx.shadowBlur = 16; ctx.fillText(`Лунка ${hole} · пар ${par}`, W / 2, H / 2); ctx.shadowBlur = 0; ctx.globalAlpha = 1; }
+    if (state !== 'start') {
+      const top = 58;
+      ctx.shadowColor = '#000a'; ctx.shadowBlur = 12;
+      ctx.fillStyle = '#fff'; ctx.font = '800 42px Manrope, system-ui'; ctx.fillText(holes, W / 2, top + 34);
+      ctx.font = '800 12px Manrope, system-ui'; ctx.fillStyle = '#c8f2d4'; ctx.fillText(`ЛУНКА ${hole} · ПАР ${par} · УДАРОВ НА ЛУНКЕ ${shots}`, W / 2, top + 54);
+      const nn = Math.max(0, strokes), per = Math.min(nn, 15);
+      ctx.font = '800 13px Manrope, system-ui'; ctx.fillStyle = strokes <= 2 ? '#ff7a8a' : '#ffffff'; ctx.fillText(`${nn} ${strokesWord(nn)} осталось`, W / 2, top + 74);
+      ctx.shadowBlur = 0;
+      for (let i = 0; i < per; i++) { ctx.fillStyle = strokes <= 2 ? '#ff7a8a' : '#ffffffcc'; ctx.beginPath(); ctx.arc(W / 2 - (per - 1) * 7 + i * 14, top + 86, 4.5, 0, 7); ctx.fill(); }
+    }
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.033, (now - last) / 1000)); last = now; time += dt;
+    step(dt);
+    if (state === 'start') demo(dt);
+    for (const q of parts) { q.x += q.vx * dt; q.y += q.vy * dt; q.h = Math.max(1, q.h + q.vh * dt); q.vh -= 500 * dt; q.vx *= 0.97; q.vy *= 0.97; q.life -= dt * 1.4; } parts = parts.filter((q) => q.life > 0);
+    for (const q of popups) q.life -= dt; popups = popups.filter((q) => q.life > 0);
+    shake = Math.max(0, shake - dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+  let demoT = 1;
+  function demo(dt) {
+    if (moving() || sink) return;
+    demoT -= dt; if (demoT > 0) return; demoT = 1.6;
+    const dx = cup.x - ball.x, dy = cup.y - ball.y, d = Math.hypot(dx, dy);
+    shoot(dx / d * Math.min(MAXPULL, 40 + d * 0.32), dy / d * Math.min(MAXPULL, 40 + d * 0.32)); strokes = 10;
+  }
+
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('acesStart').textContent = $('bestAcesOver').textContent = bestAces;
+  }
+  function start() { unlockAudio(); reset(); banner = 1.3; state = 'play'; chanceUsed = false; chance.hide(); $('start').hidden = true; $('over').hidden = true; }
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'lunka-strokes', label: '🎬 +5 ударов за рекламу', onReward: () => {
+    chanceUsed = true; strokes = 5; state = 'play'; $('over').hidden = true;
+  } });
+  function gameOver() {
+    state = 'over';
+    const run = { new_holes: holes, new_aces: aces, new_time: Math.floor(playTime) }, record = holes > best;
+    if (record) { best = holes; store.set('lunka-best', best); runs.holes = run; }
+    if (aces > bestAces) { bestAces = aces; store.set('lunka-best-aces', bestAces); runs.aces = run; }
+    store.set('lunka-runs', JSON.stringify(runs));
+    lb.submit(run);
+    $('final').textContent = holes;
+    $('overText').innerHTML = (record && holes > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + holesWord(holes);
+    $('acesOver').textContent = aces;
+    showBests(); $('over').hidden = false;
+    if (!chanceUsed) chance.show();
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'lunka',
+    boards: [
+      { id: 'holes', title: 'Лунки', column: 'best_holes', order: 'desc', note: 'Больше всего лунок за одну игру.', format: (v) => `${v} ${holesWord(v)}` },
+      { id: 'aces', title: 'С одного удара', column: 'best_aces', order: 'desc', note: 'Больше всего лунок с одного удара за одну игру.', format: (v) => `${v} ${holesWord(v)}` },
+    ],
+    bests: () => [runs.holes, runs.aces].filter(Boolean),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  // Pull back anywhere on the course: the shot goes the opposite way.
+  cv.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); unlockAudio();
+    if (state !== 'play' || moving() || sink || strokes <= 0) return;
+    const p = toField(e); if (!p) return;
+    aim = { sx: p.x, sy: p.y, dx: 0, dy: 0, id: e.pointerId };
+    try { cv.setPointerCapture(e.pointerId); } catch {}
+  });
+  cv.addEventListener('pointermove', (e) => { if (!aim || e.pointerId !== aim.id) return; const p = toField(e); if (p) { aim.dx = aim.sx - p.x; aim.dy = aim.sy - p.y; } });
+  const release = (e) => { if (!aim || (e && e.pointerId !== aim.id)) return; const a = aim; aim = null; if (state === 'play' && !moving() && !sink) shoot(a.dx, a.dy); };
+  cv.addEventListener('pointerup', release);
+  cv.addEventListener('pointercancel', () => { aim = null; });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && e.target.closest && e.target.closest('.screen button')) return;
+    if ((e.code === 'Space' || e.code === 'Enter') && !e.repeat && state !== 'play' && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); }
+    if (e.code === 'Escape') aim = null;
+  });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('lunka-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  // For automated checks only (?test=1).
+  if (new URLSearchParams(location.search).get('test') === '1') window.__lunka = { get: () => ({ ball, cup, state, strokes, holes, hole, shots, moving: moving(), sink }), shoot: (dx, dy) => shoot(dx, dy), start, step, toField, screenOf };
+
+  addEventListener('resize', resize);
+  resize(); reset(); showBests();
+  // #preview: aiming on a later hole, for the catalog.
+  if (location.hash === '#preview') {
+    $('start').hidden = true; hole = 5; buildHole(); while (!mill || waters.length) { hole = 5; buildHole(); }
+    state = 'play'; holes = 5; strokes = 8; aces = 1; banner = 0;
+    const dx = cup.x - ball.x, dy = cup.y - ball.y, d = Math.hypot(dx, dy); aim = { sx: 0, sy: 0, dx: dx / d * 120, dy: dy / d * 120 };
+    shoot = () => false;
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../shared/chat-boot.js?v=5"></script>
+</body>
+</html>
