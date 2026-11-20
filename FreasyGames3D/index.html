@@ -6,7 +6,7 @@
 <script src="../shared/theme.js?v=1"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0d0f1c">
-  <meta name="description" content="FreasyGames 3D — бесплатные 3D-игры прямо в браузере: RCFCG 3D, Растения против Зомби 3D, Мемный Кот: Прыг 3D, Отель «Полночь», Трасса 3D, Шариковый рекорд 3D, Лиана 3D, Слияние звёзд 3D, Звёздная башня 3D, Кирпичики 3D, Нарезка 3D, Лабиринт 3D, Блоки 3D, Лунка 3D и Аэрохоккей 3D.">
+  <meta name="description" content="FreasyGames 3D — бесплатные 3D-игры прямо в браузере: RCFCG 3D, Растения против Зомби 3D, Мемный Кот: Прыг 3D, Отель «Полночь», Трасса 3D, Шариковый рекорд 3D, Лиана 3D, Слияние звёзд 3D, Звёздная башня 3D, Кирпичики 3D, Нарезка 3D, Лабиринт 3D, Блоки 3D, Лунка 3D, Аэрохоккей 3D, Бревно 3D и Колбы 3D.">
   <title>FreasyGames 3D</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -298,6 +298,10 @@
     .art.blocks3d { background: #0d0f1c url(../images/bloki3d.jpg) 50% 35% / 150% auto no-repeat; }
     .art.golf3d { background: #0f1a14 url(../images/lunka3d.jpg) 50% 45% / 150% auto no-repeat; }
     .art.hockey3d { background: #0d0f1c url(../images/hokkey3d.jpg) 50% 22% / 150% auto no-repeat; }
+    .art.log3d { background: #14122a url(../images/brevno3d.jpg) 50% 40% / 170% auto no-repeat; }
+    .art.tubes3d { background: #111321 url(../images/kolby3d.jpg) 50% 55% / 140% auto no-repeat; }
+    .art.log3d::after, .art.tubes3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, var(--card)); pointer-events: none; }
+    .art .pct.logp { color: #ffd23f; font-size: 13px; } .art .pct.tubep { color: #bca0ff; font-size: 13px; }
     .art.golf3d::after, .art.hockey3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, var(--card)); pointer-events: none; }
     .art .pct.golfp { color: #5df2a5; font-size: 13px; } .art .pct.hockeyp { color: #6fe3ff; font-size: 13px; }
     .art.maze3d::after, .art.blocks3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, var(--card)); pointer-events: none; }
@@ -345,7 +349,7 @@
     <section class="wrap hero">
       <span class="eyebrow">Только 3D</span>
       <h1>Freasy<span class="three">Games 3D</span></h1>
-      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже двадцать три игры, и будут ещё.</p>
+      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже двадцать пять игр, и будут ещё.</p>
       <a class="hero-action" href="#games">Смотреть игры ↓</a>
       <div class="hint">Двигай мышкой или пальцем — сцена повернётся</div>
     </section>
@@ -421,6 +425,10 @@
           <span class="tag live">Играть</span><h3>Лунка 3D</h3><p>Объёмный мини-гольф: деревянные бортики, песок, пруды и мельница, флаг колышется на ветру. Те же поля, удары и рекорды, что в 2D.</p></div>
         <div class="slot game" data-game="3d-hokkey" data-tags="Спорт, Таблица лидеров"><a class="slot-link" href="hokkey/" aria-label="Играть: Аэрохоккей 3D"></a><div class="art hockey3d" aria-hidden="true"><span class="pct hockeyp">3 : 2</span></div>
           <span class="tag live">Играть</span><h3>Аэрохоккей 3D</h3><p>Объёмный стол с неоновыми бортами, светящаяся шайба оставляет след. Те же лиги, соперник и рекорды, что в 2D.</p></div>
+        <div class="slot game" data-game="3d-brevno" data-tags="Аркада, На реакцию, Таблица лидеров"><a class="slot-link" href="brevno/" aria-label="Играть: Бревно 3D"></a><div class="art log3d" aria-hidden="true"><span class="pct logp">🍎 +3</span></div>
+          <span class="tag live">Играть</span><h3>Бревно 3D</h3><p>Объёмное бревно с корой и годовыми кольцами, стальные ножи и яблоки, раскол на четыре части. Те же уровни, дубы и рекорды, что в 2D.</p></div>
+        <div class="slot game" data-game="3d-kolby" data-tags="Головоломка, Сортировка, Таблица лидеров"><a class="slot-link" href="kolby/" aria-label="Играть: Колбы 3D"></a><div class="art tubes3d" aria-hidden="true"><span class="pct tubep">Уровень 6</span></div>
+          <span class="tag live">Играть</span><h3>Колбы 3D</h3><p>Стеклянные колбы на полках и глянцевые шарики, которые перелетают по дуге. Те же уровни, решаемые раскладки и рекорды, что в 2D.</p></div>
       </div>
     </section>
 

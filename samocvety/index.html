@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../shared/session.js?v=2"></script>
+<script src="../shared/clips.js?v=1"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Самоцветы — FreasyGames</title>
+<meta name="description" content="Самоцветы на FreasyGames: меняй соседние камни местами и собирай по три в ряд. Камни-линии, бомбы и радуги, цели на каждом уровне и таблица лидеров.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>.stars { font-size: 34px; letter-spacing: 4px; margin: 4px 0 2px; }</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">💎 Новая игра</div>
+    <h1><span>Самоцветы</span></h1>
+    <p>Меняй местами два соседних камня, чтобы собрать три и больше одинаковых в ряд. На каждом уровне — свои цели и ограничение по ходам.</p>
+    <p>Четыре в ряд дают камень-линию, уголок — бомбу, пять в ряд — радугу, которая убирает целый цвет. Сэкономленные ходы превращаются в очки.</p>
+    <p>Уровень: <b id="levelStart">1</b> · очков: <b id="bestStart">0</b></p>
+    <button class="play" id="go" type="button">Играть ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Проведи пальцем или мышью по камню в сторону соседа, или нажми на два соседних камня</div>
+  </div>
+</div>
+
+<div class="screen" id="win" hidden>
+  <div class="box">
+    <div class="eyebrow" id="winEyebrow">Уровень пройден</div>
+    <div class="stars" id="winStars">★★★</div>
+    <div class="big" id="winPts">+0</div>
+    <p id="winText">очков за уровень</p>
+    <p>Всего: <b id="winTotal">0</b></p>
+    <button class="play" id="next" type="button">Следующий уровень ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<div class="screen" id="fail" hidden>
+  <div class="box">
+    <div class="eyebrow">Ходы кончились</div>
+    <h1><span>Почти!</span></h1>
+    <p id="failText">Осталось собрать совсем немного.</p>
+    <button class="play" id="retry" type="button">Попробовать снова ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), g = cv.getContext('2d');
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const pointsWord = (n) => plural(n, 'очко', 'очка', 'очков');
+  const levelsWord = (n) => plural(n, 'уровень', 'уровня', 'уровней');
+
+  // A fixed 480 × 800 layout scaled to the screen.
+  const FW = 480, FH = 800, N = 8, CELL = 54, BX = (FW - N * CELL) / 2, BY = 230;
+  const GEMS = [
+    { n: 'рубин', c: '#ff4d6d', d: '#a3122f' }, { n: 'изумруд', c: '#3ddc84', d: '#11804a' }, { n: 'сапфир', c: '#4d8bff', d: '#173f9e' },
+    { n: 'топаз', c: '#ffc83d', d: '#b07a00' }, { n: 'аметист', c: '#b06bff', d: '#5b23a8' }, { n: 'жемчуг', c: '#e9f0ff', d: '#8a93b8' },
+  ];
+  let W = 0, H = 0, dpr = 1, scale = 1, ox = 0, oy = 0;
+  let level = Math.max(1, +store.get('samocvety-level', 1) || 1), score = +store.get('samocvety-score', 0) || 0;
+  let muted = store.get('samocvety-muted', '0') === '1';
+  let state = 'start', grid, kinds, moves, goals, lvlScore, combo, busy = 0, pending = false, swapBack = null, sel = null, drag = null, parts = [], pops = [], time = 0, idle = 0, hintMove = null, shake = 0, nextId = 1, bonusRun = 0, ended = false;
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'sine', v = 0.06, slide = 1, delay = 0) {
+    if (muted || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  const sfx = {
+    swap: () => tone(440, 0.06, 'sine', 0.05, 1.3),
+    bad: () => tone(200, 0.12, 'square', 0.04, 0.8),
+    match: (k) => { const f = 523 * Math.pow(2, Math.min(12, k * 2) / 12); tone(f, 0.12, 'triangle', 0.07); tone(f * 1.5, 0.1, 'sine', 0.04, 1, 0.04); },
+    special: () => { tone(880, 0.25, 'sawtooth', 0.05, 0.5); tone(1320, 0.2, 'triangle', 0.05, 1.5); },
+    win: () => [0, 4, 7, 12, 16, 19].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.16, 'triangle', 0.08, 1, i * 0.07)),
+    fail: () => tone(260, 0.5, 'sawtooth', 0.07, 0.5),
+  };
+
+  // ——— Levels: collect so many gems of two or three kinds in a limited number of moves ———
+  function setupLevel() {
+    kinds = level < 6 ? 5 : 6;
+    const nGoals = level < 3 ? 1 : level < 8 ? 2 : 3, pick = [0, 1, 2, 3, 4, 5].slice(0, kinds).sort(() => Math.random() - 0.5).slice(0, nGoals);
+    // goals grow and moves shrink a little with every few levels; from level 25 on they stay the same
+    goals = pick.map((t) => ({ t, need: nGoals === 1 ? 10 + level * 2 : Math.min(30, 8 + level), got: 0 }));
+    moves = 22 + nGoals * 4 - Math.min(5, Math.floor(level / 5));
+    lvlScore = 0; combo = 0; bonusRun = 0; ended = false; swapBack = null; pending = false; sel = null; hintMove = null; idle = 0;
+    // a starting board with no ready matches and at least one possible move
+    for (let tries = 0; tries < 50; tries++) {
+      grid = Array.from({ length: N }, (_, r) => Array.from({ length: N }, (_, c) => gem(randT(), c, r - N - 2 + r * 0.2)));
+      for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) { let k = 0; while (k++ < 20 && (runAt(r, c))) grid[r][c].t = randT(); }
+      if (findMove()) break;
+    }
+  }
+  const randT = () => Math.floor(Math.random() * kinds);
+  const gem = (t, c, r, sp = null) => ({ t, sp, x: c, y: r, id: nextId++, die: 0, pop: 0 });
+  const runAt = (r, c) => { const t = grid[r][c].t; return (c >= 2 && grid[r][c - 1].t === t && grid[r][c - 2].t === t) || (r >= 2 && grid[r - 1][c].t === t && grid[r - 2][c].t === t); };
+
+  // ——— Matching ———
+  // Runs of three or more of one kind (rainbows match nothing).
+  function findRuns() {
+    const runs = [];
+    for (let r = 0; r < N; r++) for (let c = 0; c < N;) { const t = grid[r][c] && grid[r][c].t; let e = c + 1; while (e < N && grid[r][e] && t >= 0 && grid[r][e].t === t) e++; if (t >= 0 && e - c >= 3) runs.push({ h: true, r, c, len: e - c, t }); c = e; }
+    for (let c = 0; c < N; c++) for (let r = 0; r < N;) { const t = grid[r][c] && grid[r][c].t; let e = r + 1; while (e < N && grid[e][c] && t >= 0 && grid[e][c].t === t) e++; if (t >= 0 && e - r >= 3) runs.push({ h: false, r, c, len: e - r, t }); r = e; }
+    return runs;
+  }
+  function cellsOf(run) { const out = []; for (let k = 0; k < run.len; k++) out.push(run.h ? [run.r, run.c + k] : [run.r + k, run.c]); return out; }
+  function findMove() {
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) for (const [dr, dc] of [[0, 1], [1, 0]]) {
+      const r2 = r + dr, c2 = c + dc; if (r2 >= N || c2 >= N) continue;
+      const a = grid[r][c], b = grid[r2][c2];
+      if (a.sp === 'rainbow' || b.sp === 'rainbow') return [[r, c], [r2, c2]];
+      grid[r][c] = b; grid[r2][c2] = a; const ok = findRuns().length > 0; grid[r][c] = a; grid[r2][c2] = b;
+      if (ok) return [[r, c], [r2, c2]];
+    }
+    return null;
+  }
+  // Removes the given cells, sets off specials inside them, and leaves new specials where long runs met.
+  function clearCells(list, make = []) {
+    const kill = new Map(), q = list.slice();
+    const add = (r, c) => { if (r < 0 || c < 0 || r >= N || c >= N || !grid[r][c] || kill.has(r * N + c)) return; kill.set(r * N + c, true); q.push([r, c]); };
+    for (const [r, c] of list) kill.set(r * N + c, true);
+    for (let h = 0; h < q.length; h++) {
+      const [r, c] = q[h], e = grid[r][c]; if (!e || !e.sp) continue;
+      if (make.some((m) => m.r === r && m.c === c && m.keep === e)) continue;
+      if (e.sp === 'h') { for (let k = 0; k < N; k++) add(r, k); beam(r, c, true); }
+      else if (e.sp === 'v') { for (let k = 0; k < N; k++) add(k, c); beam(r, c, false); }
+      else if (e.sp === 'bomb') { for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) add(r + a, c + b); burst(c, r, '#ffd23f', 24); shake = 0.3; }
+      else if (e.sp === 'rainbow') { const t = randT(); for (let a = 0; a < N; a++) for (let b = 0; b < N; b++) if (grid[a][b] && grid[a][b].t === t) add(a, b); }
+      sfx.special();
+    }
+    let n = 0;
+    for (const k of kill.keys()) {
+      const r = Math.floor(k / N), c = k % N, e = grid[r][c]; if (!e) continue;
+      const keep = make.find((m) => m.r === r && m.c === c);
+      if (keep) { e.sp = keep.sp; e.t = keep.sp === 'rainbow' ? -1 : keep.t; e.pop = 0.3; continue; }
+      e.die = 0.22; n++;
+      for (const gl of goals) if (gl.t === e.t && gl.got < gl.need) gl.got++;
+      burst(c, r, e.t >= 0 ? GEMS[e.t].c : '#ffffff', 5);
+    }
+    return n;
+  }
+  // One step of the cascade: match, set specials, clear. Returns true if something was cleared.
+  function resolve(swapCells) {
+    const runs = findRuns();
+    if (!runs.length) return false;
+    combo++;
+    const make = [], all = [];
+    // runs that cross make a bomb; five in a row a rainbow; four a line gem
+    const seen = new Map();
+    for (const run of runs) for (const [r, c] of cellsOf(run)) { const k = r * N + c; seen.set(k, (seen.get(k) || 0) + 1); all.push([r, c]); }
+    for (const run of runs) {
+      const cs = cellsOf(run), cross = cs.find(([r, c]) => seen.get(r * N + c) > 1);
+      const at = (swapCells && cs.find(([r, c]) => swapCells.some(([a, b]) => a === r && b === c))) || cross || cs[Math.floor(cs.length / 2)];
+      if (run.len >= 5) make.push({ r: at[0], c: at[1], sp: 'rainbow', t: run.t });
+      else if (cross && !make.some((m) => m.r === cross[0] && m.c === cross[1])) make.push({ r: cross[0], c: cross[1], sp: 'bomb', t: run.t });
+      else if (run.len === 4) make.push({ r: at[0], c: at[1], sp: run.h ? 'h' : 'v', t: run.t });
+    }
+    for (const m of make) m.keep = grid[m.r][m.c];
+    const n = clearCells(all, make);
+    const pts = n * 10 * combo + make.length * 40;
+    lvlScore += pts; if (pts) pop((all[0][1] + 0.5), (all[0][0] + 0.5), '+' + pts + (combo > 1 ? ` ×${combo}` : ''), combo > 2 ? '#ffd23f' : '#fff');
+    sfx.match(combo); busy = Math.max(busy, 0.24);
+    return true;
+  }
+  function gravity() {
+    for (let c = 0; c < N; c++) {
+      let w = N - 1;
+      for (let r = N - 1; r >= 0; r--) if (grid[r][c] && !grid[r][c].dead) { const e = grid[r][c]; grid[r][c] = null; grid[w][c] = e; w--; }
+      for (let r = w, k = 1; r >= 0; r--, k++) grid[r][c] = gem(randT(), c, -k - 0.3);
+    }
+  }
+  const allSettled = () => grid.every((row, r) => row.every((e, c) => e && Math.abs(e.x - c) < 0.01 && Math.abs(e.y - r) < 0.01 && e.die <= 0));
+
+  // ——— Turns ———
+  function trySwap(a, b) {
+    if (state !== 'play' || busy > 0 || pending || ended || moves <= 0) return;
+    const [r1, c1] = a, [r2, c2] = b; if (Math.abs(r1 - r2) + Math.abs(c1 - c2) !== 1) return;
+    const A = grid[r1][c1], B = grid[r2][c2];
+    grid[r1][c1] = B; grid[r2][c2] = A; sel = null; hintMove = null; idle = 0; sfx.swap();
+    combo = 0;
+    // a rainbow swapped with a gem clears that whole kind
+    if (A.sp === 'rainbow' || B.sp === 'rainbow') {
+      moves--; const rb = A.sp === 'rainbow' ? A : B, other = rb === A ? B : A, list = [];
+      const rp = rb === A ? [r2, c2] : [r1, c1];
+      if (other.sp === 'rainbow') { for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) list.push([r, c]); }
+      else { list.push(rp); for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) if (grid[r][c].t === other.t) list.push([r, c]); }
+      combo = 1; const n = clearCells(list); lvlScore += n * 15; shake = 0.35; busy = 0.3; pending = true; return;
+    }
+    if (findRuns().length) { moves--; pending = true; swapCells = [a, b]; }
+    else swapBack = { a, b, t: 0.18 };
+  }
+  let swapCells = null;
+  function step(dt) {
+    if (state !== 'play' || lb.isOpen()) return;
+    // gems slide to their cells
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+      const e = grid[r][c]; if (!e) continue;
+      const sp = 10 * dt;
+      e.x += Math.sign(c - e.x) * Math.min(Math.abs(c - e.x), sp);
+      if (e.y < r) { e.vy = (e.vy || 0) + 40 * dt; e.y = Math.min(r, e.y + Math.max(sp * 0.6, e.vy * dt)); } else { e.y += Math.sign(r - e.y) * Math.min(Math.abs(r - e.y), sp); e.vy = 0; }
+      if (e.die > 0) { e.die -= dt; if (e.die <= 0) e.dead = true; }
+      if (e.pop > 0) e.pop -= dt;
+    }
+    if (swapBack) { swapBack.t -= dt; if (swapBack.t <= 0) { const { a, b } = swapBack; const A = grid[a[0]][a[1]]; grid[a[0]][a[1]] = grid[b[0]][b[1]]; grid[b[0]][b[1]] = A; swapBack = null; sfx.bad(); } return; }
+    busy = Math.max(0, busy - dt);
+    if (busy > 0) return;
+    if (grid.some((row) => row.some((e) => e && e.dead))) { gravity(); return; }
+    if (!allSettled()) return;
+    if (pending) {
+      if (!resolve(swapCells)) { pending = false; combo = 0; swapCells = null; afterTurn(); }
+      swapCells = null;
+      return;
+    }
+    if (ended) return;
+    idle += dt;
+    if (idle > 5 && !hintMove) hintMove = findMove();
+  }
+  function afterTurn() {
+    if (goals.every((gl) => gl.got >= gl.need)) return finishLevel();
+    if (moves <= 0) return failLevel();
+    if (!findMove()) { shuffle(); pop(N / 2, N / 2, 'Перемешали!', '#bca0ff'); }
+  }
+  function shuffle() {
+    for (let tries = 0; tries < 60; tries++) {
+      const all = grid.flat(); for (let i = all.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [all[i], all[j]] = [all[j], all[i]]; }
+      for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) grid[r][c] = all[r * N + c];
+      if (!findRuns().length && findMove()) return;
+    }
+  }
+  // Moves left turn into bonus points, then the level is scored.
+  function finishLevel() {
+    ended = true; sfx.win();
+    const left = moves, bonus = left * 60; lvlScore += bonus;
+    if (left) pop(N / 2, N / 2 - 1, `Ходов осталось ${left}: +${bonus}`, '#5df2a5');
+    const stars = left >= 5 ? 3 : left >= 2 ? 2 : 1;
+    setTimeout(() => {
+      state = 'won';
+      score += lvlScore; const passed = level; level++;
+      store.set('samocvety-level', level); store.set('samocvety-score', score);
+      lb.submit({ new_score: score, new_level: passed });
+      $('winEyebrow').textContent = `Уровень ${passed} пройден`;
+      $('winStars').textContent = '★'.repeat(stars) + '☆'.repeat(3 - stars);
+      $('winPts').textContent = '+' + lvlScore; $('winText').textContent = pointsWord(lvlScore) + ' за уровень';
+      $('winTotal').textContent = score;
+      $('win').hidden = false;
+    }, 1400);
+  }
+  let extraUsed = false;
+  function failLevel() {
+    ended = true; sfx.fail();
+    setTimeout(() => {
+      state = 'failed';
+      const leftTxt = goals.filter((gl) => gl.got < gl.need).map((gl) => `${gl.need - gl.got} — ${GEMS[gl.t].n}`).join(', ');
+      $('failText').textContent = 'Осталось собрать: ' + leftTxt + '.';
+      $('fail').hidden = false; if (!extraUsed) more.show();
+    }, 600);
+  }
+  const more = FreasyRewards.offer({ host: '#fail .box', name: 'samocvety-moves', label: '🎬 +5 ходов за рекламу', onReward: () => { extraUsed = true; moves += 5; ended = false; state = 'play'; $('fail').hidden = true; } });
+  function play() { unlockAudio(); $('start').hidden = true; $('win').hidden = true; $('fail').hidden = true; more.hide(); extraUsed = false; state = 'play'; setupLevel(); }
+
+  function burst(c, r, col, n = 8) { const x = BX + (c + 0.5) * CELL, y = BY + (r + 0.5) * CELL; for (let i = 0; i < n; i++) { const a = Math.random() * 7, v = 40 + Math.random() * 180; parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, col }); } }
+  function beam(r, c, h) { parts.push({ beam: true, h, r, c, life: 0.35 }); shake = Math.max(shake, 0.15); }
+  function pop(c, r, text, col) { pops.push({ x: BX + c * CELL, y: BY + r * CELL, text, col, life: 1.2 }); }
+
+  // ——— Drawing ———
+  function rr(x, y, w, h, r) { g.beginPath(); if (g.roundRect) g.roundRect(x, y, w, h, r); else g.rect(x, y, w, h); }
+  function shapePath(t, s) {
+    g.beginPath();
+    if (t === 0) { for (let k = 0; k < 6; k++) { const a = k / 6 * Math.PI * 2 + Math.PI / 6; g.lineTo(Math.cos(a) * s, Math.sin(a) * s); } }
+    else if (t === 1) { const q = s * 0.82; if (g.roundRect) g.roundRect(-q, -q, q * 2, q * 2, s * 0.25); else g.rect(-q, -q, q * 2, q * 2); return; }
+    else if (t === 2) { g.moveTo(0, -s); g.lineTo(s * 0.85, 0); g.lineTo(0, s); g.lineTo(-s * 0.85, 0); }
+    else if (t === 3) { g.moveTo(0, -s); g.lineTo(s * 0.95, s * 0.75); g.lineTo(-s * 0.95, s * 0.75); }
+    else if (t === 4) { g.arc(0, 0, s * 0.88, 0, 7); return; }
+    else { for (let k = 0; k < 10; k++) { const a = k / 10 * Math.PI * 2 - Math.PI / 2, rr2 = k % 2 ? s * 0.48 : s; g.lineTo(Math.cos(a) * rr2, Math.sin(a) * rr2); } }
+    g.closePath();
+  }
+  function drawGem(e, x, y, k) {
+    const s = CELL * 0.38 * k;
+    g.save(); g.translate(x, y);
+    if (e.sp === 'rainbow') {
+      for (let i = 0; i < 6; i++) { g.fillStyle = GEMS[i].c; g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, s * 0.95, i / 6 * Math.PI * 2 + time * 2, (i + 1) / 6 * Math.PI * 2 + time * 2); g.fill(); }
+      g.fillStyle = '#ffffff'; g.beginPath(); g.arc(0, 0, s * 0.35, 0, 7); g.fill();
+      g.restore(); return;
+    }
+    const G = GEMS[e.t];
+    g.fillStyle = '#00000040'; g.save(); g.translate(2, 4); shapePath(e.t, s); g.fill(); g.restore();
+    const gr = g.createLinearGradient(-s, -s, s, s); gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.25, G.c); gr.addColorStop(1, G.d);
+    g.fillStyle = gr; shapePath(e.t, s); g.fill();
+    g.fillStyle = '#ffffff55'; g.save(); g.scale(0.5, 0.5); g.translate(-s * 0.35, -s * 0.45); shapePath(e.t, s); g.fill(); g.restore();
+    if (e.sp === 'h' || e.sp === 'v') { g.strokeStyle = '#ffffffdd'; g.lineWidth = 3; for (const o of [-0.3, 0.3]) { g.beginPath(); if (e.sp === 'h') { g.moveTo(-s * 0.8, o * s); g.lineTo(s * 0.8, o * s); } else { g.moveTo(o * s, -s * 0.8); g.lineTo(o * s, s * 0.8); } g.stroke(); } }
+    if (e.sp === 'bomb') { g.strokeStyle = `rgba(255,210,63,${0.6 + Math.sin(time * 8) * 0.3})`; g.lineWidth = 4; g.beginPath(); g.arc(0, 0, s * 1.05, 0, 7); g.stroke(); g.fillStyle = '#2a2b45'; g.beginPath(); g.arc(0, 0, s * 0.32, 0, 7); g.fill(); g.fillStyle = '#ffd23f'; g.beginPath(); g.arc(0, 0, s * 0.14, 0, 7); g.fill(); }
+    g.restore();
+  }
+  function draw() {
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const bgr = g.createRadialGradient(W / 2, -H * 0.1, 0, W / 2, -H * 0.1, H * 1.1);
+    bgr.addColorStop(0, '#3d2a6a'); bgr.addColorStop(0.4, '#181a30'); bgr.addColorStop(1, '#111321');
+    g.fillStyle = bgr; g.fillRect(0, 0, W, H);
+    const sh = shake > 0 ? (Math.random() - 0.5) * 10 * shake : 0;
+    g.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * (ox + sh), dpr * oy);
+    // board
+    g.fillStyle = '#00000050'; rr(BX - 10, BY - 8, N * CELL + 20, N * CELL + 22, 20); g.fill();
+    g.fillStyle = '#1d1e33'; rr(BX - 10, BY - 10, N * CELL + 20, N * CELL + 20, 20); g.fill();
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) { g.fillStyle = (r + c) % 2 ? '#26284a' : '#222442'; rr(BX + c * CELL + 2, BY + r * CELL + 2, CELL - 4, CELL - 4, 10); g.fill(); }
+    if (sel) { g.strokeStyle = '#ffd23f'; g.lineWidth = 3; rr(BX + sel[1] * CELL + 2, BY + sel[0] * CELL + 2, CELL - 4, CELL - 4, 10); g.stroke(); }
+    if (hintMove && Math.sin(time * 6) > 0) for (const [r, c] of hintMove) { g.strokeStyle = '#ffffff88'; g.lineWidth = 2; rr(BX + c * CELL + 4, BY + r * CELL + 4, CELL - 8, CELL - 8, 9); g.stroke(); }
+    g.save(); rr(BX - 4, BY - 4, N * CELL + 8, N * CELL + 8, 16); g.clip();
+    if (grid) for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+      const e = grid[r][c]; if (!e || e.dead) continue;
+      const k = e.die > 0 ? Math.max(0, e.die / 0.22) : 1 + (e.pop > 0 ? Math.sin(e.pop / 0.3 * Math.PI) * 0.25 : 0);
+      const lift = sel && sel[0] === r && sel[1] === c ? Math.sin(time * 8) * 2 - 2 : 0;
+      drawGem(e, BX + (e.x + 0.5) * CELL, BY + (e.y + 0.5) * CELL + lift, k);
+    }
+    g.restore();
+    for (const p of parts) {
+      if (p.beam) { g.globalAlpha = p.life / 0.35; g.fillStyle = '#ffffffcc'; if (p.h) rr(BX, BY + p.r * CELL + CELL * 0.35, N * CELL, CELL * 0.3, 8); else rr(BX + p.c * CELL + CELL * 0.35, BY, CELL * 0.3, N * CELL, 8); g.fill(); continue; }
+      g.globalAlpha = Math.max(0, p.life); g.fillStyle = p.col; g.beginPath(); g.arc(p.x, p.y, 3, 0, 7); g.fill();
+    }
+    g.globalAlpha = 1;
+    for (const p of pops) { g.globalAlpha = Math.min(1, p.life * 1.5); g.fillStyle = p.col; g.font = '800 20px Manrope, system-ui'; g.textAlign = 'center'; g.shadowColor = '#000a'; g.shadowBlur = 8; g.fillText(p.text, p.x, p.y - (1.2 - p.life) * 30); g.shadowBlur = 0; } g.globalAlpha = 1;
+    if (state !== 'start' && goals) {
+      g.textAlign = 'center'; g.fillStyle = '#fff'; g.font = '800 30px Manrope, system-ui'; g.fillText('Уровень ' + level, FW / 2, 84);
+      g.font = '800 13px Manrope, system-ui'; g.fillStyle = '#d9c9ff'; g.fillText(`ОЧКИ ${score + lvlScore}`, FW / 2, 104);
+      // moves left and goals
+      g.fillStyle = '#ffffff12'; rr(BX, 118, N * CELL, 92, 18); g.fill();
+      g.fillStyle = moves <= 3 ? '#ff7a8a' : '#fff'; g.font = '800 40px Manrope, system-ui'; g.fillText(moves, BX + 52, 172);
+      g.font = '800 11px Manrope, system-ui'; g.fillStyle = '#bca0ff'; g.fillText('ХОДОВ', BX + 52, 192);
+      const gw = (N * CELL - 110) / goals.length;
+      goals.forEach((gl, i) => {
+        const cx = BX + 110 + gw * (i + 0.5);
+        drawGem({ t: gl.t }, cx, 150, 0.8);
+        const left = Math.max(0, gl.need - gl.got);
+        g.fillStyle = left ? '#fff' : '#5df2a5'; g.font = '800 20px Manrope, system-ui'; g.textAlign = 'center'; g.fillText(left ? left : '✓', cx, 196);
+      });
+    }
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; time += dt;
+    step(dt);
+    for (const p of parts) { if (!p.beam) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 300 * dt; } p.life -= dt * (p.beam ? 1 : 1.4); } parts = parts.filter((p) => p.life > 0);
+    for (const p of pops) p.life -= dt; pops = pops.filter((p) => p.life > 0);
+    shake = Math.max(0, shake - dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr;
+    scale = Math.min(W / FW, H / FH); ox = (W - FW * scale) / 2; oy = (H - FH * scale) / 2;
+  }
+  function cellAt(e) {
+    const x = (e.clientX - ox) / scale, y = (e.clientY - oy) / scale, c = Math.floor((x - BX) / CELL), r = Math.floor((y - BY) / CELL);
+    return c >= 0 && r >= 0 && c < N && r < N ? [r, c] : null;
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'samocvety',
+    boards: [
+      { id: 'level', title: 'Уровни', column: 'best_level', order: 'desc', note: 'Больше всего пройденных уровней.', format: (v) => `${v} ${levelsWord(v)}` },
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за все уровни.', format: (v) => `${v} ${pointsWord(v)}` },
+    ],
+    bests: () => (level > 1 ? { new_score: score, new_level: level - 1 } : null),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  // Swipe a gem toward a neighbour, or tap two neighbours one after another.
+  cv.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); unlockAudio();
+    if (state !== 'play') return;
+    const p = cellAt(e); if (!p) { sel = null; return; }
+    if (sel && Math.abs(sel[0] - p[0]) + Math.abs(sel[1] - p[1]) === 1) { trySwap(sel, p); return; }
+    sel = p; drag = { p, x: e.clientX, y: e.clientY, id: e.pointerId };
+    try { cv.setPointerCapture(e.pointerId); } catch {}
+  });
+  cv.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y, th = CELL * scale * 0.35;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < th) return;
+    const [r, c] = drag.p, to = Math.abs(dx) > Math.abs(dy) ? [r, c + Math.sign(dx)] : [r + Math.sign(dy), c];
+    drag = null;
+    if (to[0] >= 0 && to[1] >= 0 && to[0] < N && to[1] < N) trySwap([r, c], to);
+  });
+  const up = (e) => { if (drag && e.pointerId === drag.id) drag = null; };
+  cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && e.target.closest && e.target.closest('button')) return;
+    if ((e.code === 'Space' || e.code === 'Enter') && (!$('start').hidden || !$('win').hidden || !$('fail').hidden)) { e.preventDefault(); play(); }
+  });
+  $('go').addEventListener('click', play);
+  $('next').addEventListener('click', play);
+  $('retry').addEventListener('click', play);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('samocvety-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  // For automated checks only (?test=1).
+  if (new URLSearchParams(location.search).get('test') === '1') window.__gems = { setLevel: (n) => { level = n; }, get: () => ({ state, level, score, lvlScore, moves, goals, busy, pending, ended }), play, step, trySwap, findMove: () => findMove(), grid: () => grid, setGoalsDone: () => goals.forEach((gl) => { gl.got = gl.need; }), cellCenter: (r, c) => [ox + (BX + (c + 0.5) * CELL) * scale, oy + (BY + (r + 0.5) * CELL) * scale] };
+
+  addEventListener('resize', resize);
+  resize(); setupLevel();
+  $('levelStart').textContent = level; $('bestStart').textContent = score;
+  if (level > 1 && lb.signedIn()) lb.submit({ new_score: score, new_level: level - 1 });
+  // #preview: a level in play with special gems, for the catalog.
+  if (location.hash === '#preview') {
+    $('start').hidden = true; state = 'play'; level = 6; setupLevel(); moves = 11; goals[0].got = 20; goals[1].got = 9; lvlScore = 1240; score = 8650;
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) { grid[r][c].x = c; grid[r][c].y = r; }
+    grid[3][2].sp = 'h'; grid[5][6].sp = 'bomb'; grid[1][5].sp = 'rainbow'; grid[1][5].t = -1; grid[6][1].sp = 'v';
+    hintMove = findMove(); sel = hintMove && hintMove[0];
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

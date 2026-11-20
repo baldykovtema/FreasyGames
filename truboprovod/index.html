@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../shared/session.js?v=2"></script>
+<script src="../shared/clips.js?v=1"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Трубопровод — FreasyGames</title>
+<meta name="description" content="Трубопровод на FreasyGames: поворачивай трубы, чтобы вода от водокачки дошла до каждого цветка. Головоломки всё больше, звёзды за экономные ходы и таблица лидеров.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>
+  .tools { position: fixed; left: 0; right: 0; bottom: max(16px, env(safe-area-inset-bottom)); display: flex; justify-content: center; gap: 10px; z-index: 3; }
+  .tools[hidden] { display: none; }
+  .tools button { font: inherit; font-size: 14px; font-weight: 800; color: #d1cde5; background: #1d1e31e6; border: 1px solid #ffffff2e; border-radius: 14px; padding: 12px 16px; cursor: pointer; }
+  .tools button:disabled { opacity: .4; cursor: default; }
+  .tools button:not(:disabled):hover { background: #2a2b45; }
+  .stars { font-size: 34px; letter-spacing: 4px; margin: 4px 0 2px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+<div class="tools" id="tools" hidden>
+  <button type="button" id="hint">💡 Подсказка</button>
+  <button type="button" id="restart">⟲ Заново</button>
+</div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">🚰 Новая игра</div>
+    <h1><span>Трубопровод</span></h1>
+    <p>Трубы перепутались. Нажимай на клетку, чтобы повернуть трубу, и соедини водокачку с каждым цветком — вода побежит сама.</p>
+    <p>Уровень пройден, когда вода заполнит все трубы. Чем меньше поворотов, тем больше звёзд и очков. Поля с каждым уровнем больше.</p>
+    <p>Уровень: <b id="levelStart">1</b> · очков: <b id="bestStart">0</b></p>
+    <button class="play" id="go" type="button">Играть ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Касание или клик — поворот по часовой, правая кнопка — против</div>
+  </div>
+</div>
+
+<div class="screen" id="win" hidden>
+  <div class="box">
+    <div class="eyebrow" id="winEyebrow">Уровень пройден</div>
+    <div class="stars" id="winStars">★★★</div>
+    <div class="big" id="winPts">+0</div>
+    <p id="winText">очков за уровень</p>
+    <p>Всего: <b id="winTotal">0</b> · поворотов: <b id="winMoves">0</b> (можно за <b id="winPar">0</b>)</p>
+    <button class="play" id="next" type="button">Следующий уровень ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), g = cv.getContext('2d');
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const pointsWord = (n) => plural(n, 'очко', 'очка', 'очков');
+  const levelsWord = (n) => plural(n, 'уровень', 'уровня', 'уровней');
+
+  // A fixed 480 × 800 layout scaled to the screen. Directions: 0 up, 1 right, 2 down, 3 left; a pipe is a 4-bit mask.
+  const FW = 480, FH = 800, BOX = { x: 16, y: 150, w: 448, h: 560 };
+  const DX = [0, 1, 0, -1], DY = [-1, 0, 1, 0];
+  const rotCW = (m) => ((m << 1) | (m >> 3)) & 15, rotCCW = (m) => ((m >> 1) | (m << 3)) & 15;
+  let W = 0, H = 0, dpr = 1, scale = 1, ox = 0, oy = 0;
+  let level = Math.max(1, +store.get('truboprovod-level', 1) || 1), score = +store.get('truboprovod-score', 0) || 0;
+  let muted = store.get('truboprovod-muted', '0') === '1';
+  let state = 'start', cols, rows, cells, src, moves, par, hints, T, bx, by, time = 0, parts = [], solvedAt = 0, startCells = null, pressed = null;
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'sine', v = 0.06, slide = 1, delay = 0) {
+    if (muted || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  const sfx = {
+    turn: () => tone(320, 0.05, 'triangle', 0.06, 1.3),
+    flow: (n) => tone(500 + Math.min(12, n) * 40, 0.08, 'sine', 0.05, 1.2),
+    bloom: () => tone(1046, 0.12, 'triangle', 0.05, 1.2),
+    win: () => [0, 4, 7, 12, 16].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.18, 'triangle', 0.08, 1, i * 0.08)),
+    hint: () => [0, 7].forEach((s, i) => tone(880 * Math.pow(2, s / 12), 0.1, 'sine', 0.05, 1, i * 0.06)),
+  };
+
+  // ——— Levels: a random spanning tree from the pump, then every pipe is turned at random ———
+  function sizeFor(lv) { const c = Math.min(8, 4 + Math.floor((lv - 1) / 3)), r = Math.min(10, c + (lv - 1) % 3); return [c, r]; }
+  function generate() {
+    [cols, rows] = sizeFor(level);
+    const id = (x, y) => y * cols + x, sol = new Array(cols * rows).fill(0);
+    src = id(Math.floor(cols / 2), Math.floor(rows / 2));
+    // random Prim's: grows bushy trees with many flowers at the ends
+    const inTree = new Set([src]), front = [];
+    const addFront = (c) => { const x = c % cols, y = Math.floor(c / cols); for (let d = 0; d < 4; d++) { const nx = x + DX[d], ny = y + DY[d]; if (nx >= 0 && ny >= 0 && nx < cols && ny < rows && !inTree.has(id(nx, ny))) front.push([c, d, id(nx, ny)]); } };
+    addFront(src);
+    while (front.length) {
+      const [c, d, n] = front.splice(Math.floor(Math.random() * front.length), 1)[0];
+      if (inTree.has(n)) continue;
+      // no crossings: a cell takes at most three pipes, which keeps the puzzle readable
+      if ((bits(sol[c]) >= 3 && Math.random() < 0.85) || bits(sol[c]) >= 4) { front.push([c, d, n]); if (front.every((f) => bits(sol[f[0]]) >= 3)) { /* only full cells left: allow */ } else continue; }
+      sol[c] |= 1 << d; sol[n] |= 1 << ((d + 2) % 4); inTree.add(n); addFront(n);
+    }
+    cells = sol.map((m) => { let cur = m; const k = Math.floor(Math.random() * 4); for (let i = 0; i < k; i++) cur = rotCW(cur); return { m: cur, sol: m, ang: 0, water: 0, wet: false, dist: 99, bloom: 0 }; });
+    // never start solved
+    if (connectedAll()) { const c = cells.find((x) => x.m !== 15 && rotCW(x.m) !== x.m); if (c) c.m = rotCW(c.m); }
+    par = cells.reduce((s, c) => s + minTurns(c.m, c.sol), 0);
+    moves = 0; hints = 0; solvedAt = 0;
+    startCells = cells.map((c) => c.m);
+    layout(); flowCheck(true);
+  }
+  const bits = (m) => (m & 1) + ((m >> 1) & 1) + ((m >> 2) & 1) + ((m >> 3) & 1);
+  function minTurns(cur, want) { let m = cur; for (let k = 0; k < 4; k++) { if (m === want) return k; m = rotCW(m); } return 0; }
+  function layout() { T = Math.floor(Math.min(BOX.w / cols, BOX.h / rows)); bx = BOX.x + (BOX.w - T * cols) / 2; by = BOX.y + (BOX.h - T * rows) / 2; }
+  // water spreads from the pump through pipes that meet
+  function flood() {
+    const dist = new Array(cells.length).fill(99), q = [src]; dist[src] = 0;
+    for (let h = 0; h < q.length; h++) {
+      const c = q[h], x = c % cols, y = Math.floor(c / cols);
+      for (let d = 0; d < 4; d++) {
+        if (!(cells[c].m & (1 << d))) continue;
+        const nx = x + DX[d], ny = y + DY[d]; if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
+        const n = ny * cols + nx; if (!(cells[n].m & (1 << ((d + 2) % 4))) || dist[n] < 99) continue;
+        dist[n] = dist[c] + 1; q.push(n);
+      }
+    }
+    return dist;
+  }
+  const connectedAll = () => flood().every((d) => d < 99);
+  function flowCheck(silent) {
+    const dist = flood(); let newly = 0;
+    cells.forEach((c, i) => { const was = c.wet; c.wet = dist[i] < 99; c.dist = dist[i]; if (c.wet && !was) newly++; });
+    if (!silent && newly) sfx.flow(newly);
+    if (cells.every((c) => c.wet) && !solvedAt && state === 'play') { solvedAt = time + 1.1; sfx.win(); }
+  }
+  function turn(i, ccw = false) {
+    if (state !== 'play' || solvedAt) return;
+    const c = cells[i]; if (c.m === 15) return;
+    c.m = ccw ? rotCCW(c.m) : rotCW(c.m); c.ang = ccw ? Math.PI / 2 : -Math.PI / 2;
+    moves++; sfx.turn(); flowCheck(false);
+  }
+  function hint() {
+    if (state !== 'play' || solvedAt) return;
+    // turn one dry pipe next to the water into its right place; if all wet pipes are right, any wrong one
+    const wrong = cells.map((c, i) => i).filter((i) => cells[i].m !== cells[i].sol && minTurns(cells[i].m, cells[i].sol) > 0);
+    if (!wrong.length) return;
+    wrong.sort((a, b) => cells[a].dist - cells[b].dist);
+    const i = wrong.find((k) => nearWater(k)) ?? wrong[0], c = cells[i];
+    c.m = c.sol; c.ang = -Math.PI / 2; c.glow = 1.2; hints++; sfx.hint(); flowCheck(false); updateTools();
+  }
+  function nearWater(i) { const x = i % cols, y = Math.floor(i / cols); for (let d = 0; d < 4; d++) { const nx = x + DX[d], ny = y + DY[d]; if (nx >= 0 && ny >= 0 && nx < cols && ny < rows && cells[ny * cols + nx].wet) return true; } return false; }
+  function restart() { if (state !== 'play' || solvedAt) return; cells.forEach((c, i) => { c.m = startCells[i]; c.ang = 0; }); moves = 0; flowCheck(true); sfx.turn(); }
+  function updateTools() { $('hint').textContent = hints ? `💡 Подсказка (${hints})` : '💡 Подсказка'; }
+
+  // Stars: three for the fewest turns plus a little slack. Points grow with the board.
+  function result() {
+    const n = cells.length, stars = moves <= par + 2 ? 3 : moves <= Math.ceil(par * 1.5) + 4 ? 2 : 1;
+    const pts = Math.max(n, n * [0, 3, 4, 6][stars] - hints * 10);
+    return { stars, pts };
+  }
+  function win() {
+    state = 'win';
+    const { stars, pts } = result(); score += pts;
+    const passed = level; level++;
+    store.set('truboprovod-level', level); store.set('truboprovod-score', score);
+    lb.submit({ new_score: score, new_level: passed });
+    $('winEyebrow').textContent = `Уровень ${passed} пройден`;
+    $('winStars').textContent = '★'.repeat(stars) + '☆'.repeat(3 - stars);
+    $('winPts').textContent = '+' + pts; $('winText').textContent = pointsWord(pts) + ' за уровень' + (hints ? ` (подсказок: ${hints})` : '');
+    $('winTotal').textContent = score; $('winMoves').textContent = moves; $('winPar').textContent = par;
+    $('win').hidden = false; $('tools').hidden = true;
+  }
+  function play() { unlockAudio(); $('start').hidden = true; $('win').hidden = true; $('tools').hidden = false; state = 'play'; generate(); updateTools(); }
+
+  // ——— Drawing ———
+  function rr(x, y, w, h, r) { g.beginPath(); if (g.roundRect) g.roundRect(x, y, w, h, r); else g.rect(x, y, w, h); }
+  const isLeaf = (i) => bits(cells[i].sol) === 1 && i !== src;
+  function drawCell(i) {
+    const c = cells[i], x = bx + (i % cols) * T, y = by + Math.floor(i / cols) * T, cx = x + T / 2, cy = y + T / 2;
+    const pr = pressed && pressed.i === i ? 0.94 : 1;
+    g.fillStyle = (i % cols + Math.floor(i / cols)) % 2 ? '#26314a' : '#222c43'; rr(x + 2, y + 2, T - 4, T - 4, T * 0.16); g.fill();
+    if (c.glow > 0) { g.strokeStyle = `rgba(255,210,63,${Math.min(1, c.glow)})`; g.lineWidth = 3; rr(x + 3, y + 3, T - 6, T - 6, T * 0.16); g.stroke(); }
+    g.save(); g.translate(cx, cy); g.scale(pr, pr); g.rotate(c.ang);
+    const wet = c.water, w = T * 0.26;
+    const col = wet > 0.5 ? '#45b3ff' : '#8a8fa6', inner = wet > 0.5 ? '#9fdcff' : '#b6bacb';
+    g.lineCap = 'round';
+    for (const [lw, cc] of [[w + 6, '#00000050'], [w, col], [w * 0.35, inner]]) {
+      g.strokeStyle = cc; g.lineWidth = lw;
+      for (let d = 0; d < 4; d++) if (c.m & (1 << d)) { g.beginPath(); g.moveTo(0, 0); g.lineTo(DX[d] * T / 2, DY[d] * T / 2); g.stroke(); }
+    }
+    // joints at the cell edges
+    g.fillStyle = wet > 0.5 ? '#2f86d6' : '#6c7088';
+    for (let d = 0; d < 4; d++) if (c.m & (1 << d)) { g.save(); g.rotate(d * Math.PI / 2); rr(-w * 0.75, -T / 2 + 1, w * 1.5, T * 0.08, 3); g.fill(); g.restore(); }
+    g.restore();
+    if (i === src) {
+      // the pump: a round tank with a wave
+      g.fillStyle = '#1a5fb4'; g.beginPath(); g.arc(cx, cy, T * 0.32, 0, 7); g.fill();
+      g.fillStyle = '#45b3ff'; g.beginPath(); g.arc(cx, cy, T * 0.25, 0, 7); g.fill();
+      g.strokeStyle = '#e9f6ff'; g.lineWidth = 2.5; g.beginPath(); for (let k = -1; k <= 1; k += 0.1) g.lineTo(cx + k * T * 0.18, cy + Math.sin(k * 6 + time * 4) * T * 0.04); g.stroke();
+    } else if (isLeaf(i)) {
+      // a flower pot at every end: it blooms when water comes
+      const b = c.bloom, r = T * 0.17;
+      g.fillStyle = '#b5562f'; rr(cx - r, cy - r * 0.2, r * 2, r * 1.3, 4); g.fill(); g.fillStyle = '#d06a3d'; rr(cx - r * 1.15, cy - r * 0.35, r * 2.3, r * 0.35, 3); g.fill();
+      g.strokeStyle = b > 0.3 ? '#3fae5a' : '#7a6a4a'; g.lineWidth = 3; g.beginPath(); g.moveTo(cx, cy - r * 0.35); g.lineTo(cx, cy - r * (0.9 + b * 0.6)); g.stroke();
+      const fy = cy - r * (1.1 + b * 0.6), pr2 = r * (0.35 + b * 0.55);
+      if (b > 0.05) { g.fillStyle = ['#ff7ad9', '#ffd23f', '#ff5f7a', '#bca0ff'][i % 4]; for (let k = 0; k < 6; k++) { const a = k / 6 * Math.PI * 2 + time * 0.5; g.beginPath(); g.arc(cx + Math.cos(a) * pr2 * 0.7, fy + Math.sin(a) * pr2 * 0.7, pr2 * 0.45, 0, 7); g.fill(); } g.fillStyle = '#fff4b0'; g.beginPath(); g.arc(cx, fy, pr2 * 0.4, 0, 7); g.fill(); }
+      else { g.fillStyle = '#8a7a52'; g.beginPath(); g.ellipse(cx + 3, fy + 2, r * 0.35, r * 0.2, 0.6, 0, 7); g.fill(); }
+    }
+  }
+  function draw() {
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const bgr = g.createRadialGradient(W / 2, -H * 0.1, 0, W / 2, -H * 0.1, H * 1.1);
+    bgr.addColorStop(0, '#26466a'); bgr.addColorStop(0.4, '#151b2e'); bgr.addColorStop(1, '#111321');
+    g.fillStyle = bgr; g.fillRect(0, 0, W, H);
+    g.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * ox, dpr * oy);
+    if (cells) {
+      g.fillStyle = '#00000040'; rr(bx - 8, by - 6, T * cols + 16, T * rows + 18, 18); g.fill();
+      g.fillStyle = '#181f33'; rr(bx - 8, by - 8, T * cols + 16, T * rows + 16, 18); g.fill();
+      for (let i = 0; i < cells.length; i++) drawCell(i);
+    }
+    for (const q of parts) { g.globalAlpha = Math.max(0, q.life); g.fillStyle = q.col; g.beginPath(); g.arc(q.x, q.y, 3, 0, 7); g.fill(); } g.globalAlpha = 1;
+    if (state !== 'start' && cells) {
+      g.textAlign = 'center'; g.fillStyle = '#fff'; g.font = '800 40px Manrope, system-ui'; g.fillText('Уровень ' + level, FW / 2, 92);
+      const wet = cells.filter((c) => c.wet).length, flowers = cells.filter((c, i) => isLeaf(i)), happy = flowers.filter((c) => c.wet).length;
+      g.font = '800 14px Manrope, system-ui'; g.fillStyle = '#9fdcff'; g.fillText(`ПОВОРОТОВ ${moves} · ЦВЕТОВ ${happy} ИЗ ${flowers.length} · ОЧКИ ${score}`, FW / 2, 116);
+      g.fillStyle = '#ffffff22'; rr(FW / 2 - 110, 128, 220, 6, 3); g.fill(); g.fillStyle = '#45b3ff'; rr(FW / 2 - 110, 128, 220 * wet / cells.length, 6, 3); g.fill();
+    }
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; time += dt;
+    if (cells) for (let i = 0; i < cells.length; i++) {
+      const c = cells[i];
+      c.ang += (0 - c.ang) * Math.min(1, dt * 18); if (Math.abs(c.ang) < 0.01) c.ang = 0;
+      // water runs out from the pump one cell after another
+      const target = c.wet ? 1 : 0, wait = c.wet ? c.dist * 0.05 : 0;
+      c.wt = c.wet ? (c.wt || 0) + dt : 0;
+      if (c.wt >= wait) c.water += (target - c.water) * Math.min(1, dt * 10);
+      if (!c.wet) c.water += (0 - c.water) * Math.min(1, dt * 10);
+      const bl = c.water > 0.6 ? 1 : 0, before = c.bloom; c.bloom += (bl - c.bloom) * Math.min(1, dt * 5);
+      if (isLeaf(i) && before < 0.5 && c.bloom >= 0.5) { const x = bx + (i % cols) * T + T / 2, y = by + Math.floor(i / cols) * T + T * 0.3; for (let k = 0; k < 10; k++) { const a = Math.random() * 7, v = 30 + Math.random() * 90; parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, life: 1, col: ['#ff7ad9', '#ffd23f', '#5df2a5'][k % 3] }); } sfx.bloom(); }
+      if (c.glow > 0) c.glow -= dt;
+    }
+    for (const q of parts) { q.x += q.vx * dt; q.y += q.vy * dt; q.vy += 200 * dt; q.life -= dt * 1.2; } parts = parts.filter((q) => q.life > 0);
+    if (pressed) { pressed.t -= dt; if (pressed.t <= 0) pressed = null; }
+    if (solvedAt && time >= solvedAt && state === 'play') win();
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr;
+    scale = Math.min(W / FW, H / FH); ox = (W - FW * scale) / 2; oy = (H - FH * scale) / 2;
+  }
+  function cellAt(e) {
+    if (!cells) return -1;
+    const x = (e.clientX - ox) / scale, y = (e.clientY - oy) / scale, c = Math.floor((x - bx) / T), r = Math.floor((y - by) / T);
+    return c >= 0 && r >= 0 && c < cols && r < rows ? r * cols + c : -1;
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'truboprovod',
+    boards: [
+      { id: 'level', title: 'Уровни', column: 'best_level', order: 'desc', note: 'Больше всего пройденных уровней.', format: (v) => `${v} ${levelsWord(v)}` },
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за все уровни.', format: (v) => `${v} ${pointsWord(v)}` },
+    ],
+    bests: () => (level > 1 ? { new_score: score, new_level: level - 1 } : null),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); unlockAudio(); const i = cellAt(e); if (i >= 0) { pressed = { i, t: 0.1 }; turn(i, e.button === 2); } });
+  cv.addEventListener('contextmenu', (e) => e.preventDefault());
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && e.target.closest && e.target.closest('button')) return;
+    if ((e.code === 'Space' || e.code === 'Enter') && (!$('start').hidden || !$('win').hidden)) { e.preventDefault(); play(); }
+    if (e.code === 'KeyH' && state === 'play') hint();
+  });
+  $('go').addEventListener('click', play);
+  $('next').addEventListener('click', play);
+  $('hint').addEventListener('click', hint);
+  $('restart').addEventListener('click', restart);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('truboprovod-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  // For automated checks only (?test=1).
+  if (new URLSearchParams(location.search).get('test') === '1') window.__trub = { get: () => ({ state, level, score, moves, par, cols, rows, wet: cells && cells.filter((c) => c.wet).length, n: cells && cells.length }), play, turn, hint, solve: () => cells.forEach((c, i) => { let k = minTurns(c.m, c.sol); while (k--) turn(i); }), cellCenter: (i) => [ox + (bx + (i % cols) * T + T / 2) * scale, oy + (by + Math.floor(i / cols) * T + T / 2) * scale], sizeFor };
+
+  addEventListener('resize', resize);
+  resize(); generate();
+  $('levelStart').textContent = level; $('bestStart').textContent = score;
+  if (level > 1 && lb.signedIn()) lb.submit({ new_score: score, new_level: level - 1 });
+  // #preview: a half-done board, for the catalog.
+  if (location.hash === '#preview') {
+    $('start').hidden = true; state = 'play'; level = 7; generate(); moves = 14;
+    cells.forEach((c, i) => { if ((i * 7) % 5 < 3) c.m = c.sol; }); flowCheck(true);
+    cells.forEach((c) => { c.water = c.wet ? 1 : 0; c.bloom = c.wet ? 1 : 0; c.wt = 9; });
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/clips.js?v=1"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0d0f1c">
+<title>Бревно 3D — FreasyGames 3D</title>
+<meta name="description" content="Бревно 3D на FreasyGames: метай стальные ножи в объёмное вращающееся бревно, сбивай яблоки и раскалывай бревно за бревном. Рекорды общие с 2D.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>#ov { pointer-events: none; }</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="ov"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames 3D</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ 3D</div>
+    <h1>Бревно <span>3D</span></h1>
+    <p>Объёмное бревно крутится — касайся экрана, чтобы метнуть нож. Воткни все ножи, и бревно расколется на части.</p>
+    <p>Нож, попавший в другой нож, отскакивает — и игра окончена. Яблоки дают +3, каждое пятое бревно — крепкий дуб. Рекорды общие с 2D.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · лучшее бревно: <b id="levelStart">—</b></p>
+    <button class="play" id="go" type="button">Начать ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Касание, клик или пробел — бросок</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow">Нож отскочил</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">очков</p>
+    <p>Бревно: <b id="levelOver">1</b> · яблок: <b id="applesOver">0</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · лучшее бревно: <b id="bestLevelOver">—</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<script src="../../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), ov = $('ov'), ctx = ov.getContext('2d');
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const pointsWord = (n) => plural(n, 'очко', 'очка', 'очков');
+
+  // The rules are the 2D game's, in its 480 × 800 field; the 3D scene only shows it.
+  const FW = 480, FH = 800, CX = 240, CY = 340, KNIFE = 112, DEPTH = 20, GAP = 0.16, SPEED = 2600, READY_Y = 700;
+  let W = 0, H = 0, DPR = 1;
+  let state = 'start', level, score, apples, applesRun, left, stuck, fruit, flying, bounced, rot, rt, R, boss, pattern, parts, chunks, popups, bump = 0, shake = 0, flash = 0, banner = 0, breakT = 0, time = 0, playTime = 0, throwCd = 0;
+  let best = +store.get('brevno-best', 0) || 0, bestLevel = +store.get('brevno-best-level', 0) || 0;
+  let runs = {}; try { runs = JSON.parse(store.get('brevno-runs', '{}')) || {}; } catch { runs = {}; }
+  let muted = store.get('brevno-muted', '0') === '1';
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'square', v = 0.06, slide = 1, delay = 0) {
+    if (muted || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  function noise(dur, vol) {
+    if (!ac || muted) return;
+    const len = Math.floor(ac.sampleRate * dur), buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2);
+    const s = ac.createBufferSource(), gn = ac.createGain(); s.buffer = buf; gn.gain.value = vol; s.connect(gn).connect(ac.destination); s.start();
+  }
+  const sfx = {
+    throw: () => tone(900, 0.06, 'sine', 0.04, 0.5),
+    thud: () => { noise(0.07, 0.25); tone(160, 0.08, 'triangle', 0.12, 0.7); },
+    apple: () => [0, 7, 12].forEach((s, i) => tone(700 * Math.pow(2, s / 12), 0.1, 'triangle', 0.08, 1, i * 0.05)),
+    clang: () => { tone(1800, 0.25, 'square', 0.05, 0.8); tone(2400, 0.3, 'sine', 0.06, 0.9); },
+    split: () => { noise(0.4, 0.4); [392, 523, 659, 784].forEach((f, i) => tone(f, 0.16, 'triangle', 0.08, 1, 0.1 + i * 0.08)); },
+  };
+
+  // ——— Levels (same as 2D) ———
+  const PATTERNS = [
+    (t) => 2.1,
+    (t) => -2.4,
+    (t) => 2.8 * Math.sin(t * 1.1) + 0.5,
+    (t) => (Math.floor(t / 2.4) % 2 ? -1 : 1) * 3.0,
+    (t) => 1 + 3.4 * Math.pow(Math.max(0, Math.sin(t * 1.8)), 2),
+    (t) => (t % 2 < 0.45 ? 0.2 : 3.5),
+    (t) => -(1.6 + 2.2 * Math.abs(Math.sin(t * 0.9))),
+  ];
+  function buildLevel() {
+    boss = level % 5 === 0;
+    R = boss ? 108 : 96;
+    left = boss ? 10 : Math.min(10, 5 + Math.floor((level - 1) / 2));
+    pattern = boss ? (t) => (Math.floor(t / 1.6) % 2 ? -1 : 1) * (2.4 + 1.6 * Math.abs(Math.sin(t * 1.7))) : PATTERNS[(level - 1) % PATTERNS.length];
+    stuck = []; fruit = []; flying = null; bounced = null; rot = Math.random() * 6; rt = 0;
+    const pre = boss ? 3 : Math.min(4, Math.floor(level / 2));
+    for (let i = 0; i < pre; i++) stuck.push({ a: (i / pre) * Math.PI * 2 + Math.random() * 0.6, pre: true });
+    const nApples = boss ? 2 : (level % 3 === 0 ? 2 : level > 1 ? 1 : 0);
+    for (let i = 0; i < nApples; i++) {
+      for (let k = 0; k < 40; k++) { const a = Math.random() * Math.PI * 2; if (!stuck.some((s) => angDiff(s.a, a) < 0.45) && !fruit.some((f) => angDiff(f.a, a) < 0.6)) { fruit.push({ a }); break; } }
+    }
+    banner = 1.4; breakT = 0;
+    setLogLook();
+  }
+  const angDiff = (a, b) => { let d = (a - b) % (Math.PI * 2); if (d < 0) d += Math.PI * 2; return Math.min(d, Math.PI * 2 - d); };
+  function reset() { level = 1; score = 0; apples = 0; applesRun = 0; parts = []; chunks = []; popups = []; playTime = 0; buildLevel(); }
+  function burst(x, y, col, n = 14, sp = 220) { for (let i = 0; i < n; i++) { const a = Math.random() * 7, v = 40 + Math.random() * sp; parts.push({ x, y, z: (Math.random() - 0.3) * 40, vx: Math.cos(a) * v, vy: Math.sin(a) * v, vz: (Math.random() - 0.2) * 200, life: 1, col }); } }
+  function popup(x, y, text, col = '#f8f7ff', big = false) { popups.push({ x, y, text, col, life: 1, big }); }
+
+  function throwKnife() {
+    if (state !== 'play' || lb.isOpen() || flying || bounced || breakT > 0 || left <= 0 || throwCd > 0) return;
+    unlockAudio(); flying = { y: READY_Y }; left--; throwCd = 0.08; sfx.throw();
+  }
+  function step(dt) {
+    if (state !== 'play' || lb.isOpen()) return;
+    playTime += dt; rt += dt; banner = Math.max(0, banner - dt); throwCd = Math.max(0, throwCd - dt);
+    rot += pattern(rt) * Math.min(1.6, 1 + (level - 1) * 0.035) * dt;
+    if (flying) {
+      flying.y -= SPEED * dt;
+      if (flying.y <= CY + R) {
+        const a = Math.PI / 2 - rot;
+        if (stuck.some((s) => angDiff(s.a, a) < GAP)) {
+          bounced = { x: CX, y: CY + R + 4, vx: (Math.random() < 0.5 ? -1 : 1) * 160, vy: 380, rot: 0, spin: (Math.random() < 0.5 ? -1 : 1) * 14, t: 0 };
+          flying = null; sfx.clang(); shake = 0.5; flash = 1; burst(CX, CY + R, '#ffffff', 10, 160);
+        } else {
+          stuck.push({ a }); flying = null; bump = 1; score++; sfx.thud(); burst(CX, CY + R, '#c98b4c', 8, 140);
+          for (const f of fruit) if (!f.got && angDiff(f.a, a) < 0.24) {
+            f.got = true; apples++; applesRun++; score += 3; sfx.apple();
+            const wa = f.a + rot, ax = CX + Math.cos(wa) * (R + 18), ay = CY + Math.sin(wa) * (R + 18);
+            burst(ax, ay, '#ff5f6d', 16); popup(ax, ay, '+3', '#ff9ea8');
+            chunks.push({ apple: true, x: ax, y: ay, vx: Math.cos(wa) * 200, vy: Math.sin(wa) * 200 - 200, rot: 0, spin: 6, life: 1.5 });
+          }
+          if (left <= 0) breakLog();
+        }
+      }
+    }
+    if (bounced) {
+      bounced.t += dt; bounced.vy += 1400 * dt; bounced.x += bounced.vx * dt; bounced.y += bounced.vy * dt; bounced.rot += bounced.spin * dt;
+      if (bounced.t > 0.9) return gameOver();
+    }
+    if (breakT > 0) { breakT -= dt; if (breakT <= 0) { level++; buildLevel(); } }
+  }
+  function breakLog() {
+    const bonus = boss ? 15 : 5;
+    score += bonus; sfx.split(); shake = 0.35; breakT = 1.1;
+    popup(CX, CY - R - 30, boss ? `Дуб расколот! +${bonus}` : `Бревно ${level}! +${bonus}`, '#5df2a5', true);
+    for (let i = 0; i < 4; i++) { const a = rot + i * Math.PI / 2 + Math.PI / 4; chunks.push({ piece: i, x: CX, y: CY, vx: Math.cos(a) * 260, vy: Math.sin(a) * 260 - 220, rot, spin: (Math.random() - 0.5) * 8, life: 1.6, r: R, tumble: (Math.random() - 0.5) * 6 }); }
+    for (const s of stuck) { const wa = s.a + rot; chunks.push({ knife: true, x: CX + Math.cos(wa) * (R - DEPTH), y: CY + Math.sin(wa) * (R - DEPTH), vx: Math.cos(wa) * 220 + (Math.random() - 0.5) * 100, vy: Math.sin(wa) * 220 - 260, rot: wa - Math.PI / 2, spin: (Math.random() - 0.5) * 12, life: 1.6 }); }
+    for (const f of fruit) if (!f.got) { const wa = f.a + rot; chunks.push({ apple: true, x: CX + Math.cos(wa) * (R + 18), y: CY + Math.sin(wa) * (R + 18), vx: Math.cos(wa) * 200, vy: -200, rot: 0, spin: 5, life: 1.5 }); }
+    stuck = []; fruit = []; burst(CX, CY, '#e0a86a', 40, 360); burst(CX, CY, '#7a4a22', 20, 260);
+  }
+
+  // ——— 3D ———
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); } catch (e) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="screen"><div class="box"><h1><span>3D</span> не запускается</h1><p>Браузер не поддерживает WebGL. Сыграй в обычное Бревно.</p><a class="play" style="display:block;text-decoration:none" href="../../brevno/">Бревно ↗</a></div></div>');
+    throw e;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const scene = new THREE.Scene(); scene.background = new THREE.Color('#14122a'); scene.fog = new THREE.Fog('#14122a', 30, 60);
+  const camera = new THREE.PerspectiveCamera(36, 1, 0.3, 200);
+  scene.add(new THREE.HemisphereLight('#efe6ff', '#2a1a30', 0.7));
+  const sun = new THREE.DirectionalLight('#fff3dc', 0.85); sun.position.set(-5, 8, 12); sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024); Object.assign(sun.shadow.camera, { left: -8, right: 8, top: 8, bottom: -10, near: 1, far: 40 }); scene.add(sun);
+  const rim = new THREE.DirectionalLight('#bca0ff', 0.35); rim.position.set(6, 3, -6); scene.add(rim);
+  const U = 40, LEN = 2.2, KZ = 0.55; // log length along z; knives go into the front part of the bark
+  const P = (x, y, z = 0) => new THREE.Vector3((x - CX) / U, -(y - CY) / U, z);
+  function canvasTex(w, h, paint) { const c = document.createElement('canvas'); c.width = w; c.height = h; paint(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.anisotropy = 4; return t; }
+  const ringsTex = (light, dark) => canvasTex(256, 256, (g) => {
+    const gr = g.createRadialGradient(118, 118, 4, 128, 128, 124); gr.addColorStop(0, light); gr.addColorStop(1, dark);
+    g.fillStyle = gr; g.fillRect(0, 0, 256, 256);
+    g.strokeStyle = '#00000030'; g.lineWidth = 3; for (let k = 1; k <= 6; k++) { g.beginPath(); g.ellipse(128 + k, 128, k * 19, k * 18, 0.3, 0, 7); g.stroke(); }
+    g.fillStyle = '#5a361d'; g.beginPath(); g.arc(130, 128, 6, 0, 7); g.fill();
+    g.strokeStyle = '#3d2412'; g.lineWidth = 12; g.beginPath(); g.arc(128, 128, 122, 0, 7); g.stroke();
+  });
+  const barkTex = (base) => canvasTex(512, 128, (g) => {
+    g.fillStyle = base; g.fillRect(0, 0, 512, 128);
+    for (let i = 0; i < 70; i++) { g.strokeStyle = Math.random() < 0.5 ? '#00000040' : '#ffffff14'; g.lineWidth = 2 + Math.random() * 4; const x = Math.random() * 512; g.beginPath(); g.moveTo(x, 0); g.bezierCurveTo(x + 10, 40, x - 10, 80, x + 6, 128); g.stroke(); }
+  });
+  const looks = {
+    pine: { cap: ringsTex('#f2c98e', '#c98b4c'), bark: barkTex('#6b4226') },
+    oak: { cap: ringsTex('#c9925e', '#8a5a33'), bark: barkTex('#4a2f1e') },
+  };
+  const capMat = new THREE.MeshStandardMaterial({ roughness: 0.75 }), barkMat = new THREE.MeshStandardMaterial({ roughness: 0.9 });
+  const logGroup = new THREE.Group(); scene.add(logGroup);
+  const logMesh = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, LEN, 48), [barkMat, capMat, capMat]);
+  logMesh.rotation.x = Math.PI / 2; logMesh.castShadow = logMesh.receiveShadow = true; logGroup.add(logMesh);
+  const goldRing = new THREE.Mesh(new THREE.TorusGeometry(1, 0.05, 8, 64), new THREE.MeshStandardMaterial({ color: '#ffd23f', emissive: '#ffb000', emissiveIntensity: 0.6 }));
+  goldRing.position.z = LEN / 2 + 0.02; logGroup.add(goldRing);
+  function setLogLook() { const l = boss ? looks.oak : looks.pine; capMat.map = l.cap; barkMat.map = l.bark; capMat.needsUpdate = barkMat.needsUpdate = true; goldRing.visible = boss; }
+  // knife: tip at the origin, blade and handle along +Y
+  const bladeMat = new THREE.MeshStandardMaterial({ color: '#e4e6f6', metalness: 0.35, roughness: 0.25, emissive: '#3a3c55', emissiveIntensity: 0.35 }), handleMat = new THREE.MeshStandardMaterial({ color: '#bca0ff', roughness: 0.45 }), guardMat = new THREE.MeshStandardMaterial({ color: '#3a2f55', roughness: 0.5 }), stripeMat = new THREE.MeshStandardMaterial({ color: '#7b67fc', roughness: 0.45 });
+  const bladeShape = new THREE.Shape(); bladeShape.moveTo(0, 0); bladeShape.lineTo(7, 16); bladeShape.lineTo(7, 68); bladeShape.lineTo(-7, 68); bladeShape.lineTo(-7, 16); bladeShape.closePath();
+  const bladeGeo = new THREE.ExtrudeGeometry(bladeShape, { depth: 2, bevelEnabled: true, bevelThickness: 1, bevelSize: 0.6, bevelSegments: 1 }); bladeGeo.translate(0, 0, -1); bladeGeo.scale(1 / U, 1 / U, 1 / U);
+  function makeKnife() {
+    const g = new THREE.Group();
+    const blade = new THREE.Mesh(bladeGeo, bladeMat); blade.castShadow = true; g.add(blade);
+    const guard = new THREE.Mesh(new THREE.BoxGeometry(20 / U, 7 / U, 10 / U), guardMat); guard.position.y = 69.5 / U; g.add(guard);
+    const handle = new THREE.Mesh(new THREE.CylinderGeometry(7 / U, 7.5 / U, (KNIFE - 72) / U, 12), handleMat); handle.position.y = (72 + (KNIFE - 72) / 2) / U; handle.castShadow = true; g.add(handle);
+    for (let i = 0; i < 3; i++) { const s = new THREE.Mesh(new THREE.CylinderGeometry(7.7 / U, 7.7 / U, 3 / U, 12), stripeMat); s.position.y = (83 + i * 9) / U; g.add(s); }
+    scene.add(g); return g;
+  }
+  const appleMat = new THREE.MeshStandardMaterial({ color: '#e63946', roughness: 0.35, emissive: '#5a0a12', emissiveIntensity: 0.25 }), stemMat = new THREE.MeshStandardMaterial({ color: '#5a3a1a' }), leafMat = new THREE.MeshStandardMaterial({ color: '#4caf50', side: THREE.DoubleSide });
+  function makeApple() {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.SphereGeometry(15 / U, 20, 16), appleMat); body.scale.set(1.1, 0.95, 1.1); body.castShadow = true; g.add(body);
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(1.4 / U, 1.4 / U, 9 / U, 6), stemMat); stem.position.y = 16 / U; g.add(stem);
+    const leaf = new THREE.Mesh(new THREE.CircleGeometry(5 / U, 8), leafMat); leaf.scale.set(1.6, 0.6, 1); leaf.position.set(5 / U, 18 / U, 0); leaf.rotation.z = -0.5; g.add(leaf);
+    scene.add(g); return g;
+  }
+  // pools of knives and apples, taken anew each frame
+  const knifePool = [], applePool = []; let kUsed = 0, aUsed = 0;
+  function knifeAt(x, y, ang2d, z = KZ, alpha = 1) { const k = knifePool[kUsed] || (knifePool[kUsed] = makeKnife()); kUsed++; k.visible = true; k.position.copy(P(x, y, z)); k.rotation.set(0, 0, Math.PI - ang2d); return k; }
+  function appleAt(x, y, ang2d, z = KZ) { const a = applePool[aUsed] || (applePool[aUsed] = makeApple()); aUsed++; a.visible = true; a.position.copy(P(x, y, z)); a.rotation.set(0.3, time, Math.PI - ang2d); return a; }
+  // log pieces after the split: quarter wedges extruded along the log
+  const wedgeGeos = [0, 1, 2, 3].map((i) => {
+    const s = new THREE.Shape(), a0 = i * Math.PI / 2, a1 = a0 + Math.PI / 2; s.moveTo(0, 0);
+    for (let k = 0; k <= 12; k++) { const a = a0 + (a1 - a0) * k / 12; s.lineTo(Math.cos(a), Math.sin(a)); } s.closePath();
+    const g = new THREE.ExtrudeGeometry(s, { depth: LEN, bevelEnabled: false, curveSegments: 12 }); g.translate(0, 0, -LEN / 2); return g;
+  });
+  const wedgeMat = new THREE.MeshStandardMaterial({ color: '#c98b4c', roughness: 0.8 }), wedgeOak = new THREE.MeshStandardMaterial({ color: '#8a5a33', roughness: 0.85 });
+  const wedgePool = []; let wUsed = 0;
+  function wedgeAt(c) {
+    const m = wedgePool[wUsed] || (wedgePool[wUsed] = (() => { const o = new THREE.Mesh(wedgeGeos[0], wedgeMat); o.castShadow = true; scene.add(o); return o; })()); wUsed++;
+    m.visible = true; m.geometry = wedgeGeos[c.piece]; m.material = c.oak ? wedgeOak : wedgeMat;
+    m.position.copy(P(c.x, c.y, 0)); m.scale.set(c.r / U, c.r / U, 1); m.rotation.set(c.tumble * (1.6 - c.life) * 0.6, 0, -c.rot);
+  }
+  const MAXP = 400, pGeo = new THREE.BufferGeometry(), pPos = new Float32Array(MAXP * 3), pCol = new Float32Array(MAXP * 3);
+  pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3)); pGeo.setAttribute('color', new THREE.BufferAttribute(pCol, 3));
+  const ptsM = new THREE.Points(pGeo, new THREE.PointsMaterial({ size: 0.11, vertexColors: true, transparent: true, depthWrite: false })); ptsM.frustumCulled = false; scene.add(ptsM);
+  const tmpC = new THREE.Color();
+
+  // The camera looks slightly up at the log from the front, framing the whole 480 × 800 field.
+  const camTarget = new THREE.Vector3();
+  function fitCamera() {
+    const A = W / Math.max(1, H), vFov = camera.fov * Math.PI / 180;
+    camera.aspect = A; camera.updateProjectionMatrix();
+    const halfH = (FH / 2 + 10) / U, halfW = (FW / 2 + 20) / U;
+    const d = Math.max(halfH / Math.tan(vFov / 2), halfW / (Math.tan(vFov / 2) * A)) * 1.02;
+    camTarget.copy(P(CX, FH / 2 + 10, 0));
+    camera.position.set(camTarget.x + d * 0.3, camTarget.y - d * 0.22, camTarget.z + d * 0.95);
+    camera.lookAt(camTarget);
+  }
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    ov.width = Math.round(W * DPR); ov.height = Math.round(H * DPR);
+    renderer.setSize(W, H, false);
+    fitCamera();
+  }
+  function screenOf(x, y, z = KZ) { const v = P(x, y, z).project(camera); return [(v.x + 1) / 2 * W, (1 - v.y) / 2 * H]; }
+
+  function draw() {
+    kUsed = 0; aUsed = 0; wUsed = 0;
+    const by = CY - bump * 7;
+    logGroup.visible = breakT <= 0;
+    if (breakT <= 0) {
+      logGroup.position.copy(P(CX, by, 0)); logGroup.scale.set(R / U, R / U, 1); logMesh.rotation.y = -rot;
+      for (const s of stuck) { const wa = s.a + rot; knifeAt(CX + Math.cos(wa) * (R - DEPTH), by + Math.sin(wa) * (R - DEPTH), wa - Math.PI / 2); }
+      for (const f of fruit) if (!f.got) { const wa = f.a + rot; appleAt(CX + Math.cos(wa) * (R + 14), by + Math.sin(wa) * (R + 14), wa + Math.PI / 2); }
+    }
+    for (const c of chunks) {
+      if (c.knife) knifeAt(c.x, c.y, c.rot); else if (c.apple) appleAt(c.x, c.y, c.rot); else wedgeAt(c);
+    }
+    if (flying) knifeAt(CX, flying.y, 0);
+    else if (state === 'play' && left > 0 && !bounced && breakT <= 0) knifeAt(CX, READY_Y + Math.sin(time * 4) * 3, 0);
+    if (bounced) knifeAt(bounced.x, bounced.y, bounced.rot, KZ + bounced.t * 2);
+    for (let i = kUsed; i < knifePool.length; i++) knifePool[i].visible = false;
+    for (let i = aUsed; i < applePool.length; i++) applePool[i].visible = false;
+    for (let i = wUsed; i < wedgePool.length; i++) wedgePool[i].visible = false;
+    let n = 0;
+    for (const q of parts) { if (n >= MAXP) break; const v = P(q.x, q.y, KZ + q.z / U); pPos[n * 3] = v.x; pPos[n * 3 + 1] = v.y; pPos[n * 3 + 2] = v.z; tmpC.set(q.col).multiplyScalar(Math.max(0.2, q.life)); pCol[n * 3] = tmpC.r; pCol[n * 3 + 1] = tmpC.g; pCol[n * 3 + 2] = tmpC.b; n++; }
+    pGeo.setDrawRange(0, n); pGeo.attributes.position.needsUpdate = true; pGeo.attributes.color.needsUpdate = true;
+    const sh = shake > 0 ? (Math.random() - 0.5) * 0.4 * shake : 0;
+    camera.position.x += sh; renderer.render(scene, camera); camera.position.x -= sh;
+    // overlay
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.clearRect(0, 0, W, H);
+    ctx.shadowColor = '#000c'; ctx.shadowBlur = 10;
+    for (const p of popups) { const [x, y] = screenOf(p.x, p.y); ctx.globalAlpha = Math.min(1, p.life * 2); ctx.fillStyle = p.col; ctx.font = `800 ${p.big ? 26 : 20}px Manrope, system-ui`; ctx.textAlign = 'center'; ctx.fillText(p.text, x, y - (1 - p.life) * 40); }
+    ctx.globalAlpha = 1;
+    if (state !== 'start') {
+      const [hx] = screenOf(CX, 0), top = 58;
+      ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.font = '800 44px Manrope, system-ui'; ctx.fillText(score, W / 2, top + 36);
+      ctx.font = '800 14px Manrope, system-ui'; ctx.fillStyle = boss ? '#ffd23f' : '#d9c9ff'; ctx.fillText(boss ? `ДУБ · БРЕВНО ${level}` : `БРЕВНО ${level}`, W / 2, top + 58);
+      ctx.shadowBlur = 0;
+      const base = Math.floor((level - 1) / 5) * 5;
+      for (let i = 0; i < 5; i++) { const nn = base + i + 1; ctx.fillStyle = nn < level ? '#bca0ff' : nn === level ? '#fff' : '#ffffff30'; if (i === 4) ctx.fillStyle = nn <= level ? '#ffd23f' : '#ffd23f40'; ctx.beginPath(); ctx.arc(W / 2 - 48 + i * 24, top + 76, i === 4 ? 7 : 5, 0, 7); ctx.fill(); }
+      const [rx] = screenOf(FW - 20, 0), [lx, ly] = screenOf(30, FH - 40);
+      ctx.textAlign = 'right'; ctx.fillStyle = '#ff9ea8'; ctx.font = '800 18px Manrope, system-ui'; ctx.fillText('🍎 ' + apples, Math.min(W - 16, rx), top + 36);
+      for (let i = 0; i < left; i++) { ctx.save(); ctx.translate(Math.max(24, lx), Math.min(H - 30, ly) - i * 24); ctx.rotate(-Math.PI / 4); ctx.fillStyle = '#d9dbee'; ctx.fillRect(-3, -14, 6, 16); ctx.fillStyle = '#bca0ff'; ctx.fillRect(-3, 2, 6, 10); ctx.restore(); }
+      if (banner > 0 && breakT <= 0) { const [bx, by2] = screenOf(CX, CY + R + 100); ctx.globalAlpha = Math.min(1, banner); ctx.fillStyle = boss ? '#ffd23f' : '#fff'; ctx.font = '800 36px Manrope, system-ui'; ctx.textAlign = 'center'; ctx.shadowBlur = 14; ctx.fillText(boss ? 'Крепкий дуб!' : 'Бревно ' + level, bx, by2); ctx.shadowBlur = 0; ctx.globalAlpha = 1; }
+      void hx;
+    }
+    ctx.shadowBlur = 0;
+    if (flash > 0) { ctx.fillStyle = `rgba(255,80,110,${flash * 0.25})`; ctx.fillRect(0, 0, W, H); }
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.033, (now - last) / 1000)); last = now; time += dt;
+    step(dt);
+    if (state === 'start') { rt += dt; rot += pattern(rt) * dt; demoT -= dt; if (demoT <= 0) { demoT = 0.7; const a = Math.PI / 2 - rot; if (!stuck.some((s) => angDiff(s.a, a) < 0.5)) { stuck.push({ a }); bump = 1; if (stuck.length > 9) stuck.splice(0, 1); } } }
+    for (const p of parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt; p.vy += 600 * dt; p.life -= dt * 1.5; } parts = parts.filter((p) => p.life > 0);
+    for (const c of chunks) { c.x += c.vx * dt; c.y += c.vy * dt; c.vy += 1100 * dt; c.rot += c.spin * dt; c.life -= dt; if (c.piece !== undefined) c.oak = boss; } chunks = chunks.filter((c) => c.life > 0);
+    for (const p of popups) p.life -= dt * 0.9; popups = popups.filter((p) => p.life > 0);
+    bump = Math.max(0, bump - dt * 8); shake = Math.max(0, shake - dt); flash = Math.max(0, flash - dt * 2.5);
+    draw();
+    requestAnimationFrame(frame);
+  }
+  let demoT = 0.7;
+
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('levelStart').textContent = $('bestLevelOver').textContent = bestLevel || '—';
+  }
+  function start() { unlockAudio(); reset(); state = 'play'; chanceUsed = false; chance.hide(); $('start').hidden = true; $('over').hidden = true; }
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'brevno-continue', label: '🎬 Ещё попытка за рекламу', onReward: () => {
+    chanceUsed = true; score -= stuck.filter((s) => !s.pre).length; buildLevel(); state = 'play'; $('over').hidden = true;
+  } });
+  function gameOver() {
+    state = 'over';
+    const run = { new_score: score, new_level: level, new_time: Math.floor(playTime) }, record = score > best;
+    if (record) { best = score; store.set('brevno-best', best); runs.score = run; }
+    if (level > bestLevel) { bestLevel = level; store.set('brevno-best-level', bestLevel); runs.level = run; }
+    store.set('brevno-runs', JSON.stringify(runs));
+    lb.submit(run);
+    $('final').textContent = score;
+    $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + pointsWord(score);
+    $('levelOver').textContent = level; $('applesOver').textContent = applesRun;
+    showBests(); $('over').hidden = false;
+    if (!chanceUsed) chance.show();
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'brevno',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за одну игру.', format: (v) => `${v} ${pointsWord(v)}` },
+      { id: 'level', title: 'Брёвна', column: 'best_level', order: 'desc', note: 'Самое дальнее бревно за одну игру.', format: (v) => `бревно ${v}` },
+    ],
+    bests: () => [runs.score, runs.level].filter(Boolean),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); throwKnife(); });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && e.target.closest && e.target.closest('.screen button')) return;
+    if (e.code === 'Space' || e.code === 'Enter' || e.code === 'ArrowUp') {
+      e.preventDefault();
+      if (state === 'play') { if (!e.repeat) throwKnife(); }
+      else if (!e.repeat && (!$('start').hidden || !$('over').hidden)) start();
+    }
+  });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('brevno-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  // For automated checks only (?test=1).
+  if (new URLSearchParams(location.search).get('test') === '1') window.__brevno = { get: () => ({ state, level, score, left, stuck: stuck.length, flying: !!flying, bounced: !!bounced, breakT }), start, step, throwKnife };
+
+  addEventListener('resize', resize);
+  resize(); reset(); showBests();
+  // #preview: a game in progress, for the catalog.
+  if (location.hash === '#preview') {
+    $('start').hidden = true; state = 'play'; level = 4; buildLevel(); banner = 0; score = 41; apples = 3;
+    for (const a of [0.3, 1.4, 2.5, 3.9]) stuck.push({ a }); left = 3; flying = { y: 470 };
+    step = (dt) => { rot += 0.6 * dt; };
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../shared/chat-boot.js?v=5"></script>
+</body>
+</html>
