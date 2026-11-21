@@ -6,7 +6,7 @@
 <script src="../shared/theme.js?v=1"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0d0f1c">
-  <meta name="description" content="FreasyGames 3D — бесплатные 3D-игры прямо в браузере: RCFCG 3D, Растения против Зомби 3D, Мемный Кот: Прыг 3D, Отель «Полночь», Трасса 3D, Шариковый рекорд 3D, Лиана 3D, Слияние звёзд 3D, Звёздная башня 3D, Кирпичики 3D, Нарезка 3D, Лабиринт 3D, Блоки 3D, Лунка 3D, Аэрохоккей 3D, Бревно 3D и Колбы 3D.">
+  <meta name="description" content="FreasyGames 3D — бесплатные 3D-игры прямо в браузере: RCFCG 3D, Растения против Зомби 3D, Мемный Кот: Прыг 3D, Отель «Полночь», Трасса 3D, Шариковый рекорд 3D, Лиана 3D, Слияние звёзд 3D, Звёздная башня 3D, Кирпичики 3D, Нарезка 3D, Лабиринт 3D, Блоки 3D, Лунка 3D, Аэрохоккей 3D, Бревно 3D, Колбы 3D, Танкодром 3D и Грузчик 3D.">
   <title>FreasyGames 3D</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -300,6 +300,10 @@
     .art.hockey3d { background: #0d0f1c url(../images/hokkey3d.jpg) 50% 22% / 150% auto no-repeat; }
     .art.log3d { background: #14122a url(../images/brevno3d.jpg) 50% 40% / 170% auto no-repeat; }
     .art.tubes3d { background: #111321 url(../images/kolby3d.jpg) 50% 55% / 140% auto no-repeat; }
+    .art.tank3d { background: #111a14 url(../images/tankodrom3d.jpg) 50% 45% / 150% auto no-repeat; }
+    .art.crate3d { background: #1b1712 url(../images/gruzchik3d.jpg) 50% 50% / 140% auto no-repeat; }
+    .art.tank3d::after, .art.crate3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, var(--card)); pointer-events: none; }
+    .art .pct.tankp { color: #5df2a5; font-size: 13px; } .art .pct.cratep { color: #f2b544; font-size: 13px; }
     .art.log3d::after, .art.tubes3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, var(--card)); pointer-events: none; }
     .art .pct.logp { color: #ffd23f; font-size: 13px; } .art .pct.tubep { color: #bca0ff; font-size: 13px; }
     .art.golf3d::after, .art.hockey3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, var(--card)); pointer-events: none; }
@@ -349,7 +353,7 @@
     <section class="wrap hero">
       <span class="eyebrow">Только 3D</span>
       <h1>Freasy<span class="three">Games 3D</span></h1>
-      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже двадцать пять игр, и будут ещё.</p>
+      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже двадцать семь игр, и будут ещё.</p>
       <a class="hero-action" href="#games">Смотреть игры ↓</a>
       <div class="hint">Двигай мышкой или пальцем — сцена повернётся</div>
     </section>
@@ -429,6 +433,10 @@
           <span class="tag live">Играть</span><h3>Бревно 3D</h3><p>Объёмное бревно с корой и годовыми кольцами, стальные ножи и яблоки, раскол на четыре части. Те же уровни, дубы и рекорды, что в 2D.</p></div>
         <div class="slot game" data-game="3d-kolby" data-tags="Головоломка, Сортировка, Таблица лидеров"><a class="slot-link" href="kolby/" aria-label="Играть: Колбы 3D"></a><div class="art tubes3d" aria-hidden="true"><span class="pct tubep">Уровень 6</span></div>
           <span class="tag live">Играть</span><h3>Колбы 3D</h3><p>Стеклянные колбы на полках и глянцевые шарики, которые перелетают по дуге. Те же уровни, решаемые раскладки и рекорды, что в 2D.</p></div>
+        <div class="slot game" data-game="3d-tankodrom" data-tags="Экшен, Аркада, Таблица лидеров"><a class="slot-link" href="tankodrom/" aria-label="Играть: Танкодром 3D"></a><div class="art tank3d" aria-hidden="true"><span class="pct tankp">Волна 4</span></div>
+          <span class="tag live">Играть</span><h3>Танкодром 3D</h3><p>Объёмные танки с башнями и гусеницами, стальные блоки и ящики, светящиеся снаряды. Те же волны, бонусы и рекорды, что в 2D.</p></div>
+        <div class="slot game" data-game="3d-gruzchik" data-tags="Головоломка, Таблица лидеров"><a class="slot-link" href="gruzchik/" aria-label="Играть: Грузчик 3D"></a><div class="art crate3d" aria-hidden="true"><span class="pct cratep">★★★</span></div>
+          <span class="tag live">Играть</span><h3>Грузчик 3D</h3><p>Объёмный склад с кирпичными стенами и деревянными ящиками, грузчик в каске. Те же 20 уровней, прогресс и рекорды, что в 2D.</p></div>
       </div>
     </section>
 

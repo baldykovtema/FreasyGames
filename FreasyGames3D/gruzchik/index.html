@@ -419,6 +419,8 @@
   function frame(now) { const dt = Math.min(0.05, (now - lastT) / 1000 || 0); lastT = now; time += dt; draw(dt); requestAnimationFrame(frame); }
   // за стартовым экраном видно текущий уровень
   load(Math.min(save.cur || 0, N - 1)); state = 'start'; $('bar').hidden = true; $('dpad').hidden = true; showStart();
+  // #preview: a level in progress, for the catalog.
+  if (location.hash === '#preview') { load(9); for (const d of 'ULLDR') step(d); }
   if (new URLSearchParams(location.search).get('test') === '1') window.__gruz = { get: () => ({ state, lvl, moves, pl, boxes, save }), step, doUndo, load, LEVELS };
   requestAnimationFrame(frame);
 })();
