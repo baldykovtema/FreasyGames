@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/fx.js" data-mute="liana-muted"></script>
 <script src="../../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#0d0f1c">
@@ -164,6 +165,7 @@
     saved = { hooks: hooks.slice(), hookCount, maxX, startX, lastHookX, hook: lastGrab || hooks[0] };
     for (let i = 0; i < 26; i++) splash.push({ x: p.x, y: WATER, vx: (Math.random() - 0.5) * 380, vy: -150 - Math.random() * 320, life: 1 });
     const m = metres(), record = m > best;
+    if (record && m) setTimeout(() => FX.record(), 700);
     if (record) { best = m; store.set('liana-best', best); }
     if (hookCount > bestHooks) { bestHooks = hookCount; store.set('liana-best-hooks', bestHooks); }
     lb.submit({ new_distance: m, new_hooks: hookCount });
@@ -197,6 +199,7 @@
     o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
   }
   function sound(kind) {
+    { const t = ({ grab: 'hit', splash: 'splash', miss: 'bad' })[kind]; if (t && window.FX) FX.on(t, undefined); }
     if (kind === 'grab') { tone(520 + Math.min(hookCount, 24) * 18, 0.12, 'triangle', 0.14, 1.3); }
     else if (kind === 'let') tone(300, 0.12, 'sine', 0.1, 1.8);
     else if (kind === 'miss') tone(160, 0.15, 'square', 0.05, 0.8);

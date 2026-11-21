@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/fx.js" data-mute="truboprovod-muted"></script>
 <script src="../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#111321">
@@ -92,6 +93,7 @@
     win: () => [0, 4, 7, 12, 16].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.18, 'triangle', 0.08, 1, i * 0.08)),
     hint: () => [0, 7].forEach((s, i) => tone(880 * Math.pow(2, s / 12), 0.1, 'sine', 0.05, 1, i * 0.06)),
   };
+  for (const [k, t] of Object.entries({ bloom: 'good', win: 'level', hint: 'tap' })) { const f = sfx[k]; if (f) sfx[k] = (...a) => { if (window.FX) FX.on(t, a[0]); return f(...a); }; }
 
   // ——— Levels: a random spanning tree from the pump, then every pipe is turned at random ———
   function sizeFor(lv) { const c = Math.min(8, 4 + Math.floor((lv - 1) / 3)), r = Math.min(10, c + (lv - 1) % 3); return [c, r]; }

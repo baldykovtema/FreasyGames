@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/fx.js" data-mute="bashnya-muted"></script>
 <script src="../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#111321">
@@ -202,7 +203,7 @@
     if (Math.abs(diff) >= t.w) {
       // Missed the tower completely.
       pieces.push({ x: m.x, w: m.w, i: m.i, y: m.i * FLOOR, vy: 0, vx: m.dir * 0.2, rot: 0, vr: m.dir * 1.5 });
-      sound('fail'); shake = 0.4; return gameOver();
+      sound('fail'); shake = 0.4; FX.over(); FX.sfx('swoosh'); return gameOver();
     }
     let x, w;
     if (Math.abs(diff) <= PERFECT) {
@@ -210,6 +211,7 @@
       x = t.x; w = t.w;
       if (combo >= 3) w = Math.min(MAX_WIDTH, w + GROW);
       sound('perfect', combo);
+      { FX.burst(innerWidth / 2, innerHeight * 0.42, { n: 16 + combo * 4, shape: 'star', speed: 320, color: ['#fff7b0', '#ffd84a', '#fff'] }); FX.ring(innerWidth / 2, innerHeight * 0.42, '#fff3a0', 90 + combo * 10); FX.sfx('combo', combo); if (combo >= 3) { FX.flash('#fff6c0', 0.18); FX.sfx('power'); } }
       burst(x, m.i, w);
       texts.push({ s: combo >= 3 ? `Идеально ×${combo}! Шире!` : combo > 1 ? `Идеально ×${combo}!` : 'Идеально!', i: m.i, life: 1 });
     } else {
@@ -220,6 +222,7 @@
       const cutW = m.w - w, cutX = diff > 0 ? right + cutW / 2 : left - cutW / 2;
       pieces.push({ x: cutX, w: cutW, i: m.i, y: m.i * FLOOR, vy: 0, vx: Math.sign(diff) * 0.25, rot: 0, vr: Math.sign(diff) * 2.4 });
       sound('place');
+      FX.sfx('thud'); FX.shake(3, 150);
     }
     stack.push({ x, w, i: m.i });
     if (stack.length > 60) stack.shift();
@@ -236,6 +239,7 @@
   function gameOver() {
     state = 'over';
     const record = score > best, seconds = Math.floor(playTime);
+    if (record && score > 0) setTimeout(() => FX.record(), 700);
     if (record) { best = score; store.set('bashnya-best', best); }
     if (seconds > bestTime) { bestTime = seconds; store.set('bashnya-best-time', bestTime); }
     online.submit(score, seconds);

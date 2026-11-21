@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/fx.js" data-mute="gruzchik-muted"></script>
 <script src="../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#1b1712">
@@ -309,6 +310,7 @@
     g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur); o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur);
   }
   function sound(k) {
+    { const t = ({ bump: 'nope', win: 'level', undo: 'whoosh' })[k]; if (t && window.FX) FX.on(t, undefined); }
     if (k === 'step') tone(220, 0.05, 'triangle', 0.05);
     else if (k === 'push') tone(110, 0.12, 'sawtooth', 0.06, 0.7);
     else if (k === 'goal') { tone(523, 0.12, 'triangle', 0.1); setTimeout(() => tone(784, 0.16, 'triangle', 0.1), 70); }

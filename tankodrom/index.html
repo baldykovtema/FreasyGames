@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/fx.js" data-mute="tankodrom-muted"></script>
 <script src="../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#111321">
@@ -97,6 +98,7 @@
     bonus: () => [0, 7, 12].forEach((s, i) => tone(660 * Math.pow(2, s / 12), 0.1, 'triangle', 0.07, 1, i * 0.05)),
     wave: () => [0, 4, 7, 12].forEach((s, i) => tone(392 * Math.pow(2, s / 12), 0.16, 'square', 0.05, 1, i * 0.09)),
   };
+  for (const [k, t] of Object.entries({ hit: 'hit', crate: 'coin', boom: 'boom', hurt: 'bad', bonus: 'good', wave: 'level' })) { const f = sfx[k]; if (f) sfx[k] = (...a) => { if (window.FX) FX.on(t, a[0]); return f(...a); }; }
 
   // ——— Arena ———
   const tileAt = (x, y) => { const c = Math.floor(x / T), r = Math.floor(y / T); return c < 0 || r < 0 || c >= COLS || r >= ROWS ? STEEL : map[r][c].k; };
@@ -412,10 +414,11 @@
   const chance = FreasyRewards.offer({ host: '#over .box', name: 'tankodrom-repair', label: '🎬 Починить танк за рекламу', onReward: () => {
     chanceUsed = true; me.hp = 3; me.hurt = 2; me.shield = 3; shots = []; state = 'play'; $('over').hidden = true;
   } });
-  function gameOver() {
+  function gameOver() { FX.over();
     if (state !== 'dying') return;
     state = 'over';
     const run = { new_score: score, new_wave: wave, new_time: Math.floor(playTime) }, record = score > best;
+    if (record && score) setTimeout(() => FX.record(), 700);
     if (record) { best = score; store.set('tankodrom-best', best); runs.score = run; }
     if (wave > bestWave) { bestWave = wave; store.set('tankodrom-best-wave', bestWave); runs.wave = run; }
     store.set('tankodrom-runs', JSON.stringify(runs));

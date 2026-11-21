@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/fx.js" data-mute="kirpichiki-muted"></script>
 <script src="../../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#0d0f1c">
@@ -105,6 +106,7 @@
     lose: () => tone(300, 0.5, 'sawtooth', 0.06, 0.25),
     clear: () => [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => tone(f, 0.16, 'triangle', 0.08), i * 90)),
   };
+  for (const [k, t] of Object.entries({ power: 'big', lose: 'bad', clear: 'level' })) { const f = sfx[k]; if (f) sfx[k] = (...a) => { if (window.FX) FX.on(t, a[0]); return f(...a); }; }
 
   // ——— Levels (as in 2D) ———
   const SHAPES = [
@@ -436,9 +438,10 @@
   const chance = FreasyRewards.offer({ host: '#over .box', name: 'kirpichiki-life', label: '🎬 +1 жизнь за рекламу', onReward: () => {
     chanceUsed = true; lives = 1; balls = [newBall(true)]; wideT = 0; slowT = 0; state = 'play'; $('over').hidden = true;
   } });
-  function gameOver() {
+  function gameOver() { FX.over();
     state = 'over';
     const run = { new_score: score, new_level: level, new_time: Math.floor(playTime) }, record = score > best;
+    if (record && score) setTimeout(() => FX.record(), 700);
     if (record) { best = score; store.set('kirpichiki-best', best); runs.score = run; }
     if (level > bestLevel) { bestLevel = level; store.set('kirpichiki-best-level', bestLevel); runs.level = run; }
     store.set('kirpichiki-runs', JSON.stringify(runs));

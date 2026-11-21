@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/fx.js" data-mute="samocvety-muted"></script>
 <script src="../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#111321">
@@ -94,6 +95,7 @@
     win: () => [0, 4, 7, 12, 16, 19].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.16, 'triangle', 0.08, 1, i * 0.07)),
     fail: () => tone(260, 0.5, 'sawtooth', 0.07, 0.5),
   };
+  for (const [k, t] of Object.entries({ match: 'combo', special: 'big', win: 'level', fail: 'over', bad: 'nope' })) { const f = sfx[k]; if (f) sfx[k] = (...a) => { if (window.FX) FX.on(t, a[0]); return f(...a); }; }
 
   // ——— Levels: collect so many gems of two or three kinds in a limited number of moves ———
   function setupLevel() {

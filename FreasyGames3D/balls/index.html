@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/fx.js"></script>
 <script src="../../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#0d0f1c">
@@ -197,6 +198,7 @@ function update() {
     score = Math.min(score, MAX_SCORE);
     lastBin = idx; binFlash = 1;
     if (b.kind === 'stop') tone(160, 0.5, 'sawtooth', 0.1, 0.5); else { tone(523, 0.12, 'square', 0.05); tone(784, 0.16, 'triangle', 0.06, 1, 0.08); }
+    { const [sx, sy] = FX.g3(board.localToWorld(new THREE.Vector3(X((idx + 0.5) * W / bins), Y(floorY), 0))); if (b.kind === 'mul') { FX.on('big', 0, sx, sy); FX.text(sx, sy - 20, '×' + b.v, '#ffe46b', 30); } else if (b.kind === 'add') { FX.on('coin', 0, sx, sy); FX.text(sx, sy - 20, '+' + b.v); } else FX.over(sx, sy); }
     ball = null; running = false; updateUI();
     if (b.kind === 'stop') end();
   }
@@ -225,6 +227,7 @@ renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadow
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#0d0f1c'); scene.fog = new THREE.Fog('#0d0f1c', 90, 200);
 const camera = new THREE.PerspectiveCamera(45, 1, 0.5, 500);
+FX.bind3(camera, canvas);
 const controls = new THREE.OrbitControls(camera, canvas);
 controls.enableDamping = true; controls.dampingFactor = 0.08; controls.minDistance = 25; controls.maxDistance = 160;
 controls.maxPolarAngle = Math.PI * 0.62; controls.minAzimuthAngle = -Math.PI * 0.6; controls.maxAzimuthAngle = Math.PI * 0.6;

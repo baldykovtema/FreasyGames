@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/fx.js"></script>
 <script src="../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#111321">
@@ -138,20 +139,25 @@
     judge = { text: perfect ? 'Точно!' : 'Хорошо', color: perfect ? '#5df2a5' : '#6fe3ff', life: 0.6 };
     if (ac) tone(freq(bestN.semi), ac.currentTime, 0.32, 'square', 0.08), tone(freq(bestN.semi + 12), ac.currentTime, 0.2, 'sine', 0.05);
     const x = ox + (lane + 0.5) * laneW;
+    { const [sx, sy] = FX.g(x, hitY); if (perfect) { FX.burst(sx, sy, { n: 14, shape: 'star', speed: 280, gravity: 300, color: ['#5df2a5', '#fff', '#b8ffd9'] }); FX.ring(sx, sy, '#5df2a5', 60); } else FX.ring(sx, sy, '#6fe3ff', 40, 0.3);
+      if (combo > 0 && combo % 10 === 0) { FX.text(sx, sy - 60, 'Комбо ' + combo + '!', '#ffe46b', 30); FX.sfx('levelup'); FX.flash('#fff6c0', 0.15); } }
     for (let i = 0; i < (perfect ? 16 : 8); i++) { const a = Math.random() * 7, v = 60 + Math.random() * 220; parts.push({ x, y: hitY, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 80, life: 1, color: COLORS[lane] }); }
   }
   function miss(n) {
     n.done = true; combo = 0; energy -= 0.12;
     judge = { text: 'Мимо', color: '#ff7a8a', life: 0.6 };
+    FX.shake(4, 160); FX.flash('#ff3b5c', 0.12);
     if (energy <= 0) gameOver();
   }
   function gameOver() {
     state = 'over';
     const record = score > best;
+    if (record && score) setTimeout(() => FX.record(), 700);
     if (record) { best = score; store.set('ritm-best', best); }
     if (maxCombo > bestCombo) { bestCombo = maxCombo; store.set('ritm-best-combo', bestCombo); }
     lb.submit({ new_score: score, new_combo: maxCombo, new_hits: hits, new_time: Math.floor(playTime) });
     if (ac) tone(220, ac.currentTime, 0.6, 'sawtooth', 0.08);
+    FX.over();
     setTimeout(() => {
       if (state !== 'over') return;
       $('final').textContent = score.toLocaleString('ru-RU');

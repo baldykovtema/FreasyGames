@@ -550,6 +550,7 @@ const sfx = {
   death: () => { noise(1.2, .25, 200, .5); tone(300, 1.2, 'sawtooth', .08, .2); },
   win: () => { [523, 659, 784, 1046].forEach((f, i) => tone(f, .5, 'triangle', .06, 1, i * .14)); },
 };
+for (const [k, t] of Object.entries({ coin: 'coin', key: 'good', death: 'over', win: 'win', locked: 'nope' })) { const f = sfx[k]; sfx[k] = (...a) => { if (window.FX) FX.on(t, 0, ...FX.mid()); return f(...a); }; }
 let wind = null;
 function startWind() {
   const a = audio(); if (!a || wind) return;

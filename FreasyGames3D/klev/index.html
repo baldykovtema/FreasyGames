@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/fx.js" data-mute="klev-muted"></script>
 <script src="../../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#0d0f1c">
@@ -217,6 +218,7 @@
     const fishOnly = catches.filter((c) => !c.fish.junk);
     const heaviest = fishOnly.reduce((m, c) => (c.weight > (m ? m.weight : 0) ? c : m), null);
     const record = score > best;
+    if (record && score) setTimeout(() => FX.record(), 700);
     if (record) { best = score; store.set('klev-best', best); }
     if (heaviest && heaviest.weight > bestWeight) { bestWeight = heaviest.weight; store.set('klev-best-weight', bestWeight); }
     lb.submit({ new_score: score, new_weight: heaviest ? heaviest.weight : 0 });
@@ -278,6 +280,7 @@
     o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
   }
   function sound(kind) {
+    { const t = ({ cast: 'whoosh', plop: 'splash', bite: 'tap', hook: 'hit', catch: 'coin', snap: 'bad', junk: 'nope', sunset: 'win' })[kind]; if (t && window.FX) FX.on(t, undefined); }
     if (kind === 'cast') tone(900, 0.35, 'sine', 0.06, 0.3);
     else if (kind === 'plop') { tone(420, 0.12, 'sine', 0.18, 0.4); tone(180, 0.18, 'sine', 0.1, 0.6, 0.03); }
     else if (kind === 'nibble') tone(600, 0.05, 'sine', 0.06, 0.7);

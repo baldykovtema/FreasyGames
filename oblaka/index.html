@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/fx.js" data-mute="oblaka-muted"></script>
 <script src="../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#111321">
@@ -171,6 +172,7 @@
   function gameOver() {
     state = 'over'; sound('fall');
     const h = height(), seconds = Math.floor(playTime), record = h > best;
+    if (record && h) setTimeout(() => FX.record(), 700);
     if (record) { best = h; store.set('oblaka-best', best); }
     if (starCount > bestStars) { bestStars = starCount; store.set('oblaka-best-stars', bestStars); }
     if (seconds > bestTime) { bestTime = seconds; store.set('oblaka-best-time', bestTime); }
@@ -204,6 +206,7 @@
     o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
   }
   function sound(kind) {
+    { const t = ({ spring: 'good', star: 'coin', fall: 'over' })[kind]; if (t && window.FX) FX.on(t, undefined); }
     if (state !== 'play' && kind !== 'fall') return;
     if (kind === 'jump') tone(330, 0.12, 'sine', 0.1, 1.8);
     else if (kind === 'spring') { tone(300, 0.35, 'triangle', 0.14, 3.5); tone(600, 0.3, 'sine', 0.05, 2.5, 0.05); }

@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/fx.js" data-mute="labirint-muted"></script>
 <script src="../../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#0d0f1c">
@@ -136,6 +137,7 @@
     state = 'over';
     const passed = level - 1, record = passed > best;
     const run = { new_levels: passed, new_stars: stars, new_time: Math.floor(played) };
+    if (record && passed) setTimeout(() => FX.record(), 700);
     if (record) { best = passed; store.set('labirint-best', best); runs.levels = run; }
     if (stars > bestStars) { bestStars = stars; store.set('labirint-best-stars', bestStars); runs.stars = run; }
     store.set('labirint-runs', JSON.stringify(runs));
@@ -223,6 +225,7 @@
     o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
   }
   function sound(kind) {
+    { const t = ({ star: 'coin', clock: 'good', exit: 'level', over: 'over' })[kind]; if (t && window.FX) FX.on(t, undefined); }
     if (kind === 'step') tone(320 + Math.random() * 40, 0.04, 'triangle', 0.025);
     else if (kind === 'star') { tone(880, 0.1, 'square', 0.05); tone(1320, 0.14, 'triangle', 0.06, 1, 0.05); }
     else if (kind === 'clock') { tone(660, 0.08, 'sine', 0.08); tone(990, 0.08, 'sine', 0.08, 1, 0.09); }

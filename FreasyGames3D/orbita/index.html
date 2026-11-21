@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/fx.js" data-mute="orbita-muted"></script>
 <script src="../../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#0d0f1c">
@@ -143,6 +144,7 @@
   function gameOver() {
     state = 'over';
     const seconds = Math.floor(playTime), record = score > best;
+    if (record && score) setTimeout(() => FX.record(), 700);
     if (record) { best = score; store.set('orbita-best', best); }
     if (seconds > bestTime) { bestTime = seconds; store.set('orbita-best-time', bestTime); }
     lb.submit({ new_score: score, new_time: seconds });
@@ -174,6 +176,7 @@
     o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
   }
   function sound(kind) {
+    { const t = ({ star: 'coin', crash: 'boom' })[kind]; if (t && window.FX) FX.on(t, undefined); }
     if (kind === 'jump') tone(orbit ? 520 : 390, 0.09, 'sine', 0.12, orbit ? 1.4 : 0.7);
     else if (kind === 'star') { const f = 660 * Math.pow(2, (score % 8) / 12); tone(f, 0.16, 'triangle', 0.14); tone(f * 2, 0.12, 'sine', 0.05, 1, 0.04); }
     else if (kind === 'crash') { tone(220, 0.6, 'sawtooth', 0.14, 0.25); tone(70, 0.5, 'sine', 0.3, 0.5); }

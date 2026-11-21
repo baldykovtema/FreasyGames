@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/fx.js" data-mute="posadka-muted"></script>
 <script src="../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#111321">
@@ -146,6 +147,7 @@
     state = 'over'; shake = 0.7; sound('crash');
     for (let i = 0; i < 50; i++) { const a = Math.random() * 7, v = 60 + Math.random() * 300; parts.push({ x: ship.x, y: ship.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 100, life: 1, color: i % 2 ? '#ffb24d' : '#ff5f5f' }); }
     const record = score > best;
+    if (record && score) setTimeout(() => FX.record(), 700);
     if (record) { best = score; store.set('posadka-best', best); }
     if (lands > bestLands) { bestLands = lands; store.set('posadka-best-lands', bestLands); }
     lb.submit({ new_score: score, new_lands: lands, new_time: Math.floor(playTime) });
@@ -205,6 +207,7 @@
     o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
   }
   function sound(kind) {
+    { const t = ({ land: 'big', crash: 'boom' })[kind]; if (t && window.FX) FX.on(t, undefined); }
     if (kind === 'land') [0, 4, 7, 12].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.16, 'triangle', 0.08, 1, i * 0.07));
     else if (kind === 'crash') { tone(160, 0.8, 'sawtooth', 0.14, 0.3); tone(60, 0.7, 'sine', 0.3, 0.5); }
   }

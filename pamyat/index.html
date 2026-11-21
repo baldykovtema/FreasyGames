@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/fx.js" data-mute="pamyat-muted"></script>
 <script src="../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#111321">
@@ -154,6 +155,7 @@
     setStatus('Не тот цвет', 'bad');
     const right = seq[pos]; await wait(350); buttons[right].classList.add('lit'); await wait(700); buttons[right].classList.remove('lit');
     const done = round - 1, record = done > best;
+    if (record && done) setTimeout(() => FX.record(), 700);
     if (record) { best = done; store.set('pamyat-best', best); }
     if (score > bestScore) { bestScore = score; store.set('pamyat-best-score', bestScore); }
     lb.submit({ new_round: done, new_score: score });
@@ -202,6 +204,7 @@
     o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
   }
   function sound(kind) {
+    { const t = ({ fail: 'over', mix: 'whoosh' })[kind]; if (t && window.FX) FX.on(t, undefined); }
     if (kind === 'fail') { tone(200, 0.5, 'sawtooth', 0.12, 0.4); tone(90, 0.5, 'sine', 0.2, 0.6); }
     else if (kind === 'mix') { [523, 659, 784].forEach((f, i) => tone(f, 0.12, 'sine', 0.08, 1, i * 0.07)); }
   }

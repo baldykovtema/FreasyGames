@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/fx.js" data-mute="puzyri-muted"></script>
 <script src="../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#14122b">
@@ -183,6 +184,7 @@
   function gameOver() {
     state = 'over'; sound('over'); shake = 0.4;
     const record = score > best;
+    if (record && score) setTimeout(() => FX.record(), 700);
     if (record) { best = score; store.set('puzyri-best', best); }
     if (combo > bestCombo) { bestCombo = combo; store.set('puzyri-best-combo', bestCombo); }
     lb.submit({ new_score: score, new_combo: combo, new_shots: shots });
@@ -274,6 +276,7 @@
     g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur); o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur);
   }
   function sound(k) {
+    { const t = ({ clear: 'combo', drop: 'good', over: 'over', stick: 'soft' })[k]; if (t && window.FX) FX.on(t, undefined); }
     if (k === 'shoot') tone(500, 0.08, 'triangle', 0.08, 1.6);
     else if (k === 'wall') tone(900, 0.03, 'sine', 0.04);
     else if (k === 'stick') tone(180, 0.07, 'triangle', 0.08);

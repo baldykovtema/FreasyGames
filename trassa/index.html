@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/fx.js" data-mute="trassa-muted"></script>
 <script src="../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#111321">
@@ -87,6 +88,7 @@
     const s = ac.createBufferSource(), gn = ac.createGain(); s.buffer = buf; gn.gain.value = 0.35; s.connect(gn).connect(ac.destination); s.start();
   }
   const sfx = { coin: () => { tone(1100, 0.06, 'square', 0.04); setTimeout(() => tone(1650, 0.1, 'square', 0.04), 55); }, fuel: () => [440, 660, 880].forEach((f, i) => setTimeout(() => tone(f, 0.1, 'triangle', 0.07), i * 60)), close: () => tone(700, 0.15, 'sine', 0.05, 0.6) };
+  for (const [k, t] of Object.entries({ coin: 'coin', fuel: 'good' })) { const f = sfx[k]; if (f) sfx[k] = (...a) => { if (window.FX) FX.on(t, a[0]); return f(...a); }; }
 
   const laneX = (i) => ROAD_L + LANE_W * (i + 0.5);
   let runNo = 0;
@@ -198,8 +200,10 @@
   function finish(reason) {
     if (previewMode) { reset(); state = 'play'; dist = 900; return; }
     state = 'crash'; why = reason; shake = reason === 'Авария!' ? 0.6 : 0;
-    if (reason === 'Авария!') crashSound(); else tone(300, 0.8, 'sawtooth', 0.06, 0.3);
+    if (reason === 'Авария!') { crashSound(); FX.over(); FX.on('boom', 0, ...FX.mid()); } else FX.over();
+    if (reason !== 'Авария!') tone(300, 0.8, 'sawtooth', 0.06, 0.3);
     const m = Math.floor(dist), run = { new_distance: m, new_coins: coins, new_time: Math.floor(playTime) }, record = m > best;
+    if (record && m) setTimeout(() => FX.record(), 700);
     if (record) { best = m; store.set('trassa-best', best); runs.distance = run; }
     if (coins > bestCoins) { bestCoins = coins; store.set('trassa-best-coins', bestCoins); runs.coins = run; }
     store.set('trassa-runs', JSON.stringify(runs));

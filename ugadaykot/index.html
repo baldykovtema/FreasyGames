@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/fx.js"></script>
 <script src="../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#111321">
@@ -365,6 +366,7 @@ function showGuess(i) {
 
 function win() {
   mood('happy');
+  FX.good(); FX.sfx('levelup');
   const s = store.get('ugadaykot-stats', { won: 0, lost: 0 }); s.won++; store.set('ugadaykot-stats', s); sendStats();
   remember(game.list[game.guessIndex].name);
   screen.innerHTML = `<div class="kicker">Ура!</div><h2>Я угадал «${esc(game.list[game.guessIndex].name)}» за ${questionsText(game.answers.length)} 😺</h2><p>Попробуешь меня обхитрить?</p>`;
@@ -398,7 +400,7 @@ function learn() {
   showStats();
 }
 
-function lose() { const s = store.get('ugadaykot-stats', { won: 0, lost: 0 }); s.lost++; store.set('ugadaykot-stats', s); sendStats(); }
+function lose() { FX.win(); FX.text(innerWidth / 2, innerHeight * 0.35, 'Ты обыграл кота!', '#8dff7a', 32); const s = store.get('ugadaykot-stats', { won: 0, lost: 0 }); s.lost++; store.set('ugadaykot-stats', s); sendStats(); }
 
 /* ================= Таблица лидеров (общий Supabase-проект FreasyGames) ================= */
 

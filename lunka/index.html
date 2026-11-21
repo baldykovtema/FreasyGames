@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/fx.js" data-mute="lunka-muted"></script>
 <script src="../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#111321">
@@ -87,6 +88,7 @@
     splash: () => { noise(0.4, 0.3); tone(300, 0.3, 'sine', 0.1, 0.4); },
     lip: () => tone(700, 0.06, 'sine', 0.06, 0.6),
   };
+  for (const [k, t] of Object.entries({ cup: 'big', ace: 'win', splash: 'splash' })) { const f = sfx[k]; if (f) sfx[k] = (...a) => { if (window.FX) FX.on(t, a[0]); return f(...a); }; }
 
   // ——— Courses ———
   const rnd = (a, b) => a + Math.random() * (b - a);
@@ -345,9 +347,10 @@
   const chance = FreasyRewards.offer({ host: '#over .box', name: 'lunka-strokes', label: '🎬 +5 ударов за рекламу', onReward: () => {
     chanceUsed = true; strokes = 5; state = 'play'; $('over').hidden = true;
   } });
-  function gameOver() {
+  function gameOver() { FX.over();
     state = 'over';
     const run = { new_holes: holes, new_aces: aces, new_time: Math.floor(playTime) }, record = holes > best;
+    if (record && holes) setTimeout(() => FX.record(), 700);
     if (record) { best = holes; store.set('lunka-best', best); runs.holes = run; }
     if (aces > bestAces) { bestAces = aces; store.set('lunka-best-aces', bestAces); runs.aces = run; }
     store.set('lunka-runs', JSON.stringify(runs));

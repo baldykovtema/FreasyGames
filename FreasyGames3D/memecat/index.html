@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/fx.js" data-mute="catjump-muted"></script>
 <script src="../../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Мемный Кот: Прыг 3D — FreasyGames 3D</title>
@@ -317,6 +318,7 @@ const sfx = {
   death: () => { noise(0.4, 0.12, 0, 300); tone(440, 0.4, 'sawtooth', 0.06, 0.3); },
   win: () => { const a = audio(); if (!a) return; [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.18, 'square', 0.05, 1, a.currentTime + i * 0.11)); },
 };
+for (const [k, t] of Object.entries({ fish: 'coin', death: 'over', win: 'win', pad: 'good' })) { const f = sfx[k]; if (f) sfx[k] = (...a) => { if (window.FX) FX.on(t, a[0]); return f(...a); }; }
 
 const music = { on: false, next: 0, stepI: 0, root: 45, timer: 0 };
 const BASS = [0, 0, 12, 0, 7, 0, 12, 10, 0, 0, 12, 0, 5, 7, 10, 12];

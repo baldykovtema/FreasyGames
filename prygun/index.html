@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/fx.js"></script>
 <script src="../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>Прыгун</title>
@@ -205,6 +206,7 @@ function store(){try{localStorage.setItem(KEY,JSON.stringify(save));}catch(e){}}
 let AC;function ac(){if(!AC)AC=new (window.AudioContext||window.webkitAudioContext)();if(AC.state==='suspended')AC.resume();return AC;}
 function beep(f0,f1,d,type='square',v=.15){try{const c=ac(),o=c.createOscillator(),gn=c.createGain(),t=c.currentTime;o.type=type;o.frequency.setValueAtTime(f0,t);o.frequency.exponentialRampToValueAtTime(Math.max(30,f1),t+d);gn.gain.setValueAtTime(v,t);gn.gain.exponentialRampToValueAtTime(.001,t+d);o.connect(gn).connect(c.destination);o.start(t);o.stop(t+d);}catch(e){}}
 const SFX={jump:()=>beep(300,650,.18),coin:()=>{beep(990,990,.07);setTimeout(()=>beep(1320,1320,.12),70);},stomp:()=>beep(400,80,.2,'triangle',.25),die:()=>beep(500,60,.6,'sawtooth',.15),bounce:()=>beep(200,900,.3,'sine',.2),win:()=>[523,659,784,1046].forEach((f,i)=>setTimeout(()=>beep(f,f,.18,'triangle',.2),i*120))};
+for (const [k, t] of Object.entries({ coin: 'coin', stomp: 'hit', die: 'over', bounce: 'good', win: 'level' })) { const f = SFX[k]; if (f) SFX[k] = (...a) => { if (window.FX) FX.on(t, a[0]); return f(...a); }; }
 
 /* ---------- Игра ---------- */
 const SKIES=[...new Set(LEVELS.map(l=>l.sky.join('|')))].map(s=>s.split('|'));

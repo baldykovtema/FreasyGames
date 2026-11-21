@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/fx.js" data-mute="bashnya-muted"></script>
 <script src="../../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#0d0f1c">
@@ -181,7 +182,7 @@
     scene.remove(m.mesh); moving = null;
     if (Math.abs(diff) >= t[size]) {
       fall({ ...m }, a === 'x' ? m.dir * 0.3 : 0, a === 'z' ? m.dir * 0.3 : 0);
-      sound('fail'); shake = 0.4; return gameOver();
+      sound('fail'); shake = 0.4; FX.over(); FX.sfx('swoosh'); return gameOver();
     }
     const s = { x: m.x, z: m.z, w: m.w, d: m.d, i: m.i };
     if (Math.abs(diff) <= PERFECT) {
@@ -189,6 +190,7 @@
       s[a] = t[a];
       if (combo >= 3) s[size] = Math.min(MAX, s[size] + GROW);
       sound('perfect', combo);
+      { FX.burst(innerWidth / 2, innerHeight * 0.42, { n: 16 + combo * 4, shape: 'star', speed: 320, color: ['#fff7b0', '#ffd84a', '#fff'] }); FX.ring(innerWidth / 2, innerHeight * 0.42, '#fff3a0', 90 + combo * 10); FX.sfx('combo', combo); if (combo >= 3) { FX.flash('#fff6c0', 0.18); FX.sfx('power'); } }
       burst(s);
       flash(combo >= 3 ? `Идеально ×${combo}! Шире!` : combo > 1 ? `Идеально ×${combo}!` : 'Идеально!');
     } else {
@@ -200,6 +202,7 @@
       const push = Math.sign(diff) * 0.35;
       fall(cut, a === 'x' ? push : 0, a === 'z' ? push : 0);
       sound('place');
+      FX.sfx('thud'); FX.shake(3, 150);
     }
     s.mesh = freeze(slabMesh(s));
     stack.push(s);
@@ -223,6 +226,7 @@
   function gameOver() {
     state = 'over';
     const record = score > best, seconds = Math.floor(playTime);
+    if (record && score > 0) setTimeout(() => FX.record(), 700);
     if (record) { best = score; store.set('bashnya-best', best); }
     if (seconds > bestTime) { bestTime = seconds; store.set('bashnya-best-time', bestTime); }
     if (score > 0) lb.submit({ new_floors: score, new_time: seconds });

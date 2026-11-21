@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/fx.js" data-mute="mostik-muted"></script>
 <script src="../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#111321">
@@ -86,6 +87,7 @@
     perfect: (n) => [0, 4, 7].forEach((s, i) => tone(660 * Math.pow(2, (s + Math.min(n, 8)) / 12), 0.12, 'triangle', 0.08, 1, i * 0.05)),
     fall: () => tone(420, 0.7, 'sawtooth', 0.06, 0.2),
   };
+  for (const [k, t] of Object.entries({ perfect: 'combo', land: 'good', fall: 'over' })) { const f = sfx[k]; if (f) sfx[k] = (...a) => { if (window.FX) FX.on(t, a[0]); return f(...a); }; }
 
   // ——— Columns ———
   // Every next column is narrower on average and further away; the red middle is always 10 wide.
@@ -284,6 +286,7 @@
   function gameOver(why) {
     state = 'over'; growSound(false);
     const run = { new_score: score, new_streak: bestStreakRun, new_steps: steps, new_time: Math.floor(playTime) }, record = score > best;
+    if (record && score) setTimeout(() => FX.record(), 700);
     if (record) { best = score; store.set('mostik-best', best); runs.score = run; }
     if (bestStreakRun > bestStreak) { bestStreak = bestStreakRun; store.set('mostik-best-streak', bestStreak); runs.streak = run; }
     store.set('mostik-runs', JSON.stringify(runs));

@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/fx.js"></script>
 <script src="../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Кликер Человечков</title>
@@ -171,7 +172,7 @@ let S;
 function fresh(){return {pts:0,total:0,lv:{},name:S&&S.name||'',league:1,bots:null,snd:true,clicks:0};}
 function load(){try{const d=JSON.parse(localStorage.getItem(KEY));if(d&&typeof d.pts==='number')return Object.assign(fresh(),d);}catch(e){}return fresh();}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}}
-S=load();
+S=load();FX.muted=()=>!S.snd;
 const L=id=>S.lv[id]||0;
 const globalMul=()=>Math.pow(2,L('gold'));
 const clickVal=()=>(1+clickAdd(L('power')))*Math.pow(3,L('mega'))*globalMul();
@@ -194,9 +195,9 @@ function beep(f,d,type,vol){
   }catch(e){}
 }
 const sClick=()=>beep(520+Math.random()*80,0.08,'square',0.06);
-const sBuy=()=>{beep(660,0.1,'triangle',0.15);setTimeout(()=>beep(880,0.12,'triangle',0.15),70);};
-const sCrit=()=>beep(1200,0.15,'sawtooth',0.08);
-const sWin=()=>[523,659,784,1046].forEach((f,i)=>setTimeout(()=>beep(f,0.25,'triangle',0.18),i*140));
+const sBuy=()=>{FX.sfx("coin");FX.on('good');beep(660,0.1,'triangle',0.15);setTimeout(()=>beep(880,0.12,'triangle',0.15),70);};
+const sCrit=()=>{beep(1200,0.15,'sawtooth',0.08);FX.burst(...FX.pointer(),{n:18,shape:'star',speed:320,color:['#ffd84a','#ff9a3d','#fff']});FX.shake(3,120);};
+const sWin=()=>(FX.confetti(),[523,659,784,1046]).forEach((f,i)=>setTimeout(()=>beep(f,0.25,'triangle',0.18),i*140));
 
 /* ---------- очки ---------- */
 function gain(v){S.pts+=v;S.total+=v;}

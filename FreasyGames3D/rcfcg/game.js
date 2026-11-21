@@ -365,11 +365,13 @@ function startFill(data) {
   data.percentage.textContent = '0%';
   if (fastModeCheckbox.checked) { data.progress = 1; data.start = null; data.dirty = true; completeCube(data); return; }
   data.progress = 0; data.start = performance.now(); data.dirty = true;
+  if (window.FX) { FX.on('tap'); FX.sfx('whoosh'); }
 }
 
 function completeCube(data) {
   if (data.counted || data.progress < 1) return;
   data.counted = true;
+  if (window.FX) { const r = data.percentage && data.percentage.parentElement ? data.percentage.parentElement.getBoundingClientRect() : null; if (r && r.width) FX.on('good', 0, r.left + r.width / 2, r.top + r.height / 2); else FX.on('good'); }
   stats.cubesCompleted++;
   const dominant = getDominantColor(data.colors);
   const percentage = Math.round(dominant.count / LINE_COUNT * 100);
@@ -552,6 +554,7 @@ function createDonutSpawner(id, timerId, interval, golden) {
     clearTimeout(hideTimer);
     element.style.display = 'none';
     if (golden) goldenDonutBoostActive = true; else donutBoostActive = true;
+    if (window.FX) { FX.on(golden ? 'big' : 'coin'); if (golden) FX.confetti(60); }
     updateBoostInfo();
     clearTimeout(boostTimer);
     boostTimer = setTimeout(() => { if (golden) goldenDonutBoostActive = false; else donutBoostActive = false; updateBoostInfo(); }, DONUT_BOOST_DURATION);

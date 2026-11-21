@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/fx.js"></script>
 <script src="../../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>Звёздный патруль 3D — FreasyGames 3D</title>
@@ -95,6 +96,7 @@ function tone(f0,f1,d,type='square',v=.08,noise=false){if(!AC&&navigator.userAct
   gn.gain.setValueAtTime(v,t);gn.gain.exponentialRampToValueAtTime(.001,t+d);gn.connect(c.destination);src.start(t);src.stop(t+d);}catch(e){}}
 let lastShot=0;
 const S={shot:()=>{const n=performance.now();if(n-lastShot>70){lastShot=n;tone(900,300,.06,'square',.03);}},boom:()=>tone(1200,60,.4,'',.25,true),big:()=>tone(800,30,1.2,'',.4,true),coin:()=>tone(1300,1800,.08,'sine',.08),hurt:()=>tone(300,80,.3,'sawtooth',.15),power:()=>[400,600,900].forEach((f,i)=>setTimeout(()=>tone(f,f*1.5,.12,'triangle',.12),i*70)),warn:()=>[0,1,2].forEach(i=>setTimeout(()=>tone(220,200,.25,'sawtooth',.12),i*350))};
+for (const [k, t] of Object.entries({ big: 'over', coin: 'coin', hurt: 'bad', power: 'big', warn: 'nope' })) { const f = S[k]; if (f) S[k] = (...a) => { if (window.FX) FX.on(t, a[0]); return f(...a); }; }
 
 /* ---------- игра ---------- */
 let state='menu',P,bul=[],ebul=[],en=[],drops=[],parts=[],stars=[],wave=0,score=0,runCoins=0,waveQ=[],waveT=0,banner=null,shake=0,keys={},ptr=null,frameN=0;

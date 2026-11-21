@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/fx.js" data-mute="brevno-muted"></script>
 <script src="../../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#0d0f1c">
@@ -87,6 +88,7 @@
     clang: () => { tone(1800, 0.25, 'square', 0.05, 0.8); tone(2400, 0.3, 'sine', 0.06, 0.9); },
     split: () => { noise(0.4, 0.4); [392, 523, 659, 784].forEach((f, i) => tone(f, 0.16, 'triangle', 0.08, 1, 0.1 + i * 0.08)); },
   };
+  for (const [k, t] of Object.entries({ apple: 'coin', clang: 'bad', split: 'big' })) { const f = sfx[k]; if (f) sfx[k] = (...a) => { if (window.FX) FX.on(t, a[0]); return f(...a); }; }
 
   // ——— Levels (same as 2D) ———
   const PATTERNS = [
@@ -330,9 +332,10 @@
   const chance = FreasyRewards.offer({ host: '#over .box', name: 'brevno-continue', label: '🎬 Ещё попытка за рекламу', onReward: () => {
     chanceUsed = true; score -= stuck.filter((s) => !s.pre).length; buildLevel(); state = 'play'; $('over').hidden = true;
   } });
-  function gameOver() {
+  function gameOver() { FX.over();
     state = 'over';
     const run = { new_score: score, new_level: level, new_time: Math.floor(playTime) }, record = score > best;
+    if (record && score) setTimeout(() => FX.record(), 700);
     if (record) { best = score; store.set('brevno-best', best); runs.score = run; }
     if (level > bestLevel) { bestLevel = level; store.set('brevno-best-level', bestLevel); runs.level = run; }
     store.set('brevno-runs', JSON.stringify(runs));

@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/fx.js" data-mute="bloki-muted"></script>
 <script src="../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#111321">
@@ -170,6 +171,7 @@
   function gameOver() {
     state = 'over'; dirty = true;
     const record = score > best;
+    if (record && score) setTimeout(() => FX.record(), 700);
     if (record) { best = score; store.set('bloki-best', best); }
     if (lines > bestLines) { bestLines = lines; store.set('bloki-best-lines', bestLines); }
     if (score > 0) lb.submit({ new_score: score, new_lines: lines });
@@ -196,6 +198,7 @@
     o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
   }
   function sound(kind, n = 0) {
+    { const t = ({ clear: 'combo', place: 'soft', over: 'over', pick: 'soft', back: 'nope' })[kind]; if (t && window.FX) FX.on(t, n); }
     if (kind === 'pick') tone(520, 0.06, 'sine', 0.06, 1.3);
     else if (kind === 'place') { tone(180, 0.09, 'triangle', 0.16, 0.7); }
     else if (kind === 'clear') { for (let i = 0; i < Math.min(5, n + 1); i++) tone(440 * Math.pow(2, i * 4 / 12), 0.2, 'triangle', 0.12, 1, i * 0.06); }

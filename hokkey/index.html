@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/fx.js" data-mute="hokkey-muted"></script>
 <script src="../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#111321">
@@ -117,6 +118,7 @@
   function gameOver() {
     state = 'over';
     const seconds = Math.floor(playTime), record = wins > best;
+    if (record && wins) setTimeout(() => FX.record(), 700);
     if (record) { best = wins; store.set('hokkey-best', best); }
     if (goals > bestGoals) { bestGoals = goals; store.set('hokkey-best-goals', bestGoals); }
     lb.submit({ new_wins: wins, new_goals: goals, new_time: seconds });
@@ -202,6 +204,7 @@
   }
   let lastHit = 0;
   function sound(kind, power = 0.5) {
+    { const t = ({ hit: 'hit', goal: 'big', miss: 'bad' })[kind]; if (t && window.FX) FX.on(t, power); }
     if (kind === 'hit') { if (time - lastHit < 0.05) return; lastHit = time; tone(300 + power * 500, 0.06, 'square', 0.04 + power * 0.06, 0.6); }
     else if (kind === 'wall') { if (time - lastHit < 0.05) return; lastHit = time; tone(180, 0.05, 'triangle', 0.05); }
     else if (kind === 'goal') [0, 4, 7, 12].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.15, 'square', 0.06, 1, i * 0.07));

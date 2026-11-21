@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/fx.js" data-mute="zmey-muted"></script>
 <script src="../../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#0d0f1c">
@@ -135,6 +136,7 @@
     burst(px, py, value > 1 ? '#5df2a5' : '#ffd23f', value > 1 ? 26 : 14);
     pops.push({ x: px, y: py, text: `+${value}`, life: 1, color: value > 1 ? '#5df2a5' : '#ffd23f' });
     sound(value > 1 ? 'bonus' : 'star');
+    { const [sx, sy] = FX.g3(G3(item.x, item.y)); FX.sparkle(sx, sy, value > 1 ? '#5df2a5' : '#ffd23f'); FX.text(sx, sy - 10, '+' + value, value > 1 ? '#5df2a5' : '#ffd23f'); if (value > 1) FX.sfx('power'); else FX.sfx('combo', eaten % 12); if (eaten % 10 === 0) FX.sfx('levelup'); }
     if (!bonus && eaten % 7 === 0) { const c = freeCell(); if (c) bonus = { ...c, life: BONUS_LIFE }; }
   }
 
@@ -142,6 +144,7 @@
     const [hx, hy] = center(snake[0].x, snake[0].y);
     burst(hx, hy, '#ff7a6b', 34); burst(hx, hy, '#bca0ff', 20);
     sound('crash'); shake = 0.45; flash = 1;
+    { const [sx, sy] = FX.g3(G3(snake[0].x, snake[0].y)); FX.over(sx, sy); FX.sfx('boom'); }
     gameOver(why);
   }
 
@@ -185,6 +188,7 @@
     if (record) { best = score; store.set('zmey-best', best); }
     if (seconds > bestTime) { bestTime = seconds; store.set('zmey-best-time', bestTime); }
     lb.submit({ new_score: score, new_time: seconds });
+    if (record && score > 0) setTimeout(() => FX.record(), 700);
     setTimeout(() => {
       if (state !== 'over') return;
       $('overWhy').textContent = why;
@@ -232,6 +236,7 @@
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
   const scene = new THREE.Scene(); scene.background = new THREE.Color('#0d0f1c'); scene.fog = new THREE.Fog('#0d0f1c', 40, 90);
   const camera = new THREE.PerspectiveCamera(45, 1, 0.3, 300);
+  FX.bind3(camera, cv);
   scene.add(new THREE.HemisphereLight('#c9bcff', '#120f2a', 0.75));
   const key = new THREE.DirectionalLight('#ffffff', 0.9); key.position.set(-8, 20, 10); scene.add(key);
 

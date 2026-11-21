@@ -58,4 +58,32 @@
     document.documentElement.style.visibility = 'hidden';
     location.replace(window.FreasySession.loginUrl());
   }
+
+  // Время в игре (таблица play_time, shared/playtime.sql): раз в минуту отправляем, сколько секунд
+  // вкладка с игрой была видна. Только на настоящем сайте, чтобы проверка игр на localhost не засчитывалась.
+  if (!catalog && !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)) {
+    const parts = location.pathname.split('/').filter(Boolean);
+    const at = parts.indexOf('FreasyGames3D');
+    const folder = at >= 0 ? parts[at + 1] : parts[parts.indexOf('FreasyGames') + 1] || parts[0];
+    const gid = folder && (at >= 0 ? '3d-' + folder : folder).toLowerCase();
+    if (gid && /^[a-z0-9-]{1,40}$/.test(gid)) {
+      let seen = 0, last = Date.now(), first = true;
+      const count = () => { const now = Date.now(); if (document.visibilityState === 'visible') seen += (now - last) / 1000; last = now; };
+      const send = () => {
+        count();
+        const s = window.FreasySession.get(), secs = Math.round(seen);
+        if (!s || secs < 5 || (s.expires_at || 0) * 1000 < Date.now()) return;
+        seen = 0;
+        fetch('https://ywqxrbmgmvpbeytxjkpi.supabase.co/rest/v1/rpc/play_tick', {
+          method: 'POST', keepalive: true,
+          headers: { apikey: 'sb_publishable_igyJK68YpyJYo-0KNrVZPA_rm6_gIRg', Authorization: 'Bearer ' + s.access_token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ gid, secs: Math.min(secs, 90), new_session: first }),
+        }).catch(() => {});
+        first = false;
+      };
+      document.addEventListener('visibilitychange', count);
+      setInterval(send, 60000);
+      addEventListener('pagehide', send);
+    }
+  }
 })();

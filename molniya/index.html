@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/fx.js" data-mute="molniya-muted"></script>
 <script src="../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#111321">
@@ -160,6 +161,7 @@
     state = 'over';
     const seconds = Math.floor(playTime), avg = hits >= MIN_HITS ? Math.round(reactionSum / hits) : 0, record = score > best;
     const run = { new_score: score, new_reaction: avg || null, new_hits: hits, new_time: seconds };
+    if (record && score) setTimeout(() => FX.record(), 700);
     if (record) { best = score; store.set('molniya-best', best); runs.score = run; }
     if (avg && (!bestReaction || avg < bestReaction)) { bestReaction = avg; store.set('molniya-best-reaction', bestReaction); runs.reaction = run; }
     store.set('molniya-runs', JSON.stringify(runs));
@@ -193,6 +195,7 @@
     o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
   }
   function sound(kind, n = 0) {
+    { const t = ({ hit: 'good', miss: 'bad' })[kind]; if (t && window.FX) FX.on(t, n); }
     if (kind === 'hit') { const f = 587 * Math.pow(2, Math.min(n, 12) / 12); tone(f, 0.1, 'square', 0.06); tone(f * 1.5, 0.12, 'triangle', 0.08, 1, 0.03); }
     else if (kind === 'miss') { tone(180, 0.35, 'sawtooth', 0.12, 0.5); tone(60, 0.3, 'sine', 0.25, 0.6); }
   }

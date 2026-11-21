@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/fx.js" data-mute="burgernaya-muted"></script>
 <script src="../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#111321">
@@ -94,6 +95,7 @@
     bell: () => { tone(1500, 0.3, 'sine', 0.05); tone(2250, 0.25, 'sine', 0.03); },
     day: () => [0, 7, 12, 16].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.18, 'triangle', 0.07, 1, i * 0.09)),
   };
+  for (const [k, t] of Object.entries({ serve: 'good', coin: 'coin', bad: 'bad', day: 'win' })) { const f = sfx[k]; if (f) sfx[k] = (...a) => { if (window.FX) FX.on(t, a[0]); return f(...a); }; }
 
   // ——— Orders ———
   const menu = () => ING.filter((x) => x.day <= day && x.id !== 'bun' && x.id !== 'top');
@@ -345,10 +347,11 @@
   const chance = FreasyRewards.offer({ host: '#over .box', name: 'burgernaya-heart', label: '🎬 Ещё одно сердечко за рекламу', onReward: () => {
     chanceUsed = true; hearts = 1; guests = []; stack = []; spawnT = 1.5; state = 'play'; $('over').hidden = true;
   } });
-  function gameOver() {
+  function gameOver() { FX.over();
     if (state !== 'play') return;
     state = 'over';
     const run = { new_score: coins, new_orders: served, new_time: Math.floor(playTime) }, record = coins > best;
+    if (record && coins) setTimeout(() => FX.record(), 700);
     if (record) { best = coins; store.set('burgernaya-best', best); runs.score = run; }
     if (served > bestOrders) { bestOrders = served; store.set('burgernaya-best-orders', bestOrders); runs.orders = run; }
     store.set('burgernaya-runs', JSON.stringify(runs));

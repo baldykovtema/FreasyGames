@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/fx.js" data-mute="gruzchik-muted"></script>
+<script src="../../shared/clips.js?v=1"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#1b1712">
+<title>Грузчик 3D — FreasyGames 3D</title>
+<meta name="description" content="Грузчик 3D на FreasyGames: объёмный склад с кирпичными стенами — толкай ящики на отмеченные места. Те же 20 уровней, прогресс и рекорды, что в 2D.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>
+  body { background: #1b1712; }
+  #ov { pointer-events: none; }
+  .bar { position: fixed; left: 50%; transform: translateX(-50%); top: max(58px, calc(env(safe-area-inset-top) + 52px)); z-index: 3; display: flex; gap: 8px; align-items: center;
+    background: #2a241ccc; border: 1px solid #ffffff1f; border-radius: 14px; padding: 6px 8px; backdrop-filter: blur(6px); color: #f6efe3; font: 700 14px Manrope, system-ui; white-space: nowrap; }
+  .bar button { border: 0; border-radius: 10px; background: #ffffff14; color: #f6efe3; font: 800 14px Manrope, system-ui; padding: 7px 11px; cursor: pointer; }
+  .bar button:hover { background: #ffffff26; }
+  .bar .info { padding: 0 6px; }
+  .bar[hidden], .dpad[hidden] { display: none; }
+  .dpad { position: fixed; right: 16px; bottom: max(16px, env(safe-area-inset-bottom)); z-index: 3; display: grid; grid-template-columns: repeat(3, 58px); grid-template-rows: repeat(2, 58px); gap: 6px; }
+  .dpad button { border-radius: 16px; border: 1px solid #ffffff2a; background: #2a241ccc; color: #f6efe3; font: 800 24px Manrope, system-ui; touch-action: none; backdrop-filter: blur(6px); }
+  .dpad button:active { background: #f2b544; color: #2a1d05; }
+  .dpad .u { grid-column: 2; grid-row: 1; } .dpad .l { grid-column: 1; grid-row: 2; } .dpad .d { grid-column: 2; grid-row: 2; } .dpad .r { grid-column: 3; grid-row: 2; }
+  .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 14px 0; }
+  .grid button { aspect-ratio: 1; border-radius: 12px; border: 1px solid #ffffff22; background: #ffffff12; color: #f6efe3; font: 800 17px Manrope, system-ui; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+  .grid button small { font-size: 10px; color: #f2b544; letter-spacing: -1px; }
+  .grid button:hover:not(:disabled) { background: #ffffff24; }
+  .grid button:disabled { opacity: .35; cursor: default; }
+  .grid button.cur { outline: 2px solid #f2b544; }
+  .stars { font-size: 30px; letter-spacing: 4px; color: #f2b544; margin: 4px 0 8px; }
+  .stars i { font-style: normal; color: #ffffff2a; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="ov"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames 3D</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+<div class="bar" id="bar" hidden>
+  <button type="button" id="bMenu" aria-label="Меню">☰</button>
+  <span class="info" id="info">Уровень 1 · ходов 0</span>
+  <button type="button" id="bUndo" aria-label="Отменить ход">↶</button>
+  <button type="button" id="bRestart" aria-label="Начать уровень заново">⟲</button>
+</div>
+<div class="dpad" id="dpad" hidden>
+  <button type="button" class="u" data-d="U" aria-label="Вверх">▲</button>
+  <button type="button" class="l" data-d="L" aria-label="Влево">◀</button>
+  <button type="button" class="d" data-d="D" aria-label="Вниз">▼</button>
+  <button type="button" class="r" data-d="R" aria-label="Вправо">▶</button>
+</div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ 3D</div>
+    <h1>Грузчик <span>3D</span></h1>
+    <p>Расставь все ящики по отмеченным местам склада. Ящик можно только толкать — тянуть нельзя, так что думай наперёд.</p>
+    <p>Чем короче решение, тем больше звёзд и очков. Ошибся — отмени ход. Уровни, прогресс и рекорды общие с 2D.</p>
+    <p>Пройдено уровней: <b id="doneStart">0</b> из 20 · очков: <b id="scoreStart">0</b></p>
+    <button class="play" id="go" type="button">Играть ↗</button>
+    <button class="ghost" type="button" id="toLevels">Выбрать уровень</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Стрелки / WASD — ходить · Z или Backspace — отменить · R — заново · на телефоне свайпы или кнопки</div>
+  </div>
+</div>
+
+<div class="screen" id="levels" hidden>
+  <div class="box">
+    <div class="eyebrow">Уровни</div>
+    <div class="grid" id="grid"></div>
+    <button class="ghost" type="button" id="levelsBack">Назад</button>
+  </div>
+</div>
+
+<div class="screen" id="pause" hidden>
+  <div class="box">
+    <div class="eyebrow" id="pauseTitle">Уровень 1</div>
+    <p id="pauseText">Лучшее решение — за 0 ходов.</p>
+    <button class="play" id="resume" type="button">Продолжить ↗</button>
+    <button class="ghost" type="button" id="pauseRestart">Начать заново</button>
+    <button class="ghost" type="button" id="pauseLevels">Все уровни</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+  </div>
+</div>
+
+<div class="screen" id="win" hidden>
+  <div class="box">
+    <div class="eyebrow" id="winTitle">Уровень пройден!</div>
+    <div class="stars" id="winStars">★★★</div>
+    <div class="big" id="winPts">+300</div>
+    <p id="winText"></p>
+    <p>Пройдено: <b id="doneWin">0</b> из 20 · всего очков: <b id="scoreWin">0</b></p>
+    <button class="play" id="next" type="button">Следующий уровень ↗</button>
+    <button class="ghost" type="button" id="winRetry">Пройти короче</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<script src="../../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  // Все уровни проверены решателем: второе число — кратчайшее решение в ходах.
+  const LEVELS = [[["#####", "#@$.#", "#####"], 1], [["######", "#    #", "#@$$.#", "#   .#", "######"], 9], [["#######", "#.    #", "# ##@ #", "# # $ #", "## .$ #", " ######"], 11], [["#######", "#  #  #", "# $# .#", "#@    #", "## *  #", " ######"], 12], [["  ####", "###  #", "#. $ #", "#..$ ##", "# $   #", "#  @  #", "#######"], 14], [["########", "# .    #", "#   #  #", "#   # ##", "###  $##", "#.   $@#", "########"], 15], [["#######", "#.  # #", "# $   #", "#.$#@ #", "#     #", "#######"], 18], [["#######", "# .  @#", "### $ ##", "#   ## #", "# $    #", "#   .  #", "########"], 18], [["########", "#    . #", "#  $ ###", "##@  $ #", "## $.# #", "#.     #", "########"], 24], [["  ######", "###    #", "#.#    #", "#$ $ $##", "#      #", "#. .  @#", "########"], 24], [["#########", "#    @ .#", "#  $$ . #", "# #     #", "# # $   #", "#   ###.#", "##### ###"], 27], [["#########", "#@$    .#", "###    .#", "#   $## #", "#    $ ##", "#       #", "#    . ##", "########"], 28], [[" ########", " # @  . #", "## $#. $#", "#   #   #", "### $   #", " #  #  .#", " ########"], 30], [["#########", "#.    $ #", "# ### $ #", "# ###   #", "#   .  @#", "## $    #", "#  #   .#", "#########"], 31], [["########", "#      #", "# #$## #", "# . @$.#", "## ### #", " #     #", " #######"], 33], [[" ########", "## @    #", "#   $   #", "#      .#", "# .$# ###", "#   $.  #", "###. $  #", "  #######"], 33], [["#########", "#       #", "# $  .$$#", "# #  .  #", "# ##.   #", "# ##  $ #", "#@  ## .#", "#########"], 33], [[" ######", " #    #", "##$## #", "#  . @#", "# $ #.#", "#   # #", "#######"], 38], [["##########", "#.  .    #", "#$   ##  #", "#  ###   #", "#+$   . ##", "## # $#$##", " # #     #", " #########"], 38], [["##########", "#  ##    #", "#  #    ##", "#     .  #", "#   ##   #", "# $$##$. #", "#.  #+$  #", "##########"], 39]];
+  const N = LEVELS.length;
+  const cv = document.getElementById('c');
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  let save = (() => { try { const s = JSON.parse(store.get('gruzchik-save', 'null')); if (s && Array.isArray(s.best)) return s; } catch {} return { best: [], skipped: [], cur: 0 }; })();
+  const persist = () => store.set('gruzchik-save', JSON.stringify(save));
+  let muted = store.get('gruzchik-muted', '0') === '1';
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const movesWord = (n) => plural(n, 'ход', 'хода', 'ходов');
+  const pointsWord = (n) => plural(n, 'очко', 'очка', 'очков');
+
+  // Очки за уровень: 100 за решение и до 200 за краткость (кратчайшее решение — все 300).
+  const par = (i) => LEVELS[i][1];
+  const points = (i, m) => 100 + Math.round(200 * par(i) / Math.max(par(i), m));
+  const starsFor = (i, m) => m <= par(i) ? 3 : m <= Math.ceil(par(i) * 1.5) ? 2 : 1;
+  const solved = () => save.best.filter((m) => m > 0).length;
+  const totalScore = () => save.best.reduce((s, m, i) => s + (m > 0 ? points(i, m) : 0), 0);
+  const unlocked = (i) => i === 0 || save.best[i - 1] > 0 || save.skipped.includes(i - 1) || save.best[i] > 0;
+
+  // ---------- уровень ----------
+  let lvl = 0, walls, goals, inside, boxes, pl, moves, undo, W0, H0, face = 'D', state = 'start', winT = 0;
+  let disp = { x: 0, y: 0 }, boxDisp = [], walkT = 0, bump = null;
+  const key = (x, y) => y * 100 + x;
+  function load(i) {
+    lvl = i; save.cur = i; persist();
+    const rows = LEVELS[i][0]; H0 = rows.length; W0 = Math.max(...rows.map((r) => r.length));
+    walls = new Set(); goals = new Set(); boxes = [];
+    for (let y = 0; y < H0; y++) for (let x = 0; x < W0; x++) {
+      const c = rows[y][x] || ' ';
+      if (c === '#') walls.add(key(x, y));
+      if ('.*+'.includes(c)) goals.add(key(x, y));
+      if ('$*'.includes(c)) boxes.push({ x, y });
+      if ('@+'.includes(c)) pl = { x, y };
+    }
+    // пол — всё, куда можно дойти от грузчика
+    inside = new Set([key(pl.x, pl.y)]); const st = [[pl.x, pl.y]];
+    while (st.length) { const [x, y] = st.pop(); for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const k = key(x + dx, y + dy); if (!walls.has(k) && !inside.has(k) && x + dx >= 0 && y + dy >= 0 && x + dx < W0 && y + dy < H0) { inside.add(k); st.push([x + dx, y + dy]); } } }
+    moves = 0; undo = []; face = 'D'; disp = { ...pl }; boxDisp = boxes.map((b) => ({ ...b })); state = 'play';
+    for (const s of ['start', 'levels', 'pause', 'win']) $(s).hidden = true;
+    $('bar').hidden = false; $('dpad').hidden = !touchUI; resize(); updInfo();
+  }
+  const boxAt = (x, y) => boxes.findIndex((b) => b.x === x && b.y === y);
+  const DIRS = { U: [0, -1], D: [0, 1], L: [-1, 0], R: [1, 0] };
+  function step(d) {
+    if (state !== 'play') return;
+    const [dx, dy] = DIRS[d]; face = d;
+    const nx = pl.x + dx, ny = pl.y + dy;
+    if (walls.has(key(nx, ny))) { bump = { d, t: 0.15 }; sound('bump'); return; }
+    const bi = boxAt(nx, ny);
+    if (bi >= 0) {
+      const tx = nx + dx, ty = ny + dy;
+      if (walls.has(key(tx, ty)) || boxAt(tx, ty) >= 0) { bump = { d, t: 0.15 }; sound('bump'); return; }
+      undo.push({ pl: { ...pl }, boxes: boxes.map((b) => ({ ...b })), moves });
+      boxes[bi] = { x: tx, y: ty };
+      sound(goals.has(key(tx, ty)) ? 'goal' : 'push');
+    } else { undo.push({ pl: { ...pl }, boxes: boxes.map((b) => ({ ...b })), moves }); sound('step'); }
+    if (undo.length > 2000) undo.shift();
+    pl = { x: nx, y: ny }; moves++; walkT += 1; updInfo();
+    if (boxes.every((b) => goals.has(key(b.x, b.y)))) win();
+  }
+  function doUndo() { if (state !== 'play' || !undo.length) return; const u = undo.pop(); pl = u.pl; boxes = u.boxes; moves = u.moves; boxDisp = boxes.map((b, i) => boxDisp[i] || { ...b }); sound('undo'); updInfo(); }
+  function restart() { if (state === 'play' || state === 'pause' || state === 'win') load(lvl); }
+  function updInfo() { $('info').textContent = `Уровень ${lvl + 1} · ${moves} ${movesWord(moves)}`; }
+
+  function win() {
+    state = 'won'; winT = 0; sound('win');
+    const prev = save.best[lvl] || 0, better = !prev || moves < prev;
+    if (better) save.best[lvl] = moves;
+    save.skipped = save.skipped.filter((i) => i !== lvl);
+    persist();
+    lb.submit({ new_score: totalScore(), new_levels: solved() });
+    setTimeout(() => {
+      if (state !== 'won') return;
+      state = 'win';
+      const st = starsFor(lvl, moves), pts = points(lvl, moves);
+      $('winTitle').textContent = `Уровень ${lvl + 1} пройден!`;
+      $('winStars').innerHTML = '★'.repeat(st) + '<i>' + '★'.repeat(3 - st) + '</i>';
+      $('winPts').textContent = `${pts} ${pointsWord(pts)}`;
+      $('winText').innerHTML = `${moves} ${movesWord(moves)}` + (moves <= par(lvl) ? ' — <span class="new">самое короткое решение!</span>' : ` · можно за ${par(lvl)}`) + (better && prev ? '<br><span class="new">Лучше прошлого раза!</span>' : '');
+      $('doneWin').textContent = solved(); $('scoreWin').textContent = totalScore();
+      $('next').hidden = lvl >= N - 1; $('next').textContent = 'Следующий уровень ↗';
+      if (lvl >= N - 1) $('winText').innerHTML += '<br>Это был последний уровень. Ты настоящий грузчик!';
+      $('bar').hidden = true; $('dpad').hidden = true; $('win').hidden = false;
+    }, 700);
+  }
+  function openPause() {
+    if (state !== 'play') return; state = 'pause';
+    $('pauseTitle').textContent = `Уровень ${lvl + 1} из ${N}`;
+    $('pauseText').textContent = save.best[lvl] ? `Твой рекорд — ${save.best[lvl]} ${movesWord(save.best[lvl])}, самое короткое решение — ${par(lvl)}.` : `Этот уровень можно решить за ${par(lvl)} ${movesWord(par(lvl))}.`;
+    if (lvl < N - 1 && !unlocked(lvl + 1)) skip.show(); else skip.hide();
+    $('bar').hidden = true; $('dpad').hidden = true; $('pause').hidden = false;
+  }
+  function resume() { if (state !== 'pause') return; state = 'play'; $('pause').hidden = true; $('bar').hidden = false; $('dpad').hidden = !touchUI; }
+  const skip = FreasyRewards.offer({ host: '#pause .box', before: '#pauseRestart', name: 'gruzchik-skip', label: '🎬 Открыть следующий уровень за рекламу', onReward: () => {
+    if (!save.skipped.includes(lvl)) save.skipped.push(lvl); persist(); load(lvl + 1);
+  } });
+  let levelsFrom = 'start';
+  function showLevels() {
+    levelsFrom = state;
+    for (const s of ['start', 'pause', 'win']) $(s).hidden = true;
+    $('bar').hidden = true; $('dpad').hidden = true;
+    $('grid').innerHTML = LEVELS.map((_, i) => {
+      const m = save.best[i], st = m ? starsFor(i, m) : 0;
+      return `<button type="button" data-i="${i}" ${unlocked(i) ? '' : 'disabled'} class="${i === save.cur ? 'cur' : ''}">${unlocked(i) ? i + 1 : '🔒'}<small>${m ? '★'.repeat(st) + '☆'.repeat(3 - st) : save.skipped.includes(i) ? 'пропущен' : '&nbsp;'}</small></button>`;
+    }).join('');
+    $('levels').hidden = false; state = 'levels';
+  }
+  $('grid').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b && !b.disabled) { unlockAudio(); load(+b.dataset.i); } });
+  function showStart() {
+    $('doneStart').textContent = solved(); $('scoreStart').textContent = totalScore();
+    for (const s of ['levels', 'pause', 'win']) $(s).hidden = true; $('bar').hidden = true; $('dpad').hidden = true;
+    $('start').hidden = false; state = 'start';
+  }
+  function firstOpen() { let i = 0; while (i < N - 1 && (save.best[i] > 0 || save.skipped.includes(i))) i++; return i; }
+
+  // ---------- 3D ----------
+  // Логика уровня та же, что в 2D; сцена строится заново на каждый уровень.
+  const ov = document.getElementById('ov'), octx = ov.getContext('2d');
+  let W = 0, H = 0, DPR = 1, T = 48, time = 0;
+  const touchUI = matchMedia('(pointer: coarse)').matches;
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); } catch (e) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="screen"><div class="box"><h1><span>3D</span> не запускается</h1><p>Браузер не поддерживает WebGL. Сыграй в обычного Грузчика.</p><a class="play" style="display:block;text-decoration:none" href="../../gruzchik/">Грузчик ↗</a></div></div>');
+    throw e;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const scene = new THREE.Scene(); scene.background = new THREE.Color('#1b1712'); scene.fog = new THREE.Fog('#1b1712', 30, 60);
+  const camera = new THREE.PerspectiveCamera(38, 1, 0.3, 200);
+  scene.add(new THREE.HemisphereLight('#fff2dc', '#3a2c1c', 0.6));
+  const sun = new THREE.DirectionalLight('#fff0d0', 0.8); sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024); scene.add(sun); scene.add(sun.target);
+  const lamp = new THREE.PointLight('#ffcf80', 0.25, 0); scene.add(lamp);
+  const tex = (w, h, paint) => { const c = document.createElement('canvas'); c.width = w; c.height = h; paint(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.anisotropy = 4; return t; };
+  const floorTex = tex(128, 128, (g) => { g.fillStyle = '#ad8e68'; g.fillRect(0, 0, 128, 128); for (let i = 0; i < 4; i++) { g.fillStyle = i % 2 ? '#b39470' : '#a98a63'; g.fillRect(0, i * 32, 128, 31); g.fillStyle = '#00000022'; g.fillRect(0, i * 32 + 31, 128, 2); g.fillRect((i % 2 ? 40 : 90), i * 32, 2, 32); } for (let i = 0; i < 60; i++) { g.fillStyle = '#00000010'; g.fillRect(Math.random() * 128, Math.random() * 128, 6, 1); } });
+  const brickTex = tex(128, 128, (g) => { g.fillStyle = '#4a3c2e'; g.fillRect(0, 0, 128, 128); for (let r = 0; r < 6; r++) { const off = r % 2 ? 21 : 0; for (let c = -1; c < 4; c++) { g.fillStyle = ['#7a6450', '#6f5a47', '#856c55'][(r + c + 3) % 3]; g.fillRect(c * 43 + off + 2, r * 21.3 + 2, 39, 17); } } });
+  const crateTex = (on) => tex(128, 128, (g) => { g.fillStyle = on ? '#6fbf5a' : '#c98b4c'; g.fillRect(0, 0, 128, 128); g.strokeStyle = on ? '#3d7f2e' : '#8a5a2b'; g.lineWidth = 12; g.strokeRect(10, 10, 108, 108); g.lineWidth = 10; g.beginPath(); g.moveTo(14, 14); g.lineTo(114, 114); g.moveTo(114, 14); g.lineTo(14, 114); g.stroke(); g.fillStyle = '#ffffff18'; g.fillRect(0, 0, 128, 6); });
+  const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.85 }), wallMat = new THREE.MeshStandardMaterial({ map: brickTex, roughness: 0.9 }), wallTop = new THREE.MeshStandardMaterial({ color: '#3a2e22', roughness: 0.9 });
+  const boxMat = new THREE.MeshStandardMaterial({ map: crateTex(false), roughness: 0.7 }), boxOnMat = new THREE.MeshStandardMaterial({ map: crateTex(true), roughness: 0.6, emissive: '#2a6a1a', emissiveIntensity: 0.25 });
+  const goalMat = new THREE.MeshStandardMaterial({ color: '#f2b544', emissive: '#f2a020', emissiveIntensity: 0.7 });
+  const levelGroup = new THREE.Group(); scene.add(levelGroup);
+  const V = (x, y, h = 0) => new THREE.Vector3(x - W0 / 2 + 0.5, h, y - H0 / 2 + 0.5);
+  const tileGeo = new THREE.BoxGeometry(1, 0.2, 1), wallGeo = new THREE.BoxGeometry(1, 0.62, 1), boxGeo = new THREE.BoxGeometry(0.84, 0.84, 0.84), goalGeo = new THREE.TorusGeometry(0.3, 0.045, 8, 32);
+  let goalMeshes = [], boxMeshes = [], builtFor = -1;
+  function build() {
+    while (levelGroup.children.length) levelGroup.remove(levelGroup.children[0]);
+    goalMeshes = []; boxMeshes = [];
+    for (const k of inside) { const x = k % 100, y = Math.floor(k / 100), m = new THREE.Mesh(tileGeo, floorMat); m.position.copy(V(x, y, -0.1)); m.receiveShadow = true; levelGroup.add(m); }
+    for (const k of walls) {
+      const x = k % 100, y = Math.floor(k / 100); let near = false;
+      for (let a = -1; a <= 1 && !near; a++) for (let b = -1; b <= 1; b++) if (inside.has(key(x + a, y + b))) { near = true; break; }
+      if (!near) continue;
+      const m = new THREE.Mesh(wallGeo, [wallMat, wallMat, wallTop, wallMat, wallMat, wallMat]); m.position.copy(V(x, y, 0.31)); m.castShadow = m.receiveShadow = true; levelGroup.add(m);
+    }
+    for (const k of goals) { const x = k % 100, y = Math.floor(k / 100), m = new THREE.Mesh(goalGeo, goalMat); m.rotation.x = -Math.PI / 2; m.position.copy(V(x, y, 0.02)); levelGroup.add(m); goalMeshes.push(m); }
+    boxes.forEach(() => { const m = new THREE.Mesh(boxGeo, boxMat); m.castShadow = m.receiveShadow = true; levelGroup.add(m); boxMeshes.push(m); });
+    levelGroup.add(worker);
+    builtFor = lvl + ':' + boxes.length + ':' + inside.size;
+    fitCamera();
+  }
+  // грузчик: комбинезон, каска, руки тянутся вперёд
+  const worker = new THREE.Group();
+  const wm = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.6 });
+  const part = (w, h, d, mat, x, y, z, parent = worker) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); o.position.set(x, y, z); o.castShadow = true; parent.add(o); return o; };
+  const legL = new THREE.Group(), legR = new THREE.Group(); legL.position.set(-0.1, 0.34, 0); legR.position.set(0.1, 0.34, 0); worker.add(legL, legR);
+  part(0.14, 0.32, 0.16, wm('#2f3b63'), 0, -0.16, 0, legL); part(0.14, 0.32, 0.16, wm('#2f3b63'), 0, -0.16, 0, legR);
+  part(0.42, 0.38, 0.26, wm('#ff8a2a'), 0, 0.52, 0); part(0.32, 0.16, 0.28, wm('#3a5ba8'), 0, 0.42, 0);
+  const armL = part(0.1, 0.3, 0.1, wm('#ff8a2a'), -0.26, 0.55, -0.08), armR = part(0.1, 0.3, 0.1, wm('#ff8a2a'), 0.26, 0.55, -0.08);
+  armL.rotation.x = armR.rotation.x = 0.9;
+  part(0.3, 0.3, 0.3, wm('#f2c79b'), 0, 0.88, 0);
+  part(0.36, 0.12, 0.36, wm('#f2c230'), 0, 1.06, 0); part(0.4, 0.03, 0.42, wm('#f2c230'), 0, 1.0, -0.03);
+  for (const s of [-1, 1]) part(0.05, 0.05, 0.02, wm('#2a1d10'), s * 0.07, 0.9, -0.155);
+  const FACE_Y = { U: 0, D: Math.PI, L: Math.PI / 2, R: -Math.PI / 2 };
+  // конфетти
+  const MAXP = 300, pGeo = new THREE.BufferGeometry(), pPos = new Float32Array(MAXP * 3), pCol = new Float32Array(MAXP * 3);
+  pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3)); pGeo.setAttribute('color', new THREE.BufferAttribute(pCol, 3));
+  const ptsM = new THREE.Points(pGeo, new THREE.PointsMaterial({ size: 0.12, vertexColors: true, transparent: true })); ptsM.frustumCulled = false; scene.add(ptsM);
+  const conf = []; const tmpC = new THREE.Color();
+
+  const camDir = new THREE.Vector3();
+  function fitCamera() {
+    if (!W0) return;
+    const A = W / Math.max(1, H), tilt = (A < 0.85 ? 66 : 60) * Math.PI / 180;
+    camDir.set(0, Math.sin(tilt), Math.cos(tilt));
+    camera.aspect = A; camera.updateProjectionMatrix(); camera.clearViewOffset();
+    const corners = [V(-0.5, -0.5, 1), V(W0 - 0.5, -0.5, 1), V(-0.5, H0 - 0.5, 1), V(W0 - 0.5, H0 - 0.5, 1)];
+    const topLimit = 1 - 2 * Math.min(0.3, 120 / H), bottomLimit = -1 + 2 * Math.min(0.35, (touchUI ? 150 : 20) / H);
+    let lo = 2, hi = 200;
+    for (let i = 0; i < 30; i++) {
+      const d = (lo + hi) / 2; camera.position.copy(camDir).multiplyScalar(d); camera.lookAt(0, 0, 0); camera.updateMatrixWorld();
+      const ok = corners.every((c) => { const v = c.clone().project(camera); return Math.abs(v.x) < 0.95 && v.y < topLimit && v.y > bottomLimit; });
+      if (ok) hi = d; else lo = d;
+    }
+    camera.position.copy(camDir).multiplyScalar(hi); camera.lookAt(0, 0, 0); camera.updateMatrixWorld();
+    const ys = corners.map((c) => c.clone().project(camera).y), mid = (Math.max(...ys) + Math.min(...ys)) / 2, want = (topLimit + bottomLimit) / 2;
+    camera.setViewOffset(W, H, 0, (want - mid) / 2 * H, W, H);
+    const span = Math.max(W0, H0);
+    sun.position.set(-span * 0.4, span * 1.2, span * 0.7); sun.target.position.set(0, 0, 0);
+    Object.assign(sun.shadow.camera, { left: -span, right: span, top: span, bottom: -span, near: 0.5, far: span * 4 }); sun.shadow.camera.updateProjectionMatrix();
+    lamp.position.set(0, span * 0.6, span * 0.3);
+  }
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1); W = innerWidth; H = innerHeight;
+    ov.width = Math.round(W * DPR); ov.height = Math.round(H * DPR);
+    renderer.setSize(W, H, false);
+    if (W0 && builtFor !== lvl + ':' + boxes.length + ':' + inside.size) build(); else fitCamera();
+  }
+  function draw(dt) {
+    if (!W0) return;
+    if (builtFor !== lvl + ':' + boxes.length + ':' + inside.size) build();
+    const f = Math.min(1, dt * 18);
+    disp.x += (pl.x - disp.x) * f; disp.y += (pl.y - disp.y) * f;
+    let bx = 0, by = 0; if (bump) { bump.t -= dt; const [dx, dy] = DIRS[bump.d], a = Math.sin(Math.max(0, bump.t) / 0.15 * Math.PI) * 0.12; bx = dx * a; by = dy * a; if (bump.t <= 0) bump = null; }
+    const moving = Math.abs(pl.x - disp.x) + Math.abs(pl.y - disp.y) > 0.02, walk = moving ? walkT % 2 : 0;
+    boxes.forEach((b, i) => {
+      const d = boxDisp[i] || (boxDisp[i] = { ...b }); d.x += (b.x - d.x) * f; d.y += (b.y - d.y) * f;
+      const m = boxMeshes[i]; if (!m) return; const on = goals.has(key(b.x, b.y));
+      m.material = on ? boxOnMat : boxMat; m.position.copy(V(d.x, d.y, 0.42 + (on ? Math.sin(time * 4 + i) * 0.015 : 0)));
+    });
+    goalMeshes.forEach((m, i) => { m.material.emissiveIntensity = 0.5 + Math.sin(time * 3 + i) * 0.25; });
+    worker.position.copy(V(disp.x + bx, disp.y + by, Math.abs(Math.sin(walk * Math.PI)) * 0.05));
+    const want = FACE_Y[face]; let dr = want - worker.rotation.y; dr = Math.atan2(Math.sin(dr), Math.cos(dr)); worker.rotation.y += dr * Math.min(1, dt * 16);
+    legL.rotation.x = Math.sin(walk * Math.PI * 2) * 0.6; legR.rotation.x = -legL.rotation.x;
+    // победа — конфетти над складом
+    if (state === 'won' && winT === 0) for (let i = 0; i < 120; i++) conf.push({ x: (Math.random() - 0.5) * W0 * 0.6, y: 1, z: (Math.random() - 0.5) * H0 * 0.6, vx: (Math.random() - 0.5) * 6, vy: 4 + Math.random() * 5, vz: (Math.random() - 0.5) * 6, life: 1.4, col: ['#f2b544', '#6fbf5a', '#ff8a2a', '#9ad0ff'][i % 4] });
+    if (state === 'won') winT += dt;
+    let n = 0;
+    for (const q of conf) { q.x += q.vx * dt; q.y += q.vy * dt; q.z += q.vz * dt; q.vy -= 9 * dt; q.life -= dt; if (q.life > 0 && n < MAXP) { pPos[n * 3] = q.x; pPos[n * 3 + 1] = q.y; pPos[n * 3 + 2] = q.z; tmpC.set(q.col); pCol[n * 3] = tmpC.r; pCol[n * 3 + 1] = tmpC.g; pCol[n * 3 + 2] = tmpC.b; n++; } }
+    for (let i = conf.length - 1; i >= 0; i--) if (conf[i].life <= 0) conf.splice(i, 1);
+    pGeo.setDrawRange(0, n); pGeo.attributes.position.needsUpdate = true; pGeo.attributes.color.needsUpdate = true;
+    renderer.render(scene, camera);
+    octx.setTransform(DPR, 0, 0, DPR, 0, 0); octx.clearRect(0, 0, W, H);
+  }
+
+  // ---------- звук ----------
+  let ac = null;
+  function unlockAudio() { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (ac && ac.state === 'suspended') ac.resume(); }
+  function tone(freq, dur, type = 'sine', vol = 0.12, slide = 0) {
+    if (muted || !ac) return; const t = ac.currentTime, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t); if (slide) o.frequency.exponentialRampToValueAtTime(freq * slide, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur); o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur);
+  }
+  function sound(k) {
+    { const t = ({ bump: 'nope', goal: 'coin', win: 'level', undo: 'whoosh' })[k]; if (t && window.FX) FX.on(t, undefined); }
+    if (k === 'step') tone(220, 0.05, 'triangle', 0.05);
+    else if (k === 'push') tone(110, 0.12, 'sawtooth', 0.06, 0.7);
+    else if (k === 'goal') { tone(523, 0.12, 'triangle', 0.1); setTimeout(() => tone(784, 0.16, 'triangle', 0.1), 70); }
+    else if (k === 'bump') tone(80, 0.08, 'square', 0.05);
+    else if (k === 'undo') tone(330, 0.07, 'sine', 0.06, 0.6);
+    else if (k === 'win') [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => tone(f, 0.25, 'triangle', 0.11), i * 110));
+  }
+
+  // ---------- таблица лидеров ----------
+  const lb = FreasyLeaderboard({
+    key: 'gruzchik',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Сумма очков за все пройденные уровни: чем короче решения, тем больше.', format: (v) => `${v} ${pointsWord(v)}` },
+      { id: 'levels', title: 'Уровни', column: 'best_levels', order: 'desc', note: 'Сколько уровней пройдено из 20.', format: (v) => `${v} из ${N}` },
+    ],
+    bests: () => null,
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  // ---------- управление ----------
+  const KEYS = { ArrowUp: 'U', KeyW: 'U', ArrowDown: 'D', KeyS: 'D', ArrowLeft: 'L', KeyA: 'L', ArrowRight: 'R', KeyD: 'R' };
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.target.closest && e.target.closest('input, textarea')) return;
+    if (state === 'play') {
+      if (KEYS[e.code]) { e.preventDefault(); unlockAudio(); step(KEYS[e.code]); return; }
+      if (e.code === 'KeyZ' || e.code === 'Backspace' || e.code === 'KeyU') { e.preventDefault(); doUndo(); return; }
+      if (e.code === 'KeyR') { restart(); return; }
+      if (e.code === 'Escape' || e.code === 'KeyP') { openPause(); return; }
+    } else if (state === 'pause' && e.code === 'Escape') resume();
+    else if (state === 'win' && (e.code === 'Enter' || e.code === 'Space')) { e.preventDefault(); if (lvl < N - 1) load(lvl + 1); else showLevels(); }
+    else if (state === 'start' && (e.code === 'Enter' || e.code === 'Space') && !(e.target.closest && e.target.closest('button'))) { e.preventDefault(); unlockAudio(); load(firstOpen()); }
+  });
+  // свайпы по полю
+  let sw = null;
+  cv.addEventListener('pointerdown', (e) => { unlockAudio(); sw = { x: e.clientX, y: e.clientY, id: e.pointerId }; });
+  cv.addEventListener('pointermove', (e) => {
+    if (!sw || sw.id !== e.pointerId) return; const dx = e.clientX - sw.x, dy = e.clientY - sw.y, lim = Math.max(26, T * 0.6);
+    if (Math.max(Math.abs(dx), Math.abs(dy)) > lim) { step(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'R' : 'L') : (dy > 0 ? 'D' : 'U')); sw.x = e.clientX; sw.y = e.clientY; }
+  });
+  const swEnd = () => { sw = null; }; cv.addEventListener('pointerup', swEnd); cv.addEventListener('pointercancel', swEnd);
+  // кнопки-стрелки: удержание повторяет шаг
+  document.querySelectorAll('.dpad button').forEach((b) => {
+    let rep = 0;
+    const stop = () => { clearInterval(rep); rep = 0; };
+    b.addEventListener('pointerdown', (e) => { e.preventDefault(); unlockAudio(); step(b.dataset.d); stop(); rep = setInterval(() => step(b.dataset.d), 220); });
+    b.addEventListener('pointerup', stop); b.addEventListener('pointercancel', stop); b.addEventListener('pointerleave', stop);
+  });
+  $('bUndo').addEventListener('click', doUndo);
+  $('bRestart').addEventListener('click', restart);
+  $('bMenu').addEventListener('click', openPause);
+  $('resume').addEventListener('click', resume);
+  $('pauseRestart').addEventListener('click', () => load(lvl));
+  $('pauseLevels').addEventListener('click', showLevels);
+  $('go').addEventListener('click', () => { unlockAudio(); load(firstOpen()); });
+  $('toLevels').addEventListener('click', showLevels);
+  $('levelsBack').addEventListener('click', () => { $('levels').hidden = true; if (levelsFrom === 'pause') { state = 'play'; openPause(); } else showStart(); });
+  $('next').addEventListener('click', () => { if (lvl < N - 1) load(lvl + 1); });
+  $('winRetry').addEventListener('click', () => load(lvl));
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('gruzchik-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; });
+  addEventListener('resize', resize);
+
+  let lastT = 0;
+  function frame(now) { const dt = Math.min(0.05, (now - lastT) / 1000 || 0); lastT = now; time += dt; draw(dt); requestAnimationFrame(frame); }
+  // за стартовым экраном видно текущий уровень
+  load(Math.min(save.cur || 0, N - 1)); state = 'start'; $('bar').hidden = true; $('dpad').hidden = true; showStart();
+  if (new URLSearchParams(location.search).get('test') === '1') window.__gruz = { get: () => ({ state, lvl, moves, pl, boxes, save }), step, doUndo, load, LEVELS };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

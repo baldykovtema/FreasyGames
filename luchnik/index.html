@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/fx.js" data-mute="luchnik-muted"></script>
 <script src="../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#111321">
@@ -171,6 +172,7 @@
   function gameOver() {
     state = 'over'; sound('over');
     const record = score > best;
+    if (record && score) setTimeout(() => FX.record(), 700);
     if (record) { best = score; store.set('luchnik-best', best); }
     if (bulls > bestBulls) { bestBulls = bulls; store.set('luchnik-best-bulls', bestBulls); }
     if (score > 0) lb.submit({ new_score: score, new_bulls: bulls });
@@ -197,6 +199,7 @@
     o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
   }
   function sound(kind, n = 0) {
+    { const t = ({ shoot: 'whoosh', hit: 'hit', bull: 'big', miss: 'nope', over: 'over' })[kind]; if (t && window.FX) FX.on(t, n); }
     if (kind === 'shoot') { tone(900, 0.18, 'sawtooth', 0.05, 0.3); tone(140, 0.08, 'sine', 0.15, 0.6); }
     else if (kind === 'hit') { tone(160, 0.12, 'square', 0.1, 0.6); tone(420, 0.15, 'triangle', 0.1); }
     else if (kind === 'bull') { const f = 523 * Math.pow(2, Math.min(n, 8) / 12); tone(160, 0.12, 'square', 0.1, 0.6); tone(f, 0.2, 'triangle', 0.14, 1, 0.05); tone(f * 1.5, 0.3, 'sine', 0.1, 1, 0.12); }

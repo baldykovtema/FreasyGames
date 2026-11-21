@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/fx.js" data-mute="narezka-muted"></script>
 <script src="../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#111321">
@@ -184,6 +185,7 @@
     state = 'over';
     const seconds = Math.floor(playTime), record = score > best;
     const run = { new_score: score, new_combo: bestRun, new_sliced: sliced, new_time: seconds };
+    if (record && score) setTimeout(() => FX.record(), 700);
     if (record) { best = score; store.set('narezka-best', best); runs.score = run; }
     if (bestRun > bestCombo) { bestCombo = bestRun; store.set('narezka-best-combo', bestCombo); runs.combo = run; }
     store.set('narezka-runs', JSON.stringify(runs));
@@ -224,6 +226,7 @@
     const s = ac.createBufferSource(), gn = ac.createGain(); s.buffer = buf; gn.gain.value = vol; s.connect(gn).connect(ac.destination); s.start();
   }
   function sound(kind, n = 0) {
+    { const t = ({ slice: 'tap', combo: 'combo', miss: 'nope', boom: 'boom' })[kind]; if (t && window.FX) FX.on(t, n); }
     if (kind === 'slice') { noise(0.08, 0.15); tone(700 + Math.min(n, 10) * 60, 0.09, 'triangle', 0.07, 1.6); }
     else if (kind === 'combo') { [0, 4, 7, 12].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.14, 'square', 0.05, 1, i * 0.06)); }
     else if (kind === 'miss') { tone(220, 0.3, 'sawtooth', 0.08, 0.5); }

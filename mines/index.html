@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/fx.js" data-mute="mines-muted"></script>
 <script src="../shared/clips.js?v=1"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#111321">
@@ -161,6 +162,7 @@
     state = 'won'; elapsed = Math.max(1, Math.floor((performance.now() - startedAt) / 1000));
     wins++; store.set('mines-wins', wins);
     const record = !best || elapsed < best;
+    if (record && elapsed) setTimeout(() => FX.record(), 700);
     if (record) { best = elapsed; store.set('mines-best', best); }
     lb.submit({ new_time: elapsed, new_wins: wins });
     for (let y = 0; y < R; y++) for (let x = 0; x < C; x++) if (mines[idx(x, y)] && !flag[idx(x, y)]) { flag[idx(x, y)] = 1; flags++; }
@@ -192,6 +194,7 @@
     o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
   }
   function sound(kind) {
+    { const t = ({ open: 'soft', flag: 'tap', boom: 'boom', win: 'win' })[kind]; if (t && window.FX) FX.on(t, undefined); }
     if (kind === 'open') tone(700 + Math.random() * 200, 0.05, 'triangle', 0.06);
     else if (kind === 'flag') tone(520, 0.08, 'square', 0.05, 1.4);
     else if (kind === 'boom') { tone(120, 0.7, 'sawtooth', 0.15, 0.3); tone(60, 0.6, 'sine', 0.3, 0.5); }
