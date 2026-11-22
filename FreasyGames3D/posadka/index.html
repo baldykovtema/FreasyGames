@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/i18n.js?v=2" data-game="3d-posadka"></script>
+<script src="../../shared/fx.js" data-mute="posadka-muted"></script>
+<script src="../../shared/clips.js?v=1"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0d0f1c">
+<title>Посадка 3D — FreasyGames 3D</title>
+<meta name="description" content="Посадка 3D на FreasyGames: посади объёмную ракету на светящуюся площадку среди гор чужой планеты — медленно, ровно и с запасом топлива.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>
+  #ov { pointer-events: none; }
+  .pad { position: fixed; bottom: max(16px, env(safe-area-inset-bottom)); z-index: 3; display: flex; gap: 10px; }
+  .pad.left { left: 14px; } .pad.right { right: 14px; }
+  .pad button { width: 70px; height: 70px; border-radius: 50%; border: 1px solid #ffffff33; background: #1d1e31cc; color: #f8f7ff; font: 800 26px Manrope, system-ui; touch-action: none; backdrop-filter: blur(6px); }
+  .pad button.on { background: #bca0ff; color: #171225; }
+  .pad[hidden] { display: none; }
+  @media (hover: hover) and (pointer: fine) { .pad { opacity: .75; } }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="ov"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames 3D</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+<div class="pad left" id="padL" hidden><button type="button" data-k="L" aria-label="Наклон влево">⟲</button><button type="button" data-k="R" aria-label="Наклон вправо">⟳</button></div>
+<div class="pad right" id="padR" hidden><button type="button" data-k="T" aria-label="Двигатель">🔥</button></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ 3D</div>
+    <h1>Посадка <span>3D</span></h1>
+    <p>Посади объёмную ракету на светящуюся площадку: медленно и прямо. Двигатель тормозит падение, наклон уводит в сторону.</p>
+    <p>Площадки ×2 и ×3 узкие, но дают больше очков. Каждая планета тяжелее, а топлива меньше. Рекорды общие с обычной Посадкой.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · посадок: <b id="landsStart">0</b></p>
+    <button class="play" id="go" type="button">Старт ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">↑ / W / пробел — двигатель · ← → — наклон · на телефоне кнопки внизу</div>
+  </div>
+</div>
+
+<div class="screen" id="landed" hidden>
+  <div class="box">
+    <div class="eyebrow" id="landedWhy">Мягкая посадка!</div>
+    <div class="big" id="landedPts">+0</div>
+    <p id="landedText"></p>
+    <button class="play" id="next" type="button">Следующая планета ↗</button>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow" id="overWhy">Крушение</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">очков</p>
+    <p>Посадок: <b id="landsOver">0</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · посадок: <b id="bestLandsOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<script src="../../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const cv = document.getElementById('c'), ov = document.getElementById('ov'), ctx = ov.getContext('2d');
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  let best = Number(store.get('posadka-best', 0)) || 0, bestLands = Number(store.get('posadka-best-lands', 0)) || 0;
+  let muted = store.get('posadka-muted', '0') === '1';
+  FX.muted = () => muted;
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const pointsWord = (n) => plural(n, 'очко', 'очка', 'очков');
+
+  // The rules are the 2D Посадка's, in its 1000 × 700 world; the 3D scene only shows it.
+  const WW = 1000, WH = 700, SAFE_V = 42, SAFE_H = 34, SAFE_A = 0.22;
+  let W = 0, H = 0, DPR = 1;
+  let state = 'start', time = 0, lastT = 0, level, ship, ground, pads, fuel, score, lands, playTime, parts = [], shake = 0;
+  const keys = new Set();
+
+  const gravity = () => 38 + level * 6;
+
+  // Ground: a random mountain line with 2–3 flat pads; narrower pads give more points.
+  function newPlanet() {
+    level++;
+    const pts = [], n = 40;
+    let y = WH - 120;
+    for (let i = 0; i <= n; i++) { y = Math.max(WH - 330, Math.min(WH - 30, y + (Math.random() - 0.5) * (90 + level * 10))); pts.push({ x: (i / n) * WW, y }); }
+    pads = [];
+    const kinds = [{ mult: 1, w: 3 }, { mult: 2, w: 2 }, { mult: 3, w: 1 }].slice(0, Math.min(3, 1 + Math.ceil(level / 2)));
+    const used = new Set();
+    for (const kd of kinds) {
+      let i, tries = 0;
+      do { i = 2 + Math.floor(Math.random() * (n - 4 - kd.w)); tries++; } while (tries < 50 && [...Array(kd.w + 3).keys()].some((d) => used.has(i - 1 + d)));
+      for (let d = -1; d <= kd.w + 1; d++) used.add(i + d);
+      const py = pts[i].y;
+      for (let d = 0; d <= kd.w; d++) pts[i + d].y = py;
+      pads.push({ x1: pts[i].x, x2: pts[i + kd.w].x, y: py, mult: kd.mult });
+    }
+    ground = pts;
+    ship = { x: 120 + Math.random() * (WW - 240), y: 60, vx: (Math.random() - 0.5) * 60, vy: 0, a: 0, thrust: 0 };
+    fuel = Math.max(380, 1000 - (level - 1) * 70);
+    state = 'play';
+    buildPlanet();
+  }
+  function groundY(x) {
+    const i = Math.max(0, Math.min(ground.length - 2, Math.floor((x / WW) * (ground.length - 1))));
+    const a = ground[i], b = ground[i + 1], t = (x - a.x) / (b.x - a.x);
+    return a.y + (b.y - a.y) * Math.max(0, Math.min(1, t));
+  }
+
+  function start() {
+    level = 0; score = 0; lands = 0; playTime = 0; chanceUsed = false; chance.hide();
+    $('start').hidden = true; $('over').hidden = true; $('landed').hidden = true;
+    $('padL').hidden = $('padR').hidden = false;
+    unlockAudio(); newPlanet();
+  }
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'posadka3d-retry', label: '🎬 Повторить эту посадку за рекламу', onReward: () => {
+    chanceUsed = true; level--; $('over').hidden = true; $('padL').hidden = $('padR').hidden = false; newPlanet();
+  } });
+
+  function touchDown() {
+    const pad = pads.find((p) => ship.x - 14 >= p.x1 && ship.x + 14 <= p.x2);
+    const soft = Math.abs(ship.vy) <= SAFE_V && Math.abs(ship.vx) <= SAFE_H && Math.abs(ship.a) <= SAFE_A;
+    if (pad && soft) {
+      lands++;
+      const pts = Math.round((100 + Math.floor(fuel / 4)) * pad.mult);
+      score += pts; state = 'landed'; sound('land');
+      const [sx, sy] = screenOf(ship.x, ship.y + 18);
+      FX.on('big', 0, sx, sy); FX.text(sx, sy - 60, `+${pts}`, '#ffd23f', 34); if (pad.mult === 3) FX.confetti(80);
+      $('landedPts').textContent = `+${pts}`;
+      $('landedText').textContent = `Площадка ×${pad.mult} · топлива осталось ${Math.round(fuel)} · планета ${level}`;
+      setTimeout(() => { if (state === 'landed') { $('padL').hidden = $('padR').hidden = true; $('landed').hidden = false; } }, 800);
+    } else crash(!pad ? 'Мимо площадки' : Math.abs(ship.a) > SAFE_A ? 'Слишком наклонно' : 'Слишком быстро');
+  }
+  function crash(why) {
+    state = 'over'; shake = 0.7; sound('crash');
+    const [sx, sy] = screenOf(ship.x, ship.y); FX.explode(sx, sy); FX.over(); FX.sfx('boom');
+    for (let i = 0; i < 40; i++) { const a = Math.random() * 7, v = 60 + Math.random() * 300; parts.push({ x: ship.x, y: ship.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 100, life: 1, color: i % 2 ? '#ffb24d' : '#ff5f5f' }); }
+    const record = score > best;
+    if (record && score) setTimeout(() => FX.record(), 900);
+    if (record) { best = score; store.set('posadka-best', best); }
+    if (lands > bestLands) { bestLands = lands; store.set('posadka-best-lands', bestLands); }
+    lb.submit({ new_score: score, new_lands: lands, new_time: Math.floor(playTime) });
+    setTimeout(() => {
+      if (state !== 'over') return;
+      $('padL').hidden = $('padR').hidden = true;
+      $('overWhy').textContent = why; $('final').textContent = score;
+      $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + pointsWord(score);
+      $('landsOver').textContent = lands; showBests(); $('over').hidden = false;
+      if (!chanceUsed) chance.show();
+    }, 1300);
+  }
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('landsStart').textContent = $('bestLandsOver').textContent = bestLands;
+  }
+
+  function step(dt) {
+    playTime += dt;
+    const rot = (keys.has('L') ? -1 : 0) + (keys.has('R') ? 1 : 0);
+    ship.a = Math.max(-1.3, Math.min(1.3, ship.a + rot * 1.8 * dt));
+    const on = keys.has('T') && fuel > 0;
+    ship.thrust += ((on ? 1 : 0) - ship.thrust) * Math.min(1, dt * 12);
+    if (on) { fuel = Math.max(0, fuel - 60 * dt); }
+    const power = 115 * ship.thrust;
+    ship.vx += Math.sin(ship.a) * power * dt;
+    ship.vy += (gravity() - Math.cos(ship.a) * power) * dt;
+    ship.x += ship.vx * dt; ship.y += ship.vy * dt;
+    if (ship.x < 10) { ship.x = 10; ship.vx = Math.abs(ship.vx) * 0.3; }
+    if (ship.x > WW - 10) { ship.x = WW - 10; ship.vx = -Math.abs(ship.vx) * 0.3; }
+    if (ship.y < -200) ship.y = -200;
+    if (on && Math.random() < 0.8) parts.push({ x: ship.x - Math.sin(ship.a) * 22, y: ship.y + Math.cos(ship.a) * 22, vx: -Math.sin(ship.a) * 160 + (Math.random() - 0.5) * 40, vy: Math.cos(ship.a) * 160 + (Math.random() - 0.5) * 40, life: 0.5, color: Math.random() < 0.5 ? '#ffd23f' : '#ff9a4d' });
+    // dust blown off the ground when the engine works close to it
+    const alt = Math.min(groundY(ship.x - 12), groundY(ship.x + 12)) - (ship.y + 18);
+    if (on && alt < 70 && Math.random() < 0.6) { const gx = ship.x + (Math.random() - 0.5) * 30; parts.push({ x: gx, y: groundY(gx) - 2, vx: (gx < ship.x ? -1 : 1) * (80 + Math.random() * 120), vy: -20 - Math.random() * 40, life: 0.7, color: '#d9cde8' }); }
+    // legs touch the ground
+    const footY = ship.y + 18;
+    if (footY >= groundY(ship.x - 12) || footY >= groundY(ship.x + 12)) { ship.y = Math.min(groundY(ship.x - 12), groundY(ship.x + 12)) - 18; touchDown(); }
+  }
+
+  // ——— Sound ———
+  let ac = null, engine = null;
+  function unlockAudio() {
+    if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} }
+    if (ac && ac.state === 'suspended') ac.resume();
+    if (ac && !engine) {
+      // engine rumble: filtered noise whose volume follows the thrust
+      const len = ac.sampleRate, buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      const src = ac.createBufferSource(); src.buffer = buf; src.loop = true;
+      const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 500;
+      engine = ac.createGain(); engine.gain.value = 0; src.connect(f).connect(engine).connect(ac.destination); src.start();
+    }
+  }
+  function tone(f, dur, type, vol, slide = 1, delay = 0) {
+    if (!ac || muted) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function sound(kind) {
+    if (kind === 'land') [0, 4, 7, 12].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.16, 'triangle', 0.08, 1, i * 0.07));
+    else if (kind === 'crash') { tone(160, 0.8, 'sawtooth', 0.14, 0.3); tone(60, 0.7, 'sine', 0.3, 0.5); }
+  }
+
+  // ——— 3D ———
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); } catch (e) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="screen"><div class="box"><h1><span>3D</span> не запускается</h1><p>Браузер не поддерживает WebGL. Сыграй в обычную Посадку.</p><a class="play" style="text-decoration:none;display:block" href="../../posadka/">Обычная Посадка ↗</a></div></div>');
+    throw e;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const scene = new THREE.Scene(); scene.background = new THREE.Color('#0b0d1c'); scene.fog = new THREE.Fog('#0b0d1c', 40, 110);
+  const camera = new THREE.PerspectiveCamera(42, 1, 0.3, 400);
+  FX.bind3(camera, cv);
+  scene.add(new THREE.HemisphereLight('#cfc2ff', '#1a1230', 0.55));
+  const sun = new THREE.DirectionalLight('#fff0dc', 0.9); sun.position.set(-10, 26, 18); sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 1024); Object.assign(sun.shadow.camera, { left: -16, right: 16, top: 12, bottom: -6, near: 1, far: 80 });
+  scene.add(sun);
+  const U = 40, DZ = 7;
+  const X = (x) => (x - WW / 2) / U, Y = (y) => (WH - y) / U;
+  // stars and a planet in the sky
+  {
+    const g = new THREE.BufferGeometry(), p = [];
+    for (let i = 0; i < 700; i++) { const a = Math.random() * Math.PI - Math.PI / 2, r = 120 + Math.random() * 40; p.push(Math.sin(a) * r * 1.4, 4 + Math.random() * 70, -Math.cos(a) * r * 0.7 - 30); }
+    g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
+    scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: '#e7dcff', size: 0.45, fog: false })));
+  }
+  const planetMat = new THREE.MeshStandardMaterial({ color: '#8f7dff', roughness: 0.9, emissive: '#2a1f5a', emissiveIntensity: 0.6, fog: false });
+  const planet = new THREE.Mesh(new THREE.SphereGeometry(5, 32, 20), planetMat); planet.position.set(22, 26, -70); scene.add(planet);
+  const ringM = new THREE.Mesh(new THREE.RingGeometry(6.5, 8.5, 48), new THREE.MeshBasicMaterial({ color: '#ffd9a0', side: THREE.DoubleSide, transparent: true, opacity: 0.35, fog: false }));
+  ringM.position.copy(planet.position); ringM.rotation.set(1.2, 0.3, 0); scene.add(ringM);
+
+  // the terrain: the ground line pushed back and forth in depth, with gentle bumps behind and in front
+  let terrain = null, backRidge = null;
+  const padMeshes = [];
+  const groundMat = new THREE.MeshStandardMaterial({ color: '#6a5a8a', roughness: 0.95, flatShading: true });
+  const ridgeMat = new THREE.MeshStandardMaterial({ color: '#3a2f58', roughness: 1, flatShading: true }); ridgeMat.side = THREE.DoubleSide;
+  function buildPlanet() {
+    const hue = (250 + level * 67) % 360;
+    groundMat.color.setHSL(hue / 360, 0.3, 0.42); ridgeMat.color.setHSL(hue / 360, 0.32, 0.24);
+    planetMat.color.setHSL(((hue + 140) % 360) / 360, 0.6, 0.6);
+    if (terrain) { scene.remove(terrain); terrain.geometry.dispose(); }
+    if (backRidge) { scene.remove(backRidge); backRidge.traverse((o) => o.geometry && o.geometry.dispose()); }
+    // rows along z: front edge, the play line (z = 0), and back rows that rise a bit
+    const zs = [DZ, 3, 1, 0, -1, -3, -DZ, -DZ - 6];
+    const xs = ground.length + 40, pos = [], idx = [];
+    const yAt = (i, z) => {
+      const p = ground[Math.max(0, Math.min(ground.length - 1, i))];
+      const ext = i < 0 ? -i : i >= ground.length ? i - ground.length + 1 : 0;
+      const base = Y(p.y) + ext * 0.2;
+      if (Math.abs(z) <= 1) return base;
+      // the profile goes straight back in depth with small rocks, a little lower towards the edges,
+      // so the silhouette is always the ground line the rocket lands on
+      const bump = (Math.sin(i * 1.7 + z * 0.9) * 0.5 + Math.cos(i * 0.6 - z) * 0.5) * 0.18;
+      return base + bump - Math.max(0, Math.abs(z) - 3) * 0.12;
+    };
+    for (let zi = 0; zi < zs.length; zi++) for (let k = 0; k < xs; k++) {
+      const i = k - 20, x = i < 0 ? i * WW / 40 : i >= ground.length ? WW + (i - ground.length + 1) * WW / 40 : ground[i].x;
+      pos.push(X(x), yAt(i, zs[zi]), zs[zi]);
+    }
+    for (let zi = 0; zi < zs.length - 1; zi++) for (let k = 0; k < xs - 1; k++) {
+      const a = zi * xs + k, b = a + 1, c = a + xs, d = c + 1;
+      idx.push(a, b, c, b, d, c);
+    }
+    // the front wall down to the bottom
+    const base = pos.length / 3;
+    for (let k = 0; k < xs; k++) { pos.push(pos[k * 3], pos[k * 3 + 1], DZ); pos.push(pos[k * 3], -8, DZ); }
+    for (let k = 0; k < xs - 1; k++) { const a = base + k * 2, b = a + 1, c = a + 2, d = a + 3; idx.push(a, b, c, c, b, d); }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+    terrain = new THREE.Mesh(g, groundMat); terrain.receiveShadow = true; scene.add(terrain);
+    // a far plain with a ring of lonely mountains
+    backRidge = new THREE.Group();
+    const plain = new THREE.Mesh(new THREE.PlaneGeometry(400, 180), ridgeMat); plain.rotation.x = -Math.PI / 2; plain.position.set(0, 0.2, -80); backRidge.add(plain);
+    for (let k = 0; k < 22; k++) {
+      const h = 5 + Math.random() * 12, m = new THREE.Mesh(new THREE.ConeGeometry(4 + Math.random() * 6, h, 6), ridgeMat);
+      m.position.set(-90 + k * 180 / 21 + (Math.random() - 0.5) * 6, 1.2 + h / 2, -28 - Math.random() * 40); m.rotation.y = Math.random() * 3; backRidge.add(m);
+    }
+    scene.add(backRidge);
+    // pads
+    for (const m of padMeshes) scene.remove(m.grp); padMeshes.length = 0;
+    for (const p of pads) {
+      const col = p.mult === 3 ? '#ffd23f' : p.mult === 2 ? '#6fe3ff' : '#5df2a5';
+      const grp = new THREE.Group();
+      const slab = new THREE.Mesh(new THREE.BoxGeometry((p.x2 - p.x1) / U, 0.16, 2.6), new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: 0.55, roughness: 0.4 }));
+      slab.receiveShadow = true; grp.add(slab);
+      const lamps = [];
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+        const l = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), new THREE.MeshBasicMaterial({ color: col }));
+        l.position.set(sx * (p.x2 - p.x1) / U / 2, 0.15, sz * 1.2); grp.add(l); lamps.push(l);
+      }
+      const light = new THREE.PointLight(col, 0.8, 6); light.position.y = 1; grp.add(light);
+      grp.position.set(X((p.x1 + p.x2) / 2), Y(p.y) + 0.06, 0);
+      scene.add(grp); padMeshes.push({ grp, lamps, p, col });
+    }
+  }
+
+  // the rocket: a lilac body, a nose cone, a window, fins, legs and a flame with its own light
+  const rocket = new THREE.Group(); scene.add(rocket);
+  const S = 1 / U;
+  {
+    const bodyMat = new THREE.MeshStandardMaterial({ color: '#b9a3ff', roughness: 0.35, metalness: 0.25 });
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(10 * S, 11 * S, 26 * S, 20), bodyMat); body.position.y = 1 * S; body.castShadow = true; rocket.add(body);
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(10 * S, 14 * S, 20), new THREE.MeshStandardMaterial({ color: '#7b67fc', roughness: 0.35, metalness: 0.3 })); nose.position.y = 21 * S; nose.castShadow = true; rocket.add(nose);
+    const win = new THREE.Mesh(new THREE.SphereGeometry(4.5 * S, 16, 12), new THREE.MeshStandardMaterial({ color: '#6fe3ff', emissive: '#2a8fb0', emissiveIntensity: 0.6, roughness: 0.1 })); win.position.set(0, 4 * S, 9 * S); rocket.add(win);
+    const legMat = new THREE.MeshStandardMaterial({ color: '#c9c5dc', roughness: 0.5, metalness: 0.5 });
+    for (const a of [0, Math.PI / 2, Math.PI, Math.PI * 1.5]) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(1.2 * S, 1.2 * S, 14 * S, 6), legMat);
+      leg.position.set(Math.sin(a) * 12 * S, -11 * S, Math.cos(a) * 12 * S); leg.rotation.set(Math.cos(a) * 0.5, 0, -Math.sin(a) * 0.5); leg.castShadow = true; rocket.add(leg);
+      const foot = new THREE.Mesh(new THREE.CylinderGeometry(2.6 * S, 2.6 * S, 1.2 * S, 10), legMat); foot.position.set(Math.sin(a) * 15 * S, -17.5 * S, Math.cos(a) * 15 * S); rocket.add(foot);
+      const fin = new THREE.Mesh(new THREE.BoxGeometry(1.2 * S, 9 * S, 7 * S), new THREE.MeshStandardMaterial({ color: '#ff5f7a', roughness: 0.4 }));
+      fin.position.set(Math.sin(a) * 10.5 * S, -7 * S, Math.cos(a) * 10.5 * S); fin.rotation.y = a; rocket.add(fin);
+    }
+  }
+  const flame = new THREE.Mesh(new THREE.ConeGeometry(6 * S, 26 * S, 14, 1, true), new THREE.MeshBasicMaterial({ color: '#ffd23f', transparent: true, opacity: 0.9 }));
+  flame.rotation.x = Math.PI; rocket.add(flame);
+  const flameCore = new THREE.Mesh(new THREE.ConeGeometry(3 * S, 16 * S, 10, 1, true), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.9 }));
+  flameCore.rotation.x = Math.PI; rocket.add(flameCore);
+  const flameLight = new THREE.PointLight('#ffb24d', 0, 9); flameLight.position.y = -20 * S; rocket.add(flameLight);
+  // a ring under the rocket shows where it will land
+  const marker = new THREE.Mesh(new THREE.RingGeometry(14 * S, 17 * S, 28), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.4, side: THREE.DoubleSide }));
+  marker.rotation.x = -Math.PI / 2; scene.add(marker);
+
+  const camPos = new THREE.Vector3(0, 8, 30), camLook = new THREE.Vector3(0, 6, 0);
+  function placeCamera(dt) {
+    const a = W / Math.max(1, H);
+    camera.aspect = a; camera.updateProjectionMatrix();
+    // overview: the whole 25 × 17.5 world fits; close to the ground the camera comes nearer to the rocket
+    const tanH = Math.tan(camera.fov * Math.PI / 360);
+    const dFit = Math.max((WH / U / 2 + 1) / tanH, (WW / U / 2 + 1) / (tanH * a));
+    let lx = 0, ly = WH / U / 2 - 0.5, d = dFit;
+    if (ship && (state === 'play' || state === 'landed')) {
+      const alt = Math.min(groundY(ship.x - 12), groundY(ship.x + 12)) - (ship.y + 18);
+      const zoom = Math.max(0, Math.min(1, 1 - alt / 180)) * 0.45;
+      lx = X(ship.x) * zoom; ly = ly + (Y(ship.y) - ly) * zoom; d = dFit * (1 - zoom * 0.7);
+    }
+    const sh = shake > 0 ? (Math.random() - 0.5) * 0.6 * shake : 0;
+    const k = Math.min(1, dt * 2.5);
+    camLook.x += (lx - camLook.x) * k; camLook.y += (ly - camLook.y) * k;
+    camPos.x += (lx * 0.85 - camPos.x) * k; camPos.y += (ly + d * 0.22 - camPos.y) * k; camPos.z += (d - camPos.z) * k;
+    camera.position.set(camPos.x + sh, camPos.y + sh, camPos.z); camera.lookAt(camLook);
+  }
+  function screenOf(x, y, z = 0) { const v = new THREE.Vector3(X(x), Y(y), z).project(camera); return [(v.x + 1) / 2 * W, (1 - v.y) / 2 * H]; }
+
+  function draw(dt) {
+    placeCamera(dt);
+    const visible = state !== 'over' && ship;
+    rocket.visible = !!visible; marker.visible = !!visible && state === 'play';
+    if (visible) {
+      rocket.position.set(X(ship.x), Y(ship.y), 0); rocket.rotation.z = -ship.a; rocket.rotation.y = Math.sin(time * 0.7) * 0.25;
+      const t = ship.thrust, fl = t * (0.85 + Math.random() * 0.3);
+      flame.visible = flameCore.visible = t > 0.05;
+      flame.scale.set(1, fl, 1); flame.position.y = (-18 - 13 * fl) * S; flameCore.scale.set(1, fl, 1); flameCore.position.y = (-18 - 8 * fl) * S;
+      flameLight.intensity = t * 2.2;
+      const gy = Math.min(groundY(ship.x - 12), groundY(ship.x + 12));
+      marker.position.set(X(ship.x), Y(gy) + 0.05, 0);
+      const okPad = pads.some((p) => ship.x - 14 >= p.x1 && ship.x + 14 <= p.x2);
+      marker.material.color.set(okPad ? '#5df2a5' : '#ff7a8a'); marker.material.opacity = 0.25 + 0.25 * Math.sin(time * 6) ** 2;
+    }
+    for (const m of padMeshes) for (const l of m.lamps) l.material.color.set(Math.sin(time * 4) > 0 ? m.col : '#333');
+    planet.rotation.y += dt * 0.1;
+    renderer.render(scene, camera);
+    // particles and HUD on the 2D layer
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.clearRect(0, 0, W, H);
+    for (const q of parts) { const [sx, sy] = screenOf(q.x, q.y); ctx.globalAlpha = Math.max(0, q.life * 1.6); ctx.fillStyle = q.color; ctx.beginPath(); ctx.arc(sx, sy, 2 + q.life * 4, 0, 7); ctx.fill(); }
+    ctx.globalAlpha = 1;
+    for (const m of padMeshes) {
+      const [sx, sy] = screenOf((m.p.x1 + m.p.x2) / 2, m.p.y, 1.6);
+      ctx.font = '800 14px Manrope, system-ui'; ctx.textAlign = 'center'; ctx.fillStyle = m.col; ctx.fillText(`×${m.p.mult}`, sx, sy + 22);
+    }
+    if (state !== 'start') {
+      const bx = 16, by = 64, bw = Math.min(200, W * 0.4);
+      ctx.fillStyle = '#ffffff1a'; ctx.fillRect(bx, by, bw, 8);
+      ctx.fillStyle = fuel > 200 ? '#ffd23f' : '#ff7a8a'; ctx.fillRect(bx, by, bw * fuel / 1000, 8);
+      ctx.font = '800 13px Manrope, system-ui'; ctx.textAlign = 'left';
+      const ok = (v, lim) => (Math.abs(v) <= lim ? '#5df2a5' : '#ff7a8a');
+      ctx.fillStyle = '#f8f7ff'; ctx.fillText(`⛽ ${Math.round(fuel)}   Планета ${level}   ★ ${score}`, bx, by + 26);
+      ctx.fillStyle = ok(ship.vy, SAFE_V); ctx.fillText(`↓ ${Math.round(ship.vy)}`, bx, by + 46);
+      ctx.fillStyle = ok(ship.vx, SAFE_H); ctx.fillText(`↔ ${Math.round(ship.vx)}`, bx + 70, by + 46);
+      ctx.fillStyle = ok(ship.a, SAFE_A); ctx.fillText(`∠ ${Math.round(ship.a * 57)}°`, bx + 140, by + 46);
+    }
+  }
+
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    ov.width = Math.round(W * DPR); ov.height = Math.round(H * DPR);
+    renderer.setSize(W, H, false);
+  }
+
+  function frame(now) {
+    const dt = Math.min(0.05, (now - lastT) / 1000 || 0); lastT = now; time += dt;
+    if (state === 'play' && !lb.isOpen()) step(dt);
+    if (state === 'start') { ship.y = 200 + Math.sin(time * 0.8) * 40; ship.x = 500 + Math.sin(time * 0.3) * 200; ship.a = Math.sin(time * 0.6) * 0.15; ship.thrust = 0.6 + Math.sin(time * 3) * 0.2; }
+    for (const q of parts) { q.x += q.vx * dt; q.y += q.vy * dt; q.vy += 120 * dt; q.life -= dt * 1.2; }
+    parts = parts.filter((q) => q.life > 0); shake = Math.max(0, shake - dt);
+    if (engine) engine.gain.value = muted || state !== 'play' ? 0 : ship.thrust * 0.25;
+    draw(dt);
+    requestAnimationFrame(frame);
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'posadka',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за один полёт. Общая с обычной Посадкой.', format: (v) => `${v} ${pointsWord(v)}` },
+      { id: 'lands', title: 'Посадки', column: 'best_lands', order: 'desc', note: 'Больше всего мягких посадок подряд.', format: (v) => `${v}` },
+    ],
+    bests: () => null,
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  const KEYS = { ArrowLeft: 'L', KeyA: 'L', ArrowRight: 'R', KeyD: 'R', ArrowUp: 'T', KeyW: 'T', Space: 'T' };
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.target.closest && e.target.closest('.box button, a')) return;
+    if (!$('landed').hidden && (e.code === 'Space' || e.code === 'Enter')) { e.preventDefault(); next(); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && state !== 'play' && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); return; }
+    if (KEYS[e.code]) { e.preventDefault(); unlockAudio(); keys.add(KEYS[e.code]); }
+  });
+  addEventListener('keyup', (e) => { if (KEYS[e.code]) keys.delete(KEYS[e.code]); });
+  // On-screen buttons: held while the finger is on them.
+  document.querySelectorAll('.pad button').forEach((b) => {
+    const k2 = b.dataset.k;
+    b.addEventListener('pointerdown', (e) => { e.preventDefault(); unlockAudio(); b.setPointerCapture(e.pointerId); keys.add(k2); b.classList.add('on'); });
+    const up = () => { keys.delete(k2); b.classList.remove('on'); };
+    b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('lostpointercapture', up);
+  });
+  function next() { $('landed').hidden = true; $('padL').hidden = $('padR').hidden = false; keys.clear(); newPlanet(); }
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  $('next').addEventListener('click', next);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('posadka-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+  document.addEventListener('visibilitychange', () => { lastT = performance.now(); keys.clear(); });
+  addEventListener('resize', resize);
+  resize(); level = 0; score = 0; lands = 0; newPlanet(); state = 'start'; showBests();
+  // #preview: a descent in progress, for the catalog.
+  if (location.hash === '#preview') {
+    $('start').hidden = true; state = 'play'; level = 3; score = 640; lands = 3; fuel = 540;
+    const p = pads[pads.length - 1]; ship.x = (p.x1 + p.x2) / 2; ship.y = p.y - 110; ship.vy = 22; ship.vx = 4; ship.a = -0.08; ship.thrust = 1;
+    step = () => { ship.thrust = 0.85 + Math.random() * 0.15; };
+  }
+  // For automated checks only (?test=1).
+  if (new URLSearchParams(location.search).get('test') === '1') window.__posadka = { get: () => ({ state, ship, pads, fuel, score, lands, level, g: gravity() }), keys };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

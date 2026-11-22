@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../shared/session.js?v=2"></script>
+<script src="../shared/i18n.js?v=2" data-game="pchelka"></script>
+<script src="../shared/fx.js" data-mute="pchelka-muted"></script>
+<script src="../shared/clips.js?v=1"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Пчёлка — FreasyGames</title>
+<meta name="description" content="Пчёлка на FreasyGames: касайся экрана, чтобы пчела взмахнула крыльями, пролетай между стеблями цветов, собирай пыльцу и уворачивайся от ос.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">🐝 Новая игра</div>
+    <h1><span>Пчёлка</span></h1>
+    <p>Каждое касание — взмах крыльев. Пролетай между стеблями цветов и не задевай их, землю и небо.</p>
+    <p>Золотая пыльца — в отдельную таблицу. Чем дальше, тем уже проходы, а между цветами начинают кружить осы.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · пыльцы за полёт: <b id="pollenStart">0</b></p>
+    <button class="play" id="go" type="button">Полетели ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Касание, клик или пробел — взмах</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow" id="overWhy">Пчёлка задела цветок</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">цветов</p>
+    <p>Пыльцы: <b id="pollenOver">0</b> · в полёте: <b id="timeOver">0:00</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · больше всего пыльцы: <b id="bestPollenOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), g = cv.getContext('2d');
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const flowersWord = (n) => plural(n, 'цветок', 'цветка', 'цветов');
+  const clock = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
+  // The world is 720 units tall. Its width follows the screen, but the distance between flowers
+  // is fixed, so a wide monitor shows more of the way but gives no advantage in the leaderboard.
+  const FH = 720, GROUND = 650, BEE_X = 150, BEE_R = 17, GRAV = 1650, FLAP = 470, SPACING = 270, STEM = 64;
+  let W = 0, H = 0, dpr = 1, scale = 1, FW = 480;
+  let state = 'start', bee, gates, wasps, pollens, score, pollen, playTime, dist, parts, popups, shake = 0, flash = 0, time = 0, scroll = 0, nextGateX = 0, invuln = 0;
+  let best = +store.get('pchelka-best', 0) || 0, bestPollen = +store.get('pchelka-best-pollen', 0) || 0;
+  let runs = {}; try { runs = JSON.parse(store.get('pchelka-runs', '{}')) || {}; } catch { runs = {}; }
+  let muted = store.get('pchelka-muted', '0') === '1', demoing = false, overTimer = 0;
+  FX.muted = () => muted;
+
+  // ——— Sound ———
+  let ac = null, buzz = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'square', v = 0.06, slide = 1, delay = 0) {
+    if (muted || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  // A soft buzz of the wings while flying; it rises a little on every flap.
+  function buzzOn(on) {
+    if (buzz) { try { buzz.g.gain.setTargetAtTime(0.0001, ac.currentTime, 0.05); buzz.o.stop(ac.currentTime + 0.3); } catch {} buzz = null; }
+    if (!on || muted || !ac) return;
+    const o = ac.createOscillator(), gn = ac.createGain(), lfo = ac.createOscillator(), lg = ac.createGain();
+    o.type = 'sawtooth'; o.frequency.value = 150; lfo.frequency.value = 38; lg.gain.value = 12; lfo.connect(lg).connect(o.frequency);
+    const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 700;
+    gn.gain.value = 0.012; o.connect(f).connect(gn).connect(ac.destination); o.start(); lfo.start(); buzz = { o, g: gn, lfo };
+  }
+  const sfx = {
+    flap: () => { tone(380, 0.07, 'triangle', 0.05, 1.5); if (buzz) buzz.o.frequency.setTargetAtTime(210, ac.currentTime, 0.01), buzz.o.frequency.setTargetAtTime(150, ac.currentTime + 0.12, 0.08); },
+    gate: (n) => tone(660 * Math.pow(2, (n % 12) / 12), 0.09, 'sine', 0.05),
+    pollen: () => { tone(1320, 0.06, 'square', 0.035); tone(1760, 0.12, 'triangle', 0.05, 1, 0.05); },
+    ten: () => [0, 4, 7, 12].forEach((s, i) => tone(660 * Math.pow(2, s / 12), 0.12, 'triangle', 0.07, 1, i * 0.06)),
+    wasp: () => tone(220, 0.25, 'sawtooth', 0.05, 1.3),
+    hit: () => { tone(160, 0.5, 'sawtooth', 0.08, 0.3); tone(90, 0.4, 'sine', 0.15, 0.5); },
+  };
+  for (const [k, t] of Object.entries({ pollen: 'coin', ten: 'big' })) { const f = sfx[k]; sfx[k] = (...a) => { if (window.FX && !demoing) { const [x, y] = FX.g(BEE_X, bee.y); FX.on(t, a[0], x, y); } return f(...a); }; }
+
+  // ——— World ———
+  // Gaps get narrower and the flight faster for the first 60 flowers; from the 12th, wasps start to circle in some gaps.
+  const hard = () => Math.min(1, score / 60);
+  const speed = () => 190 + hard() * 80;
+  function gapSize() { return 205 - hard() * 55; }
+  function addGate(x) {
+    const gap = gapSize(), margin = 70;
+    const prev = gates.length ? gates[gates.length - 1].mid : FH / 2 - 40;
+    // the next gap is never too far up or down from the previous one, so it can always be reached
+    const reach = 150 + hard() * 60;
+    let mid = prev + (Math.random() * 2 - 1) * reach;
+    mid = Math.max(margin + gap / 2, Math.min(GROUND - margin - gap / 2, mid));
+    const hue = [['#ff7eb6', '#ffd23f'], ['#bca0ff', '#fff3a0'], ['#ff9a5c', '#fff'], ['#6fe3ff', '#ffd23f'], ['#ff5f7a', '#ffe0a0']][Math.floor(Math.random() * 5)];
+    gates.push({ x, mid, gap, passed: false, petals: hue[0], center: hue[1], sway: Math.random() * 6 });
+    if (Math.random() < 0.55) pollens.push({ x: x + STEM / 2, y: mid + (Math.random() - 0.5) * gap * 0.35, got: false, t: Math.random() * 6 });
+    if (score >= 12 && Math.random() < 0.18 + hard() * 0.3) {
+      const amp = Math.min(gap * 0.32, 60);
+      wasps.push({ x: x + STEM + SPACING / 2, base: mid + (Math.random() - 0.5) * 40, amp, ph: Math.random() * 6, sp: 2 + Math.random() * 1.5, y: mid });
+    }
+  }
+  function reset() {
+    bee = { y: FH / 2 - 40, vy: 0, rot: 0, wing: 0, alive: true };
+    gates = []; wasps = []; pollens = []; parts = []; popups = [];
+    score = 0; pollen = 0; playTime = 0; dist = 0; invuln = 0;
+    nextGateX = BEE_X + 520;
+    while (nextGateX < BEE_X + 520 + SPACING * 6) { addGate(nextGateX); nextGateX += SPACING; }
+  }
+
+  function burst(x, y, col, n = 14, sp = 200) { for (let i = 0; i < n; i++) { const a = Math.random() * 7, v = 40 + Math.random() * sp; parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, life: 1, col, r: 3 + Math.random() * 3 }); } }
+  function popup(x, y, text, col = '#f8f7ff', big = false) { popups.push({ x, y, text, col, life: 1, big }); }
+
+  function flap() {
+    if (state !== 'play' || lb.isOpen() || !bee.alive) return;
+    unlockAudio(); if (!buzz) buzzOn(true);
+    bee.vy = -FLAP; bee.wing = 1; sfx.flap();
+    for (let i = 0; i < 3; i++) parts.push({ x: BEE_X - 14, y: bee.y + 6, vx: -60 - Math.random() * 60, vy: 30 + Math.random() * 40, life: 0.6, col: '#ffffffaa', r: 2 + Math.random() * 2 });
+  }
+
+  function hitCircleRect(cx, cy, r, x, y, w, h) {
+    const nx = Math.max(x, Math.min(cx, x + w)), ny = Math.max(y, Math.min(cy, y + h));
+    return (cx - nx) ** 2 + (cy - ny) ** 2 < r * r;
+  }
+  function crash(why) {
+    if (!bee.alive) return;
+    if (demoing) { reset(); return; }
+    bee.alive = false; bee.vy = -260; buzzOn(false); sfx.hit(); shake = 0.45; flash = 1;
+    burst(BEE_X, bee.y, '#ffd23f', 22); burst(BEE_X, bee.y, '#2a2140', 10);
+    if (window.FX) { const [x, y] = FX.g(BEE_X, bee.y); FX.over(x, y); }
+    overTimer = setTimeout(() => gameOver(why), 900);
+  }
+
+  function step(dt) {
+    if (state !== 'play' || lb.isOpen()) return;
+    playTime += dt; invuln = Math.max(0, invuln - dt);
+    bee.vy = Math.min(900, bee.vy + GRAV * dt); bee.y += bee.vy * dt;
+    bee.rot = Math.max(-0.5, Math.min(1.2, bee.vy / 700));
+    bee.wing = Math.max(0, bee.wing - dt * 4);
+    if (!bee.alive) { if (bee.y > GROUND - BEE_R) { bee.y = GROUND - BEE_R; bee.vy = 0; } return; }
+    const v = speed() * dt; dist += v; scroll += v;
+    for (const gt of gates) gt.x -= v;
+    for (const p of pollens) { p.x -= v; p.t += dt; }
+    for (const w of wasps) { w.x -= v; w.ph += dt * w.sp; w.y = w.base + Math.sin(w.ph) * w.amp; }
+    nextGateX -= v;
+    while (nextGateX < FW + SPACING * 2) { addGate(nextGateX); nextGateX += SPACING; }
+    gates = gates.filter((gt) => gt.x > -STEM - 40); pollens = pollens.filter((p) => p.x > -40 && !p.got); wasps = wasps.filter((w) => w.x > -60);
+
+    if (bee.y < BEE_R) { bee.y = BEE_R; bee.vy = Math.max(0, bee.vy); }
+    if (bee.y > GROUND - BEE_R) { bee.y = GROUND - BEE_R; return crash('Пчёлка упала в траву'); }
+    const r = BEE_R - 3;
+    for (const gt of gates) {
+      if (gt.x > BEE_X + 60 || gt.x + STEM < BEE_X - 60) continue;
+      const top = gt.mid - gt.gap / 2, bot = gt.mid + gt.gap / 2;
+      if (invuln <= 0 && (hitCircleRect(BEE_X, bee.y, r, gt.x + 14, -50, STEM - 28, top + 50) || hitCircleRect(BEE_X, bee.y, r, gt.x + 14, bot, STEM - 28, FH)
+        || hitCircleRect(BEE_X, bee.y, r, gt.x - 6, top - 26, STEM + 12, 26) || hitCircleRect(BEE_X, bee.y, r, gt.x - 6, bot, STEM + 12, 26))) return crash('Пчёлка задела цветок');
+      if (!gt.passed && gt.x + STEM / 2 < BEE_X) {
+        gt.passed = true; score++; sfx.gate(score);
+        popup(BEE_X + 20, bee.y - 34, '+1');
+        if (score % 10 === 0) { sfx.ten(); popup(BEE_X + 40, bee.y - 64, `${score} ${flowersWord(score)}!`, '#ffd23f', true); }
+      }
+    }
+    for (const p of pollens) if (!p.got && (p.x - BEE_X) ** 2 + (p.y - bee.y) ** 2 < (BEE_R + 14) ** 2) {
+      p.got = true; pollen++; sfx.pollen(); burst(p.x, p.y, '#ffd23f', 12, 140); popup(p.x, p.y - 26, '✦', '#ffd23f');
+    }
+    for (const w of wasps) {
+      if (invuln <= 0 && (w.x - BEE_X) ** 2 + (w.y - bee.y) ** 2 < (BEE_R + 13) ** 2) return crash('Пчёлку ужалила оса');
+      if (!w.warned && w.x < FW - 20) { w.warned = true; sfx.wasp(); }
+    }
+  }
+
+  // ——— Drawing ———
+  const hills = Array.from({ length: 3 }, (_, l) => Array.from({ length: 12 }, (_, i) => 50 + Math.sin(i * 1.9 + l * 2.3) * 30 + Math.random() * 35));
+  const clouds = Array.from({ length: 7 }, (_, i) => ({ x: i * 160 + Math.random() * 80, y: 60 + Math.random() * 200, s: 0.6 + Math.random() * 0.7 }));
+  function drawHills(layer, par, col, base) {
+    const span = 170, off = (scroll * par) % span, h = hills[layer];
+    g.fillStyle = col; g.beginPath(); g.moveTo(0, FH);
+    for (let i = -1; i < FW / span + 3; i++) {
+      const idx = ((i + Math.floor(scroll * par / span)) % h.length + h.length) % h.length;
+      g.quadraticCurveTo(i * span - off + span / 4, base - h[idx] * 1.2, i * span - off + span / 2, base - h[idx] * 0.6);
+    }
+    g.lineTo(FW + span * 2, FH); g.closePath(); g.fill();
+  }
+  function round(x, y, w, h, r) { g.beginPath(); if (g.roundRect) g.roundRect(x, y, w, h, r); else g.rect(x, y, w, h); }
+  function flower(cx, cy, r, petals, center, t) {
+    g.save(); g.translate(cx, cy); g.rotate(t);
+    g.fillStyle = petals;
+    for (let i = 0; i < 8; i++) { g.rotate(Math.PI / 4); g.beginPath(); g.ellipse(r * 0.75, 0, r * 0.55, r * 0.3, 0, 0, 7); g.fill(); }
+    g.fillStyle = center; g.beginPath(); g.arc(0, 0, r * 0.42, 0, 7); g.fill();
+    g.fillStyle = '#00000022'; g.beginPath(); g.arc(r * 0.1, r * 0.1, r * 0.3, 0, 7); g.fill();
+    g.restore();
+  }
+  function drawGate(gt) {
+    const top = gt.mid - gt.gap / 2, bot = gt.mid + gt.gap / 2, cx = gt.x + STEM / 2, sw = Math.sin(time * 1.5 + gt.sway) * 2;
+    // bottom stem with leaves and a flower on top
+    const sg = g.createLinearGradient(gt.x + 14, 0, gt.x + STEM - 14, 0); sg.addColorStop(0, '#3fae5c'); sg.addColorStop(0.5, '#6fdc7e'); sg.addColorStop(1, '#2f8a48');
+    g.fillStyle = sg; round(gt.x + 18, bot + 10, STEM - 36, GROUND - bot + 40, 8); g.fill();
+    g.fillStyle = '#4cc266';
+    for (let y = bot + 70; y < GROUND - 20; y += 90) { g.beginPath(); g.ellipse(gt.x + STEM - 10, y, 22, 8, -0.5, 0, 7); g.fill(); g.beginPath(); g.ellipse(gt.x + 10, y + 40, 22, 8, 0.5, 0, 7); g.fill(); }
+    flower(cx + sw, bot + 4, 32, gt.petals, gt.center, time * 0.3 + gt.sway);
+    // top: a hanging vine with a bluebell
+    g.fillStyle = sg; round(gt.x + 20, -60, STEM - 40, top + 40, 8); g.fill();
+    g.fillStyle = '#4cc266';
+    for (let y = top - 60; y > -20; y -= 90) { g.beginPath(); g.ellipse(gt.x + 8, y, 20, 7, 0.5, 0, 7); g.fill(); }
+    g.save(); g.translate(cx - sw, top - 6);
+    g.fillStyle = gt.petals; g.beginPath(); g.moveTo(-28, 4); g.quadraticCurveTo(-30, -30, 0, -30); g.quadraticCurveTo(30, -30, 28, 4);
+    for (let i = 0; i < 4; i++) g.quadraticCurveTo(21 - i * 14, -4, 14 - i * 14, 6);
+    g.closePath(); g.fill();
+    g.fillStyle = '#ffffff40'; g.beginPath(); g.ellipse(-10, -16, 6, 10, 0.3, 0, 7); g.fill();
+    g.restore();
+  }
+  function drawBee(x, y, rot, wing, alive) {
+    g.save(); g.translate(x, y); g.rotate(rot);
+    // wings
+    const flapA = alive ? Math.sin(time * 60) * 0.5 + wing * 0.6 : 0.2;
+    g.fillStyle = '#e9f6ffcc'; g.strokeStyle = '#ffffff'; g.lineWidth = 1.5;
+    g.save(); g.translate(-2, -12); g.rotate(-0.4 - flapA); g.beginPath(); g.ellipse(0, -10, 9, 15, 0, 0, 7); g.fill(); g.stroke(); g.restore();
+    g.save(); g.translate(4, -12); g.rotate(0.2 - flapA * 0.6); g.beginPath(); g.ellipse(0, -8, 7, 12, 0, 0, 7); g.fill(); g.stroke(); g.restore();
+    // body
+    g.fillStyle = '#ffd23f'; g.beginPath(); g.ellipse(0, 0, BEE_R + 3, BEE_R - 2, 0, 0, 7); g.fill();
+    g.save(); g.beginPath(); g.ellipse(0, 0, BEE_R + 3, BEE_R - 2, 0, 0, 7); g.clip();
+    g.fillStyle = '#2a2140'; g.fillRect(-9, -20, 6, 40); g.fillRect(2, -20, 6, 40);
+    g.restore();
+    // stinger, eye, smile
+    g.fillStyle = '#2a2140'; g.beginPath(); g.moveTo(-BEE_R - 3, -3); g.lineTo(-BEE_R - 11, 0); g.lineTo(-BEE_R - 3, 3); g.fill();
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(11, -4, 6, 0, 7); g.fill();
+    g.fillStyle = '#171225'; g.beginPath(); alive ? g.arc(13, -4, 3, 0, 7) : (g.moveTo(8, -7), g.lineTo(15, -1), g.moveTo(15, -7), g.lineTo(8, -1)); alive ? g.fill() : (g.lineWidth = 2, g.strokeStyle = '#171225', g.stroke());
+    g.strokeStyle = '#171225'; g.lineWidth = 1.8; g.beginPath(); g.arc(12, 5, 4, 0.2, 2.4); g.stroke();
+    g.fillStyle = '#ff9ab0'; g.beginPath(); g.arc(17, 4, 2.5, 0, 7); g.fill();
+    // antennae
+    g.strokeStyle = '#2a2140'; g.lineWidth = 2; g.beginPath(); g.moveTo(12, -12); g.quadraticCurveTo(16, -24, 22, -24); g.stroke();
+    g.beginPath(); g.moveTo(8, -13); g.quadraticCurveTo(10, -26, 15, -28); g.stroke();
+    g.restore();
+  }
+  function drawWasp(w) {
+    g.save(); g.translate(w.x, w.y); g.scale(-1, 1);
+    const fl = Math.sin(time * 70) * 0.5;
+    g.fillStyle = '#ffffffaa'; g.save(); g.translate(0, -10); g.rotate(-0.3 - fl); g.beginPath(); g.ellipse(0, -9, 6, 12, 0, 0, 7); g.fill(); g.restore();
+    g.fillStyle = '#ff8a1f'; g.beginPath(); g.ellipse(0, 0, 16, 9, 0, 0, 7); g.fill();
+    g.save(); g.beginPath(); g.ellipse(0, 0, 16, 9, 0, 0, 7); g.clip(); g.fillStyle = '#1a1225'; for (let i = -10; i < 12; i += 7) g.fillRect(i, -10, 3, 20); g.restore();
+    g.fillStyle = '#1a1225'; g.beginPath(); g.moveTo(-16, -2); g.lineTo(-25, 0); g.lineTo(-16, 2); g.fill();
+    g.fillStyle = '#ff3b3b'; g.beginPath(); g.arc(11, -2, 3, 0, 7); g.fill();
+    g.restore();
+  }
+  function draw() {
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const sky = g.createLinearGradient(0, 0, 0, H); sky.addColorStop(0, '#5bb8ff'); sky.addColorStop(0.6, '#a8e2ff'); sky.addColorStop(1, '#fff2c8');
+    g.fillStyle = sky; g.fillRect(0, 0, W, H);
+    const sh = shake > 0 ? (Math.random() - 0.5) * 16 * shake : 0;
+    g.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * sh, dpr * (H - FH * scale));
+    // sun and clouds
+    g.fillStyle = '#fff6c8'; g.globalAlpha = 0.9; g.beginPath(); g.arc(FW * 0.78, 110, 52, 0, 7); g.fill(); g.globalAlpha = 0.25; g.beginPath(); g.arc(FW * 0.78, 110, 80, 0, 7); g.fill(); g.globalAlpha = 1;
+    g.fillStyle = '#ffffffd8';
+    for (const c of clouds) {
+      const x = ((c.x - scroll * 0.15 * c.s) % (FW + 300) + FW + 300) % (FW + 300) - 150;
+      g.beginPath(); g.ellipse(x, c.y, 50 * c.s, 18 * c.s, 0, 0, 7); g.ellipse(x - 30 * c.s, c.y + 4, 30 * c.s, 14 * c.s, 0, 0, 7); g.ellipse(x + 28 * c.s, c.y - 8, 32 * c.s, 18 * c.s, 0, 0, 7); g.fill();
+    }
+    drawHills(0, 0.15, '#9ad98a', 600); drawHills(1, 0.35, '#78c76d', 640);
+    for (const gt of gates) drawGate(gt);
+    for (const p of pollens) if (!p.got) {
+      const y = p.y + Math.sin(p.t * 3) * 5;
+      g.fillStyle = '#ffd23f55'; g.beginPath(); g.arc(p.x, y, 15, 0, 7); g.fill();
+      g.fillStyle = '#ffd23f'; g.beginPath(); for (let i = 0; i < 10; i++) { const a = i * Math.PI / 5 + p.t, rr = i % 2 ? 4.5 : 10; g.lineTo(p.x + Math.cos(a) * rr, y + Math.sin(a) * rr); } g.fill();
+    }
+    for (const w of wasps) drawWasp(w);
+    // ground
+    const gr = g.createLinearGradient(0, GROUND, 0, FH); gr.addColorStop(0, '#5cc45a'); gr.addColorStop(1, '#2f7d3a');
+    g.fillStyle = gr; g.fillRect(0, GROUND, FW + 40, FH - GROUND + 200);
+    g.fillStyle = '#7fe07a';
+    for (let i = 0; i < FW / 18 + 4; i++) { const x = i * 18 - (scroll % 18); g.beginPath(); g.moveTo(x, GROUND + 2); g.lineTo(x + 5, GROUND - 10); g.lineTo(x + 9, GROUND + 2); g.fill(); }
+    drawBee(BEE_X, bee.y, bee.rot, bee.wing, bee.alive);
+    for (const p of parts) { g.globalAlpha = Math.max(0, p.life); g.fillStyle = p.col; g.beginPath(); g.arc(p.x, p.y, p.r, 0, 7); g.fill(); } g.globalAlpha = 1;
+    for (const p of popups) { g.globalAlpha = Math.min(1, p.life * 2); g.fillStyle = p.col; g.strokeStyle = '#2a214099'; g.lineWidth = 4; g.font = `800 ${p.big ? 24 : 20}px Manrope, system-ui`; g.textAlign = 'center'; const y = p.y - (1 - p.life) * 40; g.strokeText(p.text, p.x, y); g.fillText(p.text, p.x, y); } g.globalAlpha = 1;
+    // HUD
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (state !== 'start') {
+      g.textAlign = 'center'; g.lineWidth = 6; g.strokeStyle = '#2a214066';
+      g.font = '800 56px Manrope, system-ui'; g.strokeText(score, W / 2, 112); g.fillStyle = '#fff'; g.fillText(score, W / 2, 112);
+      g.font = '800 15px Manrope, system-ui'; g.strokeText(`✦ ${pollen}`, W / 2, 138); g.fillStyle = '#fff3a0'; g.fillText(`✦ ${pollen}`, W / 2, 138);
+      if (state === 'play' && score === 0 && playTime < 2.5) {
+        g.globalAlpha = 0.6 + 0.4 * Math.sin(time * 5); g.font = '800 18px Manrope, system-ui'; g.fillStyle = '#2a2140';
+        g.fillText('Касайся экрана — пчёлка машет крыльями', W / 2, H * 0.3); g.globalAlpha = 1;
+      }
+    }
+    if (flash > 0) { g.fillStyle = `rgba(255,80,80,${flash * 0.25})`; g.fillRect(0, 0, W, H); }
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.033, (now - last) / 1000)); last = now; time += dt;
+    if (state === 'start') demo(dt); else step(dt);
+    for (const p of parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 300 * dt; p.life -= dt * 1.5; } parts = parts.filter((p) => p.life > 0);
+    for (const p of popups) p.life -= dt * 1.1; popups = popups.filter((p) => p.life > 0);
+    shake = Math.max(0, shake - dt); flash = Math.max(0, flash - dt * 2);
+    draw();
+    requestAnimationFrame(frame);
+  }
+  // Behind the start card the bee flies by herself and never crashes.
+  function demo(dt) {
+    state = 'play'; demoing = true; const keep = muted; muted = true;
+    const gt = gates.find((x) => x.x + STEM > BEE_X - 30);
+    const aim = gt ? gt.mid + 15 : FH / 2;
+    if (bee.y > aim && bee.vy > -100) { bee.vy = -FLAP; bee.wing = 1; }
+    invuln = 1; step(dt);
+    if (!bee.alive || score > 30) reset();
+    muted = keep; state = 'start'; demoing = false;
+  }
+
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr;
+    scale = H / FH; FW = W / scale;
+    FX.bind(cv, FW, FH);
+  }
+
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('pollenStart').textContent = $('bestPollenOver').textContent = bestPollen;
+  }
+  function start() { clearTimeout(overTimer); unlockAudio(); reset(); state = 'play'; chanceUsed = false; chance.hide(); $('start').hidden = true; $('over').hidden = true; flap(); }
+  // Once a game, an ad lets the bee fly on from where she was, with a moment of safety.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'pchelka-continue', label: '🎬 Продолжить за рекламу', onReward: () => {
+    chanceUsed = true; bee = { y: FH / 2 - 40, vy: -FLAP, rot: 0, wing: 1, alive: true }; invuln = 2;
+    wasps = wasps.filter((w) => w.x > BEE_X + 200); state = 'play'; $('over').hidden = true; buzzOn(true);
+  } });
+  function gameOver(why) {
+    if (state !== 'play') return;
+    state = 'over'; buzzOn(false);
+    const seconds = Math.floor(playTime);
+    const run = { new_score: score, new_pollen: pollen, new_time: seconds }, record = score > best;
+    if (record && score) setTimeout(() => FX.record(), 400);
+    if (record) { best = score; store.set('pchelka-best', best); runs.score = run; }
+    if (pollen > bestPollen) { bestPollen = pollen; store.set('pchelka-best-pollen', bestPollen); runs.pollen = run; }
+    store.set('pchelka-runs', JSON.stringify(runs));
+    lb.submit(run);
+    $('overWhy').textContent = why;
+    $('final').textContent = score;
+    $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + flowersWord(score);
+    $('pollenOver').textContent = pollen; $('timeOver').textContent = clock(seconds);
+    showBests(); $('over').hidden = false;
+    if (!chanceUsed) chance.show();
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'pchelka',
+    boards: [
+      { id: 'score', title: 'Цветы', column: 'best_score', order: 'desc', note: 'Больше всего цветов за один полёт.', format: (v) => `${v} ${flowersWord(v)}` },
+      { id: 'pollen', title: 'Пыльца', column: 'best_pollen', order: 'desc', note: 'Больше всего пыльцы за один полёт.', format: (v) => `✦ ${v}` },
+    ],
+    bests: () => [runs.score, runs.pollen].filter(Boolean),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); flap(); });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && e.target.closest && e.target.closest('.screen button')) return;
+    if (e.code === 'Space' || e.code === 'Enter' || e.code === 'ArrowUp' || e.code === 'KeyW') {
+      e.preventDefault();
+      if (state === 'play') { if (!e.repeat) flap(); }
+      else if (!e.repeat && (!$('start').hidden || !$('over').hidden)) start();
+    }
+  });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) buzzOn(false); else if (state === 'play' && bee.alive && ac) buzzOn(true); });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('pchelka-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; buzzOn(!muted && state === 'play' && bee.alive); $('sound').blur(); });
+
+  addEventListener('resize', resize);
+  resize(); reset(); showBests();
+  // #preview: a flight in progress, for the site's screenshot.
+  if (location.hash === '#preview') {
+    $('start').hidden = true; state = 'play'; score = 17; pollen = 9; playTime = 30;
+    for (const gt of gates) gt.x -= 300;
+    bee.y = gates.find((x) => x.x + STEM > BEE_X).mid; bee.vy = -200; bee.wing = 1;
+    if (!wasps.length) { const gt = gates[2]; wasps.push({ x: gt.x + STEM + SPACING / 2, base: gt.mid, amp: 40, ph: 1, sp: 2, y: gt.mid }); }
+    step = () => {};
+  }
+  // On a local server tests can look inside.
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__pchelka = { get bee() { return bee; }, get gates() { return gates; }, get wasps() { return wasps; }, get score() { return score; }, get pollen() { return pollen; } };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

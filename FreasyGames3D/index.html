@@ -7,7 +7,7 @@
 <script src="../shared/theme.js?v=1"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0d0f1c">
-  <meta name="description" content="FreasyGames 3D — бесплатные 3D-игры прямо в браузере: RCFCG 3D, Растения против Зомби 3D, Мемный Кот: Прыг 3D, Отель «Полночь», Трасса 3D, Шариковый рекорд 3D, Лиана 3D, Слияние звёзд 3D, Звёздная башня 3D, Кирпичики 3D, Нарезка 3D, Лабиринт 3D, Блоки 3D, Лунка 3D, Аэрохоккей 3D, Бревно 3D, Колбы 3D, Танкодром 3D и Грузчик 3D.">
+  <meta name="description" content="FreasyGames 3D — бесплатные 3D-игры прямо в браузере: RCFCG 3D, Растения против Зомби 3D, Мемный Кот: Прыг 3D, Отель «Полночь», Трасса 3D, Шариковый рекорд 3D, Лиана 3D, Слияние звёзд 3D, Звёздная башня 3D, Кирпичики 3D, Нарезка 3D, Лабиринт 3D, Блоки 3D, Лунка 3D, Аэрохоккей 3D, Бревно 3D, Колбы 3D, Танкодром 3D, Грузчик 3D, Мостик 3D и Посадка 3D.">
   <title>FreasyGames 3D</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -303,6 +303,10 @@
     .art.tubes3d { background: #111321 url(../images/kolby3d.jpg) 50% 55% / 140% auto no-repeat; }
     .art.tank3d { background: #111a14 url(../images/tankodrom3d.jpg) 50% 45% / 150% auto no-repeat; }
     .art.crate3d { background: #1b1712 url(../images/gruzchik3d.jpg) 50% 50% / 140% auto no-repeat; }
+    .art.bridge3d { background: #2b1f5c url(../images/mostik3d.jpg) 30% 55% / 150% auto no-repeat; }
+    .art.lander3d { background: #0b0d1c url(../images/posadka3d.jpg) 50% 60% / 140% auto no-repeat; }
+    .art.bridge3d::after, .art.lander3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, var(--card)); pointer-events: none; }
+    .art .pct.bridgep { color: #ffd23f; font-size: 13px; } .art .pct.landerp { color: #5df2a5; font-size: 13px; }
     .art.spec3d { background: #1a2230 url(../images/specotryad.jpg) 50% 50% / cover no-repeat; }
     .art.tank3d::after, .art.crate3d::after, .art.spec3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, var(--card)); pointer-events: none; }
     .art .pct.tankp { color: #5df2a5; font-size: 13px; } .art .pct.cratep { color: #f2b544; font-size: 13px; }
@@ -355,7 +359,7 @@
     <section class="wrap hero">
       <span class="eyebrow">Только 3D</span>
       <h1>Freasy<span class="three">Games 3D</span></h1>
-      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже двадцать восемь игр, и будут ещё.</p>
+      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже тридцать игр, и будут ещё.</p>
       <a class="hero-action" href="#games">Смотреть игры ↓</a>
       <div class="hint">Двигай мышкой или пальцем — сцена повернётся</div>
     </section>
@@ -441,6 +445,10 @@
           <span class="tag live">Играть</span><h3>Грузчик 3D</h3><p>Объёмный склад с кирпичными стенами и деревянными ящиками, грузчик в каске. Те же 20 уровней, прогресс и рекорды, что в 2D.</p></div>
         <div class="slot game" data-game="3d-specotryad" data-tags="Экшен, Шутер, Онлайн, Таблица лидеров"><a class="slot-link" href="specotryad/" aria-label="Играть: Спецотряд"></a><div class="art spec3d" aria-hidden="true"><span class="pct tankp">🌐 онлайн</span></div>
           <span class="tag live">Играть</span><h3>Спецотряд</h3><p>Командный шутер от первого лица: бои 5 на 5 с ботами за закладку заряда, игра по сети, восемь видов оружия, три карты, скины и кейсы.</p></div>
+        <div class="slot game" data-game="3d-mostik" data-tags="Аркада, На точность, Таблица лидеров"><a class="slot-link" href="mostik/" aria-label="Играть: Мостик 3D"></a><div class="art bridge3d" aria-hidden="true"><span class="pct bridgep">×3 в центр</span></div>
+          <span class="tag live">Играть</span><h3>Мостик 3D</h3><p>Объёмные колонны на фоне закатных гор, золотой мостик падает с тенью, герой в повязке шагает по нему. Те же правила, серии и рекорды, что в 2D.</p></div>
+        <div class="slot game" data-game="3d-posadka" data-tags="Аркада, Космос, Таблица лидеров"><a class="slot-link" href="posadka/" aria-label="Играть: Посадка 3D"></a><div class="art lander3d" aria-hidden="true"><span class="pct landerp">Площадка ×3</span></div>
+          <span class="tag live">Играть</span><h3>Посадка 3D</h3><p>Объёмная ракета с пламенем и светом, горы чужой планеты и светящиеся площадки, камера подлетает к ракете у самой земли. Те же планеты, площадки и рекорды, что в 2D.</p></div>
       </div>
     </section>
 

@@ -468,7 +468,7 @@ FreasyI18n.add({
 "Игры": "Games",
 "О сайте": "About",
 "Только 3D": "3D only",
-"Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже двадцать восемь игр, и будут ещё.": "Free 3D games right in your browser. Nothing to download — just open and play. Twenty-eight games already, with more to come.",
+"Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже тридцать игр, и будут ещё.": "Free 3D games right in your browser. Nothing to download — just open and play. Thirty games already, with more to come.",
 "Двигай мышкой или пальцем — сцена повернётся": "Move your mouse or finger — the scene will turn",
 "Каталог": "Catalog",
 "🌐 онлайн": "🌐 online",
@@ -671,5 +671,16 @@ FreasyI18n.add({
 "1. Запиши": "1. Record",
 "2. Подпиши": "2. Caption",
 "3. Делись": "3. Share",
-"Verity · За улыбкой": "Verity · Behind the Smile"
+"Verity · За улыбкой": "Verity · Behind the Smile",
+"Пчёлка": "Bee",
+"Пчёлку": "Bee",
+"Четыре в ряд": "Four in a Row",
+"Скриншот Пчёлки: полосатая пчёлка летит между стеблями с цветами и колокольчиками, рядом оса, в небе солнце и облака": "Bee screenshot: a striped bee flies between flower stems and bluebells, a wasp nearby, the sun and clouds in the sky",
+"Касайся экрана — пчёлка машет крыльями. Пролетай между стеблями цветов, собирай золотую пыльцу и уворачивайся от ос, которые кружат в проходах. Чем дальше, тем уже путь.": "Tap the screen and the bee flaps her wings. Fly between flower stems, collect golden pollen and dodge the wasps circling in the gaps. The further you go, the narrower the way.",
+"Скриншот Четырёх в ряд: синяя доска 7 на 6 с жёлтыми и красными фишками, над ней фишка игрока и Енот-соперник": "Four in a Row screenshot: a blue 7 by 6 board with yellow and red discs, the player's disc above it and the Raccoon opponent",
+"Бросай жёлтые фишки в колонки и собери четыре подряд раньше Енота. Каждая победа — новый раунд, и Енот думает на ход дальше. Ничья — раунд переигрывается.": "Drop yellow discs into the columns and connect four before the Raccoon does. Every win starts a new round, and the Raccoon thinks one move further ahead. A draw replays the round.",
+"Объёмные колонны на фоне закатных гор, золотой мостик падает с тенью, герой в повязке шагает по нему. Те же правила, серии и рекорды, что в 2D.": "Solid pillars against sunset mountains, a golden bridge falls with its shadow and the hero in a headband walks across. The same rules, streaks and records as in 2D.",
+"Объёмная ракета с пламенем и светом, горы чужой планеты и светящиеся площадки, камера подлетает к ракете у самой земли. Те же планеты, площадки и рекорды, что в 2D.": "A solid rocket with a glowing flame, the mountains of an alien planet and shining pads; the camera flies up to the rocket near the ground. The same planets, pads and records as in 2D.",
+"×3 в центр": "×3 in the middle",
+"Площадка ×3": "Pad ×3"
 });

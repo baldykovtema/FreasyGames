@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/i18n.js?v=2" data-game="3d-mostik"></script>
+<script src="../../shared/fx.js" data-mute="mostik-muted"></script>
+<script src="../../shared/clips.js?v=1"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0d0f1c">
+<title>Мостик 3D — FreasyGames 3D</title>
+<meta name="description" content="Мостик 3D на FreasyGames: держи, чтобы вырастить мостик между объёмными колоннами на закате, и попадай в красную серединку за серию очков.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>#ov { pointer-events: none; }</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="ov"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames 3D</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ 3D</div>
+    <h1>Мостик <span>3D</span></h1>
+    <p>Держи палец или кнопку — мостик растёт. Отпусти — он упадёт вперёд на следующую колонну.</p>
+    <p>Попал в красную серединку — очки за серию идут вверх. Короткий или длинный мостик — падение. Рекорды общие с обычным Мостиком.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · лучшая серия: <b id="streakStart">—</b></p>
+    <button class="play" id="go" type="button">Начать ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Зажми мышь, палец или пробел, отпусти в нужный момент</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow" id="overWhy">Мостик не дотянулся</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">очков</p>
+    <p>Колонн пройдено: <b id="stepsOver">0</b> · серия в центр: <b id="streakOver">—</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · лучшая серия: <b id="bestStreakOver">—</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<script src="../../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), ov = $('ov'), ctx = ov.getContext('2d');
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const pointsWord = (n) => plural(n, 'очко', 'очка', 'очков');
+
+  // The rules are the 2D Мостик's, in its world 720 units tall; the 3D scene only shows it.
+  const FH = 720, TOPY = 470, HERO = 34, GROW = 430, FALL = 7.5, WALK = 330;
+  let W = 0, H = 0, dpr = 1, FW = 480;
+  let state = 'start', phase = 'wait', bridges = [], cols, cur, stick, hero, camX, camTo, score, steps, streak, bestStreakRun, playTime, shake = 0, flash = 0, time = 0;
+  let best = +store.get('mostik-best', 0) || 0, bestStreak = +store.get('mostik-best-streak', 0) || 0;
+  let runs = {}; try { runs = JSON.parse(store.get('mostik-runs', '{}')) || {}; } catch { runs = {}; }
+  let muted = store.get('mostik-muted', '0') === '1', holding = false, demoing = false;
+  FX.muted = () => muted;
+
+  // ——— Sound ———
+  let ac = null, growOsc = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'square', v = 0.06, slide = 1, delay = 0) {
+    if (muted || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  // A rising hum while the bridge grows.
+  function growSound(on) {
+    if (growOsc) { try { growOsc.g.gain.setTargetAtTime(0.0001, ac.currentTime, 0.03); growOsc.o.stop(ac.currentTime + 0.1); } catch {} growOsc = null; }
+    if (!on || muted || !ac || demoing) return;
+    const o = ac.createOscillator(), gn = ac.createGain(); o.type = 'triangle'; o.frequency.setValueAtTime(180, ac.currentTime); o.frequency.linearRampToValueAtTime(900, ac.currentTime + 2.2);
+    gn.gain.value = 0.035; o.connect(gn).connect(ac.destination); o.start(); growOsc = { o, g: gn };
+  }
+  const sfx = {
+    drop: () => tone(140, 0.12, 'square', 0.08, 0.6),
+    step: () => tone(260 + Math.random() * 60, 0.03, 'sine', 0.04),
+    land: () => tone(520, 0.1, 'triangle', 0.07),
+    perfect: (n) => [0, 4, 7].forEach((s, i) => tone(660 * Math.pow(2, (s + Math.min(n, 8)) / 12), 0.12, 'triangle', 0.08, 1, i * 0.05)),
+    fall: () => tone(420, 0.7, 'sawtooth', 0.06, 0.2),
+  };
+  for (const k of Object.keys(sfx)) { const f = sfx[k]; sfx[k] = (...a) => { if (!demoing) f(...a); }; }
+
+  // ——— Columns (the same as in 2D) ———
+  function nextCol(prev) {
+    const k = Math.min(1, steps / 40);
+    const w = Math.round(Math.max(22, (110 - k * 70) * (0.55 + Math.random() * 0.6)));
+    const minGap = 50 + k * 40, maxGap = Math.max(minGap + 10, Math.min(460, FW * 0.8 - prev.w - w - 10));
+    const gap = Math.round(minGap + Math.random() * Math.max(10, maxGap - minGap));
+    return { x: prev.x + prev.w + gap, w, hue: Math.random() };
+  }
+  function reset() {
+    steps = 0; score = 0; streak = 0; bestStreakRun = 0; playTime = 0;
+    bridges = [];
+    cols = [{ x: 0, w: 120, hue: 0.5 }]; cols.push(nextCol(cols[0])); cols.push(nextCol(cols[1]));
+    cur = 0; phase = 'wait';
+    hero = { x: cols[0].w - HERO / 2 - 4, y: TOPY, vy: 0, tilt: 0 };
+    stick = { len: 0, ang: -Math.PI / 2, x: cols[0].w };
+    camX = camTo = 0;
+  }
+  const leftEdge = () => FW * 0.18;
+  function aimCam() { camTo = cols[cur].x + cols[cur].w - leftEdge() - cols[cur].w; }
+
+  // Effects go to the shared FX layer, at the screen point of the world point.
+  function burst(x, y, col, n = 14) { if (demoing) return; const [sx, sy] = screenOf(x, y); FX.burst(sx, sy, { n, color: [col, '#fff'], speed: 260, shape: 'star' }); }
+  function popup(x, y, text, col = '#f8f7ff', big = false) { if (demoing) return; const [sx, sy] = screenOf(x, y); FX.text(sx, sy, text, col, big ? 26 : 20); }
+
+  function press() {
+    if (state !== 'play' || phase !== 'wait' || lb.isOpen()) return;
+    unlockAudio(); phase = 'grow'; holding = true; stick = { len: 0, ang: -Math.PI / 2, x: cols[cur].x + cols[cur].w }; growSound(true);
+  }
+  function release() {
+    holding = false;
+    if (phase !== 'grow') return;
+    phase = 'fall'; growSound(false);
+  }
+
+  function step(dt) {
+    if (state !== 'play' || lb.isOpen()) return;
+    playTime += dt;
+    const next = cols[cur + 1];
+    if (phase === 'grow') {
+      stick.len = Math.min(FW * 1.4, stick.len + GROW * dt * (1 + Math.min(1, steps / 60) * 0.35));
+      if (!holding) phase = 'fall';
+    } else if (phase === 'fall') {
+      stick.ang += FALL * dt * (0.4 + (stick.ang + Math.PI / 2));
+      if (stick.ang >= 0) {
+        stick.ang = 0; sfx.drop(); shake = 0.15;
+        const end = stick.x + stick.len;
+        stick.hit = end >= next.x && end <= next.x + next.w;
+        const mid = next.x + next.w / 2;
+        stick.perfect = stick.hit && Math.abs(end - mid) <= 5;
+        hero.target = stick.hit ? next.x + next.w - HERO / 2 - 4 : end + HERO / 2;
+        phase = 'walk';
+        if (stick.perfect) {
+          streak++; bestStreakRun = Math.max(bestStreakRun, streak);
+          const bonus = Math.min(5, streak);
+          score += bonus; sfx.perfect(streak); burst(mid, TOPY, '#ff5f7a', 18); flash = 0.5;
+          if (!demoing) { const [sx, sy] = screenOf(mid, TOPY); FX.on('combo', streak, sx, sy); }
+          popup(mid, TOPY - 40, streak > 1 ? `В центр ×${streak}! +${bonus}` : `В центр! +${bonus}`, '#ffd23f', true);
+        } else if (stick.hit) streak = 0;
+      }
+    } else if (phase === 'walk') {
+      const before = hero.x;
+      hero.x = Math.min(hero.target, hero.x + WALK * dt);
+      if (Math.floor(before / 22) !== Math.floor(hero.x / 22)) sfx.step();
+      if (hero.x >= hero.target) {
+        if (stick.hit) {
+          steps++; score++; cur++; sfx.land(); bridges.push({ x: stick.x, len: stick.len }); if (bridges.length > 8) bridges.shift(); popup(hero.x, TOPY - 60, '+1');
+          cols.push(nextCol(cols[cols.length - 1]));
+          if (cols.length > 8) { cols.shift(); cur--; }
+          aimCam(); phase = 'slide';
+        } else { phase = 'drop'; hero.vy = 0; sfx.fall(); streak = 0; if (!demoing) FX.over(); }
+      }
+    } else if (phase === 'slide') {
+      if (Math.abs(camX - camTo) < 1) { camX = camTo; phase = 'wait'; stick = { len: 0, ang: -Math.PI / 2, x: cols[cur].x + cols[cur].w }; }
+    } else if (phase === 'drop') {
+      hero.vy += 1800 * dt; hero.y += hero.vy * dt; hero.tilt += dt * 5;
+      stick.ang = Math.min(Math.PI / 2, stick.ang + dt * 6);
+      if (hero.y > FH + 260) { shake = 0.4; return gameOver(stick.len < cols[cur + 1].x - stick.x ? 'Мостик не дотянулся' : 'Мостик слишком длинный'); }
+    }
+  }
+
+  // ——— 3D ———
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); } catch (e) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="screen"><div class="box"><h1><span>3D</span> не запускается</h1><p>Браузер не поддерживает WebGL. Сыграй в обычный Мостик.</p><a class="play" style="text-decoration:none;display:block" href="../../mostik/">Обычный Мостик ↗</a></div></div>');
+    throw e;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const scene = new THREE.Scene();
+  {
+    const c = document.createElement('canvas'); c.width = 4; c.height = 256; const x = c.getContext('2d');
+    const gr = x.createLinearGradient(0, 0, 0, 256); gr.addColorStop(0, '#2b1f5c'); gr.addColorStop(0.55, '#7a3f8f'); gr.addColorStop(1, '#ff9a6b');
+    x.fillStyle = gr; x.fillRect(0, 0, 4, 256); scene.background = new THREE.CanvasTexture(c);
+  }
+  scene.fog = new THREE.Fog('#8a4a8a', 30, 90);
+  const camera = new THREE.PerspectiveCamera(40, 1, 0.3, 300);
+  FX.bind3(camera, cv);
+  scene.add(new THREE.HemisphereLight('#ffd9f0', '#2a1a40', 0.75));
+  const sun = new THREE.DirectionalLight('#ffd2a8', 0.95); sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024); Object.assign(sun.shadow.camera, { left: -22, right: 22, top: 14, bottom: -14, near: 1, far: 80 });
+  scene.add(sun); scene.add(sun.target);
+  const rim = new THREE.DirectionalLight('#bca0ff', 0.4); rim.position.set(-8, 6, -10); scene.add(rim);
+
+  const U = 40, DEPTH = 2.6;
+  const X = (x) => x / U, Y = (y) => (TOPY - y) / U;
+  // the low sun and three rows of hills far behind
+  const sunDisc = new THREE.Mesh(new THREE.CircleGeometry(4.5, 40), new THREE.MeshBasicMaterial({ color: '#ffd9a0', fog: false, transparent: true, opacity: 0.9 }));
+  scene.add(sunDisc);
+  const hillRows = [['#5a3a7e', -40, 0.12], ['#3c2862', -26, 0.3], ['#24183f', -14, 0.5]].map(([col, z, par]) => {
+    const grp = new THREE.Group(), mat = new THREE.MeshLambertMaterial({ color: col });
+    for (let i = 0; i < 16; i++) { const h = 6 + Math.random() * 8, m = new THREE.Mesh(new THREE.ConeGeometry(5 + Math.random() * 4, h, 7), mat); m.position.set(i * 9 - 72, -6 + h / 2 - 4, z + (Math.random() - 0.5) * 4); m.userData.bx = i * 9; grp.add(m); }
+    scene.add(grp); return { grp, par, z };
+  });
+  // columns: a pool of boxes with a lilac top and a red middle
+  const colMat = new THREE.MeshStandardMaterial({ color: '#1f1838', roughness: 0.75, metalness: 0.1 });
+  const topMat = new THREE.MeshStandardMaterial({ color: '#bca0ff', roughness: 0.4, emissive: '#3a2a70', emissiveIntensity: 0.4 });
+  const redMat = new THREE.MeshStandardMaterial({ color: '#ff5f7a', roughness: 0.35, emissive: '#ff2a4a', emissiveIntensity: 0.5 });
+  const unitBox = new THREE.BoxGeometry(1, 1, 1);
+  const colPool = [];
+  function colMesh(i) {
+    if (!colPool[i]) {
+      const grp = new THREE.Group();
+      const body = new THREE.Mesh(unitBox, colMat); body.castShadow = true; body.receiveShadow = true; grp.add(body);
+      const top = new THREE.Mesh(unitBox, topMat); top.receiveShadow = true; grp.add(top);
+      const red = new THREE.Mesh(unitBox, redMat); grp.add(red);
+      scene.add(grp); colPool[i] = { grp, body, top, red };
+    }
+    return colPool[i];
+  }
+  const stickMat = new THREE.MeshStandardMaterial({ color: '#ffd23f', roughness: 0.35, metalness: 0.2, emissive: '#7a5a00', emissiveIntensity: 0.25 });
+  function plank() { const grp = new THREE.Group(), m = new THREE.Mesh(unitBox, stickMat); m.castShadow = true; m.receiveShadow = true; grp.add(m); scene.add(grp); return { grp, m }; }
+  const stickMesh = plank(), bridgePool = Array.from({ length: 8 }, plank);
+  function setPlank(p, x, ang, len) {
+    p.grp.visible = len > 0.5; if (!p.grp.visible) return;
+    p.grp.position.set(X(x), 0, 0.4); p.grp.rotation.z = -ang;
+    p.m.scale.set(len / U, 0.14, 0.5); p.m.position.set(len / U / 2, -0.07, 0);
+  }
+  // the hero: a lilac block with a red headband, a big eye and legs
+  const heroG = new THREE.Group(); scene.add(heroG);
+  const bodyM = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.8, 0.75), new THREE.MeshStandardMaterial({ color: '#bca0ff', roughness: 0.45 }));
+  bodyM.position.y = 0.62; bodyM.castShadow = true; heroG.add(bodyM);
+  const band = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.15, 0.78), new THREE.MeshStandardMaterial({ color: '#ff5f7a', roughness: 0.5 })); band.position.y = 0.88; heroG.add(band);
+  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.08, 0.06), band.material); tail.position.set(-0.55, 0.9, 0); heroG.add(tail);
+  const eyeW = new THREE.Mesh(new THREE.SphereGeometry(0.13, 16, 12), new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.2 })); eyeW.position.set(0.3, 0.7, 0.33); heroG.add(eyeW);
+  const eyeB = new THREE.Mesh(new THREE.SphereGeometry(0.065, 12, 8), new THREE.MeshStandardMaterial({ color: '#171225' })); eyeB.position.set(0.36, 0.7, 0.44); heroG.add(eyeB);
+  const legMat = new THREE.MeshStandardMaterial({ color: '#2a2140' });
+  const legs = [-0.18, 0.18].map((x) => { const l = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.26, 0.18), legMat); l.position.set(x, 0.13, 0); l.castShadow = true; heroG.add(l); return l; });
+
+  function fitCamera() {
+    const a = W / Math.max(1, H);
+    camera.aspect = a; camera.updateProjectionMatrix();
+    FW = FH * a;
+  }
+  const camPos = new THREE.Vector3(), camLook = new THREE.Vector3();
+  function placeCamera() {
+    const half = FH / U / 2, d = half / Math.tan(camera.fov * Math.PI / 360);
+    const sh = shake > 0 ? (Math.random() - 0.5) * 0.4 * shake : 0;
+    camLook.set(X(camX + FW / 2) + sh, Y(FH / 2), 0);
+    camPos.set(camLook.x - 1.2, camLook.y + 2.2, d * 0.96);
+    camera.position.copy(camPos); camera.lookAt(camLook);
+    sun.position.set(camLook.x + 14, 18, 16); sun.target.position.set(camLook.x, 0, 0);
+    sunDisc.position.set(camLook.x + FW / U * 0.24, Y(260) + 2, -55);
+    // hills slide slower than the camera and wrap around, so they never run out
+    for (const h of hillRows) for (const m of h.grp.children) m.position.x = camLook.x + ((((m.userData.bx - camLook.x * h.par) % 144) + 144) % 144) - 72;
+  }
+  function screenOf(x, y) { const v = new THREE.Vector3(X(x), Y(y), 0.4).project(camera); return [(v.x + 1) / 2 * W, (1 - v.y) / 2 * H]; }
+
+  function draw() {
+    placeCamera();
+    for (let i = 0; i < Math.max(colPool.length, cols.length); i++) {
+      const c = cols[i], m = colMesh(i);
+      m.grp.visible = !!c; if (!c) continue;
+      const depth = 14;
+      m.grp.position.set(X(c.x + c.w / 2), 0, 0);
+      m.body.scale.set(c.w / U, depth, DEPTH); m.body.position.y = -depth / 2 - 0.12;
+      m.top.scale.set(c.w / U + 0.04, 0.14, DEPTH + 0.04); m.top.position.y = -0.07;
+      m.red.scale.set(10 / U, 0.16, DEPTH * 0.5); m.red.position.y = -0.04;
+    }
+    setPlank(stickMesh, stick.x, stick.ang, stick.len);
+    bridgePool.forEach((p, i) => { const b = bridges[i]; if (b) setPlank(p, b.x, 0, b.len); else p.grp.visible = false; });
+    const bob = phase === 'walk' ? Math.abs(Math.sin(time * 18)) * 0.08 : Math.sin(time * 3) * 0.02;
+    heroG.position.set(X(hero.x), Y(hero.y) + bob, 0.4); heroG.rotation.z = -hero.tilt;
+    heroG.rotation.y = phase === 'grow' ? Math.sin(time * 20) * 0.05 : 0;
+    const lg = phase === 'walk' ? Math.sin(time * 18) * 0.12 : 0; legs[0].position.x = -0.18 + lg; legs[1].position.x = 0.18 - lg;
+    tail.rotation.z = Math.sin(time * 9) * 0.3;
+    renderer.render(scene, camera);
+    // HUD on the 2D layer
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+    if (state !== 'start') {
+      ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.font = '800 56px Manrope, system-ui'; ctx.shadowColor = '#0008'; ctx.shadowBlur = 12; ctx.fillText(score, W / 2, 112); ctx.shadowBlur = 0;
+      ctx.font = '800 14px Manrope, system-ui'; ctx.fillStyle = '#ffd9f0';
+      ctx.fillText(streak > 0 ? `СЕРИЯ В ЦЕНТР ×${streak}` : `КОЛОНН ${steps}`, W / 2, 136);
+      if (state === 'play' && phase === 'wait' && steps === 0) {
+        ctx.globalAlpha = 0.6 + 0.4 * Math.sin(time * 5); ctx.font = '800 18px Manrope, system-ui'; ctx.fillStyle = '#fff';
+        ctx.fillText('Зажми и держи — мостик растёт', W / 2, H * 0.32); ctx.globalAlpha = 1;
+      }
+    }
+    if (flash > 0) { ctx.fillStyle = `rgba(255,210,63,${flash * 0.18})`; ctx.fillRect(0, 0, W, H); }
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.033, (now - last) / 1000)); last = now; time += dt;
+    step(dt);
+    if (state === 'start') demo(dt);
+    camX += (camTo - camX) * Math.min(1, dt * 7);
+    shake = Math.max(0, shake - dt); flash = Math.max(0, flash - dt * 2);
+    draw();
+    requestAnimationFrame(frame);
+  }
+  // Behind the start card the hero crosses by himself, always perfectly.
+  let demoWait = 0.6;
+  function demo(dt) {
+    const keep = state; state = 'play'; demoing = true;
+    if (phase === 'wait') { demoWait -= dt; if (demoWait <= 0) { phase = 'grow'; holding = true; stick = { len: 0, ang: -Math.PI / 2, x: cols[cur].x + cols[cur].w }; } }
+    if (phase === 'grow') { const need = cols[cur + 1].x + cols[cur + 1].w / 2 - stick.x; if (stick.len >= need - 4) { stick.len = need; holding = false; demoWait = 0.5; } }
+    if (phase === 'drop') { reset(); demoWait = 0.6; }
+    step(dt); state = keep; demoing = false;
+  }
+
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    ov.width = Math.round(W * dpr); ov.height = Math.round(H * dpr);
+    renderer.setSize(W, H, false);
+    fitCamera();
+    if (cols) aimCam();
+  }
+
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('streakStart').textContent = $('bestStreakOver').textContent = bestStreak ? '×' + bestStreak : '—';
+  }
+  function start() { unlockAudio(); reset(); aimCam(); camX = camTo; state = 'play'; chanceUsed = false; chance.hide(); $('start').hidden = true; $('over').hidden = true; }
+  // Once a game, an ad puts the hero back on the column he fell from.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'mostik3d-continue', label: '🎬 Продолжить за рекламу', onReward: () => {
+    chanceUsed = true; hero = { x: cols[cur].x + cols[cur].w - HERO / 2 - 4, y: TOPY, vy: 0, tilt: 0 };
+    stick = { len: 0, ang: -Math.PI / 2, x: cols[cur].x + cols[cur].w }; phase = 'wait'; state = 'play'; $('over').hidden = true;
+  } });
+  function gameOver(why) {
+    state = 'over'; growSound(false);
+    const run = { new_score: score, new_streak: bestStreakRun, new_steps: steps, new_time: Math.floor(playTime) }, record = score > best;
+    if (record && score) setTimeout(() => FX.record(), 700);
+    if (record) { best = score; store.set('mostik-best', best); runs.score = run; }
+    if (bestStreakRun > bestStreak) { bestStreak = bestStreakRun; store.set('mostik-best-streak', bestStreak); runs.streak = run; }
+    store.set('mostik-runs', JSON.stringify(runs));
+    lb.submit(run);
+    setTimeout(() => {
+      if (state !== 'over') return;
+      $('overWhy').textContent = why;
+      $('final').textContent = score;
+      $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + pointsWord(score);
+      $('stepsOver').textContent = steps; $('streakOver').textContent = bestStreakRun ? '×' + bestStreakRun : '—';
+      showBests(); $('over').hidden = false;
+      if (!chanceUsed) chance.show();
+    }, 500);
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'mostik',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за одну игру. Общая с обычным Мостиком.', format: (v) => `${v} ${pointsWord(v)}` },
+      { id: 'streak', title: 'Серия', column: 'best_streak', order: 'desc', note: 'Больше всего попаданий в центр подряд.', format: (v) => `×${v}` },
+    ],
+    bests: () => [runs.score, runs.streak].filter(Boolean),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); press(); });
+  addEventListener('pointerup', release); addEventListener('pointercancel', release);
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && e.target.closest && e.target.closest('.screen button')) return;
+    if (e.code === 'Space' || e.code === 'Enter') {
+      e.preventDefault();
+      if (state === 'play') { if (!e.repeat) press(); }
+      else if (!e.repeat && (!$('start').hidden || !$('over').hidden)) start();
+    }
+  });
+  addEventListener('keyup', (e) => { if (e.code === 'Space' || e.code === 'Enter') release(); });
+  addEventListener('blur', release);
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('mostik-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  addEventListener('resize', resize);
+  resize(); reset(); aimCam(); camX = camTo; showBests();
+  // #preview: a game in progress, for the catalog.
+  if (location.hash === '#preview') {
+    $('start').hidden = true; state = 'play'; steps = 11; score = 23; streak = 3; bestStreakRun = 3;
+    phase = 'grow'; stick = { len: (cols[1].x - cols[0].w) + cols[1].w * 0.4, ang: -0.6, x: cols[0].w };
+    step = () => {};
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../shared/chat-boot.js?v=5"></script>
+</body>
+</html>
