@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
 <script src="../shared/session.js?v=2" data-catalog></script>
+<script src="../shared/i18n.js?v=2"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#000000">
 <script src="../shared/theme.js?v=1"></script>
@@ -388,8 +389,8 @@
       v.addEventListener('loadedmetadata', () => fit(el));
       el.querySelector('[data-a=author]').appendChild(avaEl('', c.username, c.avatar));
       $('.author', el).textContent = '@' + c.username;
-      $('h2', el).textContent = c.title;
-      const p = $('p', el); p.textContent = c.description; p.hidden = !c.description; p.addEventListener('click', () => p.classList.toggle('open'));
+      $('h2', el).textContent = c.title; $('h2', el).setAttribute('translate', 'no');
+      const p = $('p', el); p.textContent = c.description; p.setAttribute('translate', 'no'); p.hidden = !c.description; p.addEventListener('click', () => p.classList.toggle('open'));
       const gu = okGameUrl(c.game_url);
       if (gu) { const a = document.createElement('a'); a.className = 'game'; a.href = '../' + gu; a.textContent = '🎮 ' + (c.game_title || 'Игра') + ' — играть'; $('.info', el).appendChild(a); }
       drawOverlay($('.layer', el), c.overlay);
@@ -523,7 +524,7 @@
       const b = document.createElement('div'); b.style.minWidth = '0'; b.style.flex = '1';
       b.innerHTML = '<div class="who"><span></span><span></span></div><div class="body"></div>';
       const who = b.querySelectorAll('.who span'); who[0].textContent = r.username; who[1].textContent = ago(r.created_at);
-      $('.body', b).textContent = r.body;
+      $('.body', b).textContent = r.body; $('.body', b).setAttribute('translate', 'no');
       if (uid() && (r.user_id === uid() || cmClip && cmClip.user_id === uid())) {
         const x = document.createElement('button'); x.type = 'button'; x.textContent = 'удалить';
         x.onclick = async () => { try { await api(`/rest/v1/clip_comments?id=eq.${r.id}`, { method: 'DELETE' }); d.remove(); cmClip.comments = Math.max(0, cmClip.comments - 1); if (cmCard) paintActs(cmCard, cmClip); } catch (e) { toast(e.message); } };
@@ -596,7 +597,7 @@
         $('.d', t).textContent = fmtDur(r.dur);
         if (r.published) { const s = document.createElement('span'); s.className = 'st'; s.textContent = 'Опубликован'; $('.th', t).appendChild(s); }
         $('.tx span', t).textContent = r.gameTitle || 'Игра';
-        $('.tx small', t).textContent = new Date(r.created).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + ' · ' + Math.round(r.blob.size / 1e5) / 10 + ' МБ';
+        $('.tx small', t).textContent = new Date(r.created).toLocaleString('en-US', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + ' · ' + Math.round(r.blob.size / 1e5) / 10 + ' МБ';
         const bt = $('.bt', t);
         const b1 = Object.assign(document.createElement('button'), { type: 'button', className: 'btn main sm', textContent: r.published ? '🚀 Ещё раз' : '🚀 Опубликовать' });
         b1.onclick = () => openEditor(r);
@@ -622,7 +623,7 @@
           t.innerHTML = `<button class="th" type="button" aria-label="Смотреть клип"><span class="d"></span></button><div class="tx"><span></span><small></small></div><div class="bt"></div>`;
           if (c.thumb_path) $('.th', t).style.backgroundImage = `url("${pub(c.thumb_path)}")`;
           $('.d', t).textContent = fmtDur(c.duration);
-          $('.tx span', t).textContent = c.title;
+          $('.tx span', t).textContent = c.title; $('.tx span', t).setAttribute('translate', 'no');
           $('.tx small', t).textContent = `❤ ${num(c.likes)} · 💬 ${num(c.comments)} · ${ago(c.created_at)}`;
           $('.th', t).onclick = () => setView('feed', { kind: 'user', user: c.user_id }, c.id);
           const del = Object.assign(document.createElement('button'), { type: 'button', className: 'btn red sm', textContent: '🗑 Удалить клип' });

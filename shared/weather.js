@@ -160,7 +160,7 @@ window.FreasyWeather = (opts = {}) => {
 
   // Время и дата — в часовом поясе выбранного города.
   const tz = () => (data && data.timezone) || Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const fmt = (d, o) => { try { return new Intl.DateTimeFormat('ru-RU', { timeZone: tz(), ...o }).format(d); } catch { return new Intl.DateTimeFormat('ru-RU', o).format(d); } };
+  const fmt = (d, o) => { try { return new Intl.DateTimeFormat('en-US', { timeZone: tz(), ...o }).format(d); } catch { return new Intl.DateTimeFormat('en-US', o).format(d); } };
   const hm = (iso) => iso ? iso.slice(11, 16) : '';
   function clock() {
     const now = new Date();
@@ -195,7 +195,7 @@ window.FreasyWeather = (opts = {}) => {
       html += '<div class="fw-h">5 дней</div><div class="fw-days">' + d.time.slice(1, 6).map((t, i) => {
         const k = i + 1, di = info(d.weather_code[k]);
         const day = new Date(t + 'T12:00:00');
-        return `<div><span>${i === 0 ? 'Завтра' : esc(new Intl.DateTimeFormat('ru-RU', { weekday: 'short', day: 'numeric' }).format(day))}</span><i title="${esc(di.text)}">${di.icon}</i><small>${d.precipitation_probability_max && d.precipitation_probability_max[k] >= 30 ? d.precipitation_probability_max[k] + '%' : ''}</small><b>${deg(d.temperature_2m_max[k])}</b><em>${deg(d.temperature_2m_min[k])}</em></div>`;
+        return `<div><span>${i === 0 ? 'Завтра' : esc(new Intl.DateTimeFormat('en-US', { weekday: 'short', day: 'numeric' }).format(day))}</span><i title="${esc(di.text)}">${di.icon}</i><small>${d.precipitation_probability_max && d.precipitation_probability_max[k] >= 30 ? d.precipitation_probability_max[k] + '%' : ''}</small><b>${deg(d.temperature_2m_max[k])}</b><em>${deg(d.temperature_2m_min[k])}</em></div>`;
       }).join('') + '</div>';
     }
     html += '<div class="fw-note">Погода: Open-Meteo. Город хранится только в этом браузере.</div>';

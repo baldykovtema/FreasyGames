@@ -171,7 +171,7 @@ window.FreasyCatalog = (opts) => {
     clearTimeout(toastTimer); toastTimer = setTimeout(() => toast.classList.remove('show'), 2600);
   }
 
-  const fmt = new Intl.NumberFormat('ru-RU', { notation: 'compact', maximumFractionDigits: 1 });
+  const fmt = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
   const num = n => n < 10000 ? String(n) : fmt.format(n);
   const plural = (n, one, few, many) => {
     const m10 = n % 10, m100 = n % 100;

@@ -538,7 +538,7 @@ window.FreasyChat = (opts = {}) => {
     render();
   }
 
-  const time = (ts) => { const d = new Date(ts), now = new Date(); return d.toDateString() === now.toDateString() ? d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }); };
+  const time = (ts) => { const d = new Date(ts), now = new Date(); return d.toDateString() === now.toDateString() ? d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); };
   const avatar = (name, emoji) => `<span class="fc-av" style="background:${colorOf(name)}">${emoji || esc((name || '?')[0].toUpperCase())}</span>`;
   function head(title, back) {
     return `<div class="fc-head">${back ? '<button class="fc-ib" type="button" data-a="back" aria-label="Назад">←</button>' : ''}<h3>${title}</h3>
@@ -582,7 +582,7 @@ window.FreasyChat = (opts = {}) => {
       ? `<button class="fc-b alt" type="button" data-a="mute">${voice.muted ? '🎙 Вкл' : '🔇 Выкл'}</button><button class="fc-b red" type="button" data-a="vleave">Выйти</button>`
       : `<button class="fc-b" type="button" data-a="vjoin">${m ? 'Войти в голосовой' : 'Войти в аккаунт'}</button>${voice.on ? '<small class="fc-here">ты в голосовом другой переписки</small>' : ''}`}${vchips}</div>`;
     const msgsHtml = list.length ? list.map((x) => hidden.has(x.sender_name) ? '<div class="fc-msg hid">Сообщение скрытого игрока</div>'
-      : `<div class="fc-msg"><b style="color:${colorOf(x.sender_name)}" data-name="${esc(x.sender_name)}" data-uid="${esc(x.sender)}">${esc(cleanName(x.sender_name))}</b>${esc(clean(x.body))}<time>${time(x.created_at)}</time></div>`).join('')
+      : `<div class="fc-msg"><b style="color:${colorOf(x.sender_name)}" data-name="${esc(x.sender_name)}" data-uid="${esc(x.sender)}">${esc(cleanName(x.sender_name))}</b><span translate="no">${esc(clean(x.body))}</span><time>${time(x.created_at)}</time></div>`).join('')
       : `<div class="fc-empty">${serverOff ? 'Чат ещё не включён на сервере.' : c.kind === 'general' ? 'Здесь пока тихо. Напиши первым — тебя увидят все на FreasyGames 2D и 3D.' : 'Напиши первое сообщение 👋'}</div>`;
     return head(esc(c.title), true) + sub + vbar + `<div class="fc-list" aria-live="polite">${msgsHtml}</div>
       <form class="fc-form"><input class="fc-input" maxlength="${MAX_LEN}" placeholder="${m ? 'Сообщение…' : 'Войди в аккаунт, чтобы писать'}" autocomplete="off" enterkeyhint="send"><button class="fc-send" type="submit" aria-label="Отправить">➤</button></form>`;
