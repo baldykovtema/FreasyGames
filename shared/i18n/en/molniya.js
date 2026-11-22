@@ -1,0 +1,27 @@
+// English texts of this game: {"Russian text": "English"}.
+FreasyI18n.add({
+"Молния — FreasyGames": "Lightning — FreasyGames",
+"⚡ Новая игра": "⚡ New game",
+"Мишени появляются и сжимаются. Нажми на каждую, пока она не исчезла: чем быстрее, тем больше очков.": "Targets appear and shrink. Tap each one before it disappears: the faster, the more points.",
+"Красные с черепом не трогай. Пропуск или красная мишень — минус жизнь, всего их три.": "Don't touch red ones with a skull. A miss or a red target costs a life, and you have three.",
+"Рекорд:": "Record:",
+"· лучшая реакция:": "· best reaction:",
+"Начать ↗": "Start ↗",
+"Касание или клик мышью": "Tap or mouse click",
+"Жизни кончились": "Out of lives",
+"очков": "points",
+"Попаданий:": "Hits:",
+"· средняя реакция:": "· average reaction:",
+"очко": "point",
+"очка": "points",
+"мс": "ms",
+"Мимо!": "Miss!",
+"Красная!": "Red one!",
+"🎬 +1 жизнь за рекламу": "🎬 +1 life for an ad",
+"мс (нужно": "ms (needs",
+"попаданий)": "hits)",
+"СЕРИЯ ×": "STREAK ×",
+"Больше всего очков за одну игру.": "Most points in one game.",
+"Самая быстрая средняя реакция за игру (от": "Fastest average reaction in a game (from",
+"попаданий).": "hits)."
+});

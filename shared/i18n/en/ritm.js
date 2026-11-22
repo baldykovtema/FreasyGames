@@ -1,0 +1,27 @@
+// English texts of this game: {"Russian text": "English"}.
+FreasyI18n.add({
+"Ритм — FreasyGames": "Rhythm — FreasyGames",
+"🎵 Новая игра": "🎵 New game",
+"Ноты падают по четырём дорожкам. Нажми дорожку, когда нота коснётся светящейся линии, — и сыграешь мелодию сам.": "Notes fall down four lanes. Tap a lane when a note touches the glowing line — and you'll play the tune yourself.",
+"Чем точнее, тем больше очков, а серия без промахов умножает их до ×4. Промахи отнимают энергию, музыка с каждой минутой быстрее.": "The more accurate, the more points, and a streak without misses multiplies them up to ×4. Misses drain energy, and the music speeds up every minute.",
+"Рекорд:": "Record:",
+"· лучшая серия:": "· best streak:",
+"Играть ↗": "Play ↗",
+"Тап по дорожке · на клавиатуре D F J K": "Tap a lane · keyboard D F J K",
+"Энергия кончилась": "Out of energy",
+"очков": "points",
+"Лучшая серия:": "Best streak:",
+"· точно:": "· perfect:",
+"· рекорд серии:": "· streak record:",
+"очко": "point",
+"очка": "points",
+"🎬 Продолжить песню за рекламу": "🎬 Continue the song for an ad",
+"Точно!": "Perfect!",
+"Хорошо": "Good",
+"Комбо": "Combo",
+"Мимо": "Miss",
+"СЕРИЯ": "STREAK",
+"Больше всего очков за одну песню.": "Most points in one song.",
+"Серия": "Streak",
+"Самая длинная серия нот без промахов.": "The longest streak of notes without misses."
+});

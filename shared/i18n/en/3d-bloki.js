@@ -1,0 +1,28 @@
+// English texts of this game: {"Russian text": "English"}.
+FreasyI18n.add({
+"Блоки 3D — FreasyGames 3D": "Blocks 3D — FreasyGames 3D",
+"РЕКОРД 0": "RECORD 0",
+"Перетаскивай объёмные фигуры на поле 8×8. Собери целый ряд или столбец — он рассыплется кубиками и даст очки.": "Drag 3D shapes onto the 8×8 board. Fill a whole row or column — it crumbles into cubes and scores points.",
+"Убирай несколько линий сразу и подряд — за комбо очков намного больше. Игра кончается, когда ни одна фигура не помещается. Рекорды общие с 2D.": "Clear several lines at once and in a row — combos give far more points. The game ends when no shape fits. Records are shared with 2D.",
+"Рекорд:": "Record:",
+"· линий за игру:": "· lines per game:",
+"Начать ↗": "Start ↗",
+"🏆 Таблица лидеров и вход": "🏆 Leaderboard and sign-in",
+"Тяни фигуру пальцем или мышью. Фигуры не поворачиваются": "Drag a shape with your finger or mouse. Shapes don't rotate",
+"Нет места": "No room",
+"очков": "points",
+"линии!": "lines!",
+"Комбо ×": "Combo ×",
+"🎬 Расчистить поле за рекламу": "🎬 Clear the board for an ad",
+"очков · линий:": "points · lines:",
+"не запускается": "won't start",
+"Браузер не поддерживает WebGL.": "Your browser doesn't support WebGL.",
+"Блоки 2D ↗": "Blocks 2D ↗",
+"Нет места!": "No room!",
+"РЕКОРД": "RECORD",
+"Больше всего очков за одну игру (2D и 3D).": "Most points in one game (2D and 3D).",
+"очк.": "pts",
+"Линии": "Lines",
+"Больше всего убранных линий за одну игру (2D и 3D).": "Most lines cleared in one game (2D and 3D).",
+"лин.": "lines"
+});

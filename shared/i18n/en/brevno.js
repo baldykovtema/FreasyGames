@@ -1,0 +1,26 @@
+// English texts of this game: {"Russian text": "English"}.
+FreasyI18n.add({
+"Бревно — FreasyGames": "Log — FreasyGames",
+"🪵 Новая игра": "🪵 New game",
+"Бревно крутится — касайся экрана, чтобы метнуть нож. Воткни все ножи, и бревно расколется.": "The log spins — tap the screen to throw a knife. Stick in all the knives and the log splits.",
+"Нож, попавший в другой нож, отскакивает — и игра окончена. Яблоки на бревне дают +3, а каждое пятое бревно — крепкий дуб.": "A knife that hits another knife bounces off — and the game is over. Apples on the log give +3, and every fifth log is tough oak.",
+"Рекорд:": "Record:",
+"· лучшее бревно:": "· best log:",
+"Начать ↗": "Start ↗",
+"Касание, клик или пробел — бросок": "Tap, click or space — throw",
+"Нож отскочил": "The knife bounced off",
+"очков": "points",
+"Бревно:": "Log:",
+"· яблок:": "· apples:",
+"очко": "point",
+"очка": "points",
+"Дуб расколот! +": "Oak split! +",
+"ДУБ · БРЕВНО": "OAK · LOG",
+"БРЕВНО": "LOG",
+"Крепкий дуб!": "Tough oak!",
+"🎬 Ещё попытка за рекламу": "🎬 One more try for an ad",
+"Больше всего очков за одну игру.": "Most points in one game.",
+"Брёвна": "Logs",
+"Самое дальнее бревно за одну игру.": "The farthest log in one game.",
+"бревно": "log"
+});

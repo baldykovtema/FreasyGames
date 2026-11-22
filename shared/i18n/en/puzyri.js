@@ -1,0 +1,27 @@
+// English texts of this game: {"Russian text": "English"}.
+FreasyI18n.add({
+"Пузыри — FreasyGames": "Bubbles — FreasyGames",
+"🫧 Новая игра": "🫧 New game",
+"Целься и стреляй: три пузыря одного цвета лопаются, а всё, что на них висело, падает и даёт вдвое больше очков.": "Aim and shoot: three bubbles of one colour pop, and everything hanging from them falls and gives double points.",
+"Промахи не прощаются — после нескольких выстрелов без попаданий потолок опускается. Не дай пузырям дойти до линии.": "Misses aren't forgiven — after a few shots without a match the ceiling comes down. Don't let the bubbles reach the line.",
+"Рекорд:": "Record:",
+"· лучший выстрел:": "· best shot:",
+"Играть ↗": "Play ↗",
+"Мышь или палец — прицел, отпусти — выстрел · пробел — поменять пузырь · ← → и ↑ с клавиатуры": "Mouse or finger — aim, release — shoot · space — swap bubble · ← → and ↑ on the keyboard",
+"Пузыри дошли до линии": "The bubbles reached the line",
+"очков": "points",
+"Лучший выстрел:": "Best shot:",
+"· выстрелов:": "· shots:",
+"очко": "point",
+"очка": "points",
+"пузырь": "bubble",
+"пузыря": "bubbles",
+"пузырей": "bubbles",
+"🎬 Убрать 4 нижних ряда за рекламу": "🎬 Remove the bottom 4 rows for an ad",
+"Чисто! +1000": "Clear! +1000",
+"след.": "next",
+"до опускания": "until it drops",
+"Больше всего очков за одну игру.": "Most points in one game.",
+"Выстрел": "Shot",
+"Больше всего пузырей, лопнувших и упавших от одного выстрела.": "Most bubbles popped and dropped by one shot."
+});

@@ -10,9 +10,9 @@
 // (chat messages, player names) are left as they are.
 (() => {
   const lang = 'en';
-  const VERSION = '2';
+  const VERSION = '3';
   // games that have their own dictionary file in shared/i18n/en/
-  const GAMES = new Set(['prygun']);
+  const GAMES = new Set(["3d-balls", "3d-bashnya", "3d-bloki", "3d-brevno", "3d-gruzchik", "3d-hokkey", "3d-hotel", "3d-kirpichiki", "3d-klev", "3d-kolby", "3d-kubomir", "3d-labirint", "3d-liana", "3d-lunka", "3d-memecat", "3d-mostik", "3d-narezka", "3d-neograd", "3d-oblaka", "3d-orbita", "3d-patrul", "3d-posadka", "3d-prygun", "3d-pvz", "3d-rcfcg", "3d-sliyanie", "3d-specotryad", "3d-tankodrom", "3d-trassa", "3d-zmey", "balls", "bashnya", "bloki", "brevno", "burgernaya", "chelovechki", "chetyre", "gruzchik", "hokkey", "kirpichiki", "klev", "kolby", "labirint", "liana", "luchnik", "lunka", "memecat", "mines", "molniya", "morskoy-boy", "mostik", "narezka", "oblaka", "orbita", "pamyat", "patrul", "pchelka", "pinbol", "posadka", "prygun", "puzyri", "ritm", "samocvety", "sliyanie", "studio", "tankodrom", "trassa", "truboprovod", "ugadaykot", "verity", "zmey"]);
 
   const me = document.currentScript;
   const base = me && me.src ? me.src.replace(/[?#].*$/, '').replace(/[^/]*$/, '') : 'shared/';

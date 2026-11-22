@@ -1,0 +1,27 @@
+// English texts of this game: {"Russian text": "English"}.
+FreasyI18n.add({
+"Лучник — FreasyGames": "Archer — FreasyGames",
+"мишень 1": "target 1",
+"✦ Новая игра": "✦ New game",
+"Зажми палец или мышь где угодно и потяни назад — как тетиву. Отпусти, и стрела полетит.": "Press your finger or mouse anywhere and pull back — like a bowstring. Let go and the arrow flies.",
+"Следи за ветром 🚩. Каждая мишень дальше прошлой, а потом они начинают двигаться. Промах — минус стрела, яблочко — стрела обратно.": "Watch the wind 🚩. Each target is farther than the last, and then they start moving. A miss costs an arrow, a bullseye gives it back.",
+"Рекорд:": "Record:",
+"· в яблочко:": "· bullseyes:",
+"Стрелять ↗": "Shoot ↗",
+"🏆 Таблица лидеров и вход": "🏆 Leaderboard and sign-in",
+"Клавиши: ↑ ↓ — прицел, зажми пробел — натянуть, отпусти — выстрел": "Keys: ↑ ↓ — aim, hold space — draw, release — shoot",
+"Стрелы кончились": "Out of arrows",
+"очков": "points",
+"мишень": "target",
+"Яблочко ×": "Bullseye ×",
+"Яблочко!": "Bullseye!",
+"Мимо": "Miss",
+"🎬 +2 стрелы за рекламу": "🎬 +2 arrows for an ad",
+"очков · мишеней:": "points · targets:",
+"ветра нет": "no wind",
+"ветер": "wind",
+"Больше всего очков за одну игру.": "Most points in one game.",
+"очк.": "pts",
+"Яблочко": "Bullseye",
+"Больше всего попаданий в яблочко за одну игру.": "Most bullseyes in one game."
+});

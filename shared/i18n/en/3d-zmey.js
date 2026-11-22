@@ -1,0 +1,26 @@
+// English texts of this game: {"Russian text": "English"}.
+FreasyI18n.add({
+"Звёздный змей 3D — FreasyGames 3D": "Star Snake 3D — FreasyGames 3D",
+"Звёздный": "Star",
+"змей 3D": "Snake 3D",
+"Веди змея свайпами или стрелками. Каждая звезда делает его длиннее и быстрее.": "Steer the snake with swipes or arrows. Every star makes it longer and faster.",
+"Не врезайся в стены и в свой хвост. Планета ✺ даёт +3, но быстро исчезает.": "Don't hit the walls or your own tail. The planet ✺ gives +3 but vanishes quickly.",
+"Рекорд:": "Record:",
+"· дольше всего:": "· longest:",
+"Поползли ↗": "Slither ↗",
+"Свайп, тап сбоку от головы, стрелки или WASD": "Swipe, tap beside the head, arrows or WASD",
+"Столкновение": "Collision",
+"звёзд": "stars",
+"Время:": "Time:",
+"звезда": "star",
+"звезды": "stars",
+"Стена": "The wall",
+"Укусил хвост": "Bit its tail",
+"🎬 Продолжить за рекламу": "🎬 Continue for an ad",
+"не запускается": "won't start",
+"Браузер не поддерживает WebGL.": "Your browser doesn't support WebGL.",
+"Звёздный змей 2D ↗": "Star Snake 2D ↗",
+"Больше всего звёзд за одну игру.": "Most stars in one game.",
+"Время": "Time",
+"Дольше всех продержались в одной игре.": "Lasted the longest in one game."
+});

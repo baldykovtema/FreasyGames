@@ -1,0 +1,26 @@
+// English texts of this game: {"Russian text": "English"}.
+FreasyI18n.add({
+"Пчёлка — FreasyGames": "Bee — FreasyGames",
+"🐝 Новая игра": "🐝 New game",
+"Каждое касание — взмах крыльев. Пролетай между стеблями цветов и не задевай их, землю и небо.": "Every tap is a flap of the wings. Fly between the flower stems without touching them, the ground or the sky.",
+"Золотая пыльца — в отдельную таблицу. Чем дальше, тем уже проходы, а между цветами начинают кружить осы.": "Golden pollen goes to its own table. The farther you go, the narrower the gaps, and wasps start circling between the flowers.",
+"Рекорд:": "Record:",
+"· пыльцы за полёт:": "· pollen per flight:",
+"Полетели ↗": "Fly ↗",
+"Касание, клик или пробел — взмах": "Tap, click or space — flap",
+"Пчёлка задела цветок": "The bee hit a flower",
+"цветов": "flowers",
+"Пыльцы:": "Pollen:",
+"· в полёте:": "· in flight:",
+"· больше всего пыльцы:": "· most pollen:",
+"цветок": "flower",
+"цветка": "flowers",
+"Пчёлка упала в траву": "The bee fell into the grass",
+"Пчёлку ужалила оса": "A wasp stung the bee",
+"Касайся экрана — пчёлка машет крыльями": "Tap the screen — the bee flaps its wings",
+"🎬 Продолжить за рекламу": "🎬 Continue for an ad",
+"Цветы": "Flowers",
+"Больше всего цветов за один полёт.": "Most flowers in one flight.",
+"Пыльца": "Pollen",
+"Больше всего пыльцы за один полёт.": "Most pollen in one flight."
+});

@@ -1,0 +1,27 @@
+// English texts of this game: {"Russian text": "English"}.
+FreasyI18n.add({
+"Лабиринт — FreasyGames": "Maze — FreasyGames",
+"🧭 Новая игра": "🧭 New game",
+"Каждый раз — новый лабиринт. Доведи светлячка до двери-выхода, пока не кончилось время.": "A new maze every time. Guide the firefly to the exit door before time runs out.",
+"Звёзды дают очки, зелёные часики — лишние секунды. С каждым уровнем лабиринт больше.": "Stars give points, green clocks give extra seconds. Every level the maze gets bigger.",
+"Рекорд:": "Record:",
+"ур. · больше всего звёзд:": "lv. · most stars:",
+"Начать ↗": "Start ↗",
+"Стрелки или WASD · на телефоне — свайп в нужную сторону": "Arrows or WASD · on a phone, swipe in the direction you want",
+"Время вышло": "Time's up",
+"уровней": "levels",
+"Звёзд собрано:": "Stars collected:",
+"уровень": "level",
+"уровня": "levels",
+"звезда": "star",
+"звезды": "stars",
+"звёзд": "stars",
+"🎬 +15 секунд за рекламу": "🎬 +15 seconds for an ad",
+"+8 с": "+8 s",
+"с": "s",
+"УРОВЕНЬ": "LEVEL",
+"Уровни": "Levels",
+"Больше всего пройденных лабиринтов за одну игру.": "Most mazes completed in one game.",
+"Звёзды": "Stars",
+"Больше всего звёзд за одну игру.": "Most stars in one game."
+});

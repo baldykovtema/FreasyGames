@@ -1,0 +1,25 @@
+// English texts of this game: {"Russian text": "English"}.
+FreasyI18n.add({
+"Блоки — FreasyGames": "Blocks — FreasyGames",
+"✦ Новая игра": "✦ New game",
+"Перетаскивай фигуры на поле 8×8. Собери целый ряд или столбец — он исчезнет и даст очки.": "Drag shapes onto the 8×8 board. Fill a whole row or column — it vanishes and scores points.",
+"Убирай несколько линий сразу и подряд — за комбо очков намного больше. Игра кончается, когда ни одна фигура не помещается.": "Clear several lines at once and in a row — combos give far more points. The game ends when no shape fits.",
+"Рекорд:": "Record:",
+"· линий за игру:": "· lines per game:",
+"Начать ↗": "Start ↗",
+"🏆 Таблица лидеров и вход": "🏆 Leaderboard and sign-in",
+"Тяни фигуру пальцем или мышью. Фигуры не поворачиваются": "Drag a shape with your finger or mouse. Shapes don't rotate",
+"Нет места": "No room",
+"очков": "points",
+"линии!": "lines!",
+"Комбо ×": "Combo ×",
+"🎬 Расчистить поле за рекламу": "🎬 Clear the board for an ad",
+"очков · линий:": "points · lines:",
+"РЕКОРД": "RECORD",
+"Нет места!": "No room!",
+"Больше всего очков за одну игру.": "Most points in one game.",
+"очк.": "pts",
+"Линии": "Lines",
+"Больше всего убранных линий за одну игру.": "Most lines cleared in one game.",
+"лин.": "lines"
+});

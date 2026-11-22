@@ -1,0 +1,27 @@
+// English texts of this game: {"Russian text": "English"}.
+FreasyI18n.add({
+"Мостик — FreasyGames": "Bridge — FreasyGames",
+"🌉 Новая игра": "🌉 New game",
+"Держи палец или кнопку — мостик растёт. Отпусти — он упадёт вперёд. Длина должна быть ровно такой, чтобы дойти до следующей колонны.": "Hold your finger or a button — the bridge grows. Let go — it falls forward. The length must be just right to reach the next pillar.",
+"Попал в красную серединку — очки за серию идут вверх. Короткий или длинный мостик — падение.": "Hit the red centre — streak points go up. Too short or too long a bridge — you fall.",
+"Рекорд:": "Record:",
+"· лучшая серия:": "· best streak:",
+"Начать ↗": "Start ↗",
+"Зажми мышь, палец или пробел, отпусти в нужный момент": "Hold the mouse, a finger or space, let go at the right moment",
+"Мостик не дотянулся": "The bridge fell short",
+"очков": "points",
+"Колонн пройдено:": "Pillars passed:",
+"· серия в центр:": "· centre streak:",
+"очко": "point",
+"очка": "points",
+"В центр ×": "Centre ×",
+"В центр! +": "Centre! +",
+"Мостик слишком длинный": "The bridge is too long",
+"СЕРИЯ В ЦЕНТР ×": "CENTRE STREAK ×",
+"КОЛОНН": "PILLARS",
+"Зажми и держи — мостик растёт": "Press and hold — the bridge grows",
+"🎬 Продолжить за рекламу": "🎬 Continue for an ad",
+"Больше всего очков за одну игру.": "Most points in one game.",
+"Серия": "Streak",
+"Больше всего попаданий в центр подряд.": "Most centre hits in a row."
+});
