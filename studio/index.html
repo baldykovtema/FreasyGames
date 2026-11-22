@@ -849,8 +849,18 @@ function balanced(s){let d=0;for(const ch of s.replace(/"(?:[^"\\]|\\.)*"|'(?:[^
 (()=>{
   const off=function(){throw new Error('Function отключена');};
   for(const f of [function(){},async function(){},function*(){},async function*(){}])Object.defineProperty(Object.getPrototypeOf(f),'constructor',{value:off});
-  const seen=new Set();
-  const harden=o=>{if(o===null||(typeof o!=='object'&&typeof o!=='function')||seen.has(o))return;seen.add(o);Object.freeze(o);harden(Object.getPrototypeOf(o));
+  const seen=new Set(),defProp=Object.defineProperty;
+  // Простой freeze ломает чужие библиотеки («override mistake»): после него `obj.push=…` или `err.message=…`
+  // падает даже на СВОЁМ объекте, раз такое свойство замёрзло у прототипа (так падал supabase-js → чат).
+  // Поэтому самые частые из таких свойств превращаем в get/set: у самого прототипа их по-прежнему не заменить,
+  // а у наследника запись просто создаёт его собственное свойство, как без заморозки.
+  const OVR=new Set(['constructor','toString','toLocaleString','valueOf','name','message','push','hasOwnProperty','toJSON',Symbol.toStringTag]);
+  const overridable=(o,k,v,en)=>defProp(o,k,{enumerable:en,configurable:false,get(){return v;},
+    set(x){if(this===o)throw new TypeError("Cannot assign to read only property '"+String(k)+"'");defProp(this,k,{value:x,writable:true,enumerable:true,configurable:true});}});
+  const harden=o=>{if(o===null||(typeof o!=='object'&&typeof o!=='function')||seen.has(o))return;seen.add(o);
+    for(const k of Reflect.ownKeys(o)){const d=Object.getOwnPropertyDescriptor(o,k);
+      if(d&&d.writable&&d.configurable&&(OVR.has(k)||o===Object.prototype))overridable(o,k,d.value,d.enumerable);}
+    Object.freeze(o);harden(Object.getPrototypeOf(o));
     for(const k of Reflect.ownKeys(o)){const d=Object.getOwnPropertyDescriptor(o,k);if(!d)continue;if('value' in d)harden(d.value);else{harden(d.get);harden(d.set);}}};
   [Object,Function,Array,String,Number,Boolean,Symbol,BigInt,RegExp,Date,Math,JSON,Promise,Map,Set,WeakMap,WeakSet,
    Error,EvalError,RangeError,ReferenceError,SyntaxError,TypeError,URIError,typeof AggregateError!=='undefined'?AggregateError:null,
