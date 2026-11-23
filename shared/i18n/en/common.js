@@ -468,7 +468,7 @@ FreasyI18n.add({
 "Игры": "Games",
 "О сайте": "About",
 "Только 3D": "3D only",
-"Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже тридцать игр, и будут ещё.": "Free 3D games right in your browser. Nothing to download — just open and play. Thirty games already, with more to come.",
+"Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже тридцать две игры, и будут ещё.": "Free 3D games right in your browser. Nothing to download — just open and play. Thirty-two games already, with more to come.",
 "Двигай мышкой или пальцем — сцена повернётся": "Move your mouse or finger — the scene will turn",
 "Каталог": "Catalog",
 "🌐 онлайн": "🌐 online",
@@ -682,5 +682,14 @@ FreasyI18n.add({
 "Объёмные колонны на фоне закатных гор, золотой мостик падает с тенью, герой в повязке шагает по нему. Те же правила, серии и рекорды, что в 2D.": "Solid pillars against sunset mountains, a golden bridge falls with its shadow and the hero in a headband walks across. The same rules, streaks and records as in 2D.",
 "Объёмная ракета с пламенем и светом, горы чужой планеты и светящиеся площадки, камера подлетает к ракете у самой земли. Те же планеты, площадки и рекорды, что в 2D.": "A solid rocket with a glowing flame, the mountains of an alien planet and shining pads; the camera flies up to the rocket near the ground. The same planets, pads and records as in 2D.",
 "×3 в центр": "×3 in the middle",
-"Площадка ×3": "Pad ×3"
+"Площадка ×3": "Pad ×3",
+"Стенолаз": "Wall Climber",
+"Лампочки": "Light Bulbs",
+"Скриншот Стенолаза: ниндзя в красной повязке и щите прыгает между двумя кирпичными башнями с шипами, рядом пила и монеты, вокруг ночной город": "Wall Climber screenshot: a ninja in a red headband and a shield jumps between two brick towers with spikes, a saw and coins nearby, a night city all around",
+"Ниндзя карабкается между двумя башнями, а касание бросает его на другую стену. Уходи от шипов и летающих пил, собирай монеты и щиты — чем выше, тем быстрее подъём.": "A ninja climbs between two towers, and a tap throws him onto the other wall. Dodge spikes and flying saws, collect coins and shields — the higher you go, the faster the climb.",
+"Скриншот Лампочек: поле 5 на 5 из горящих и погасших лампочек и двух камней, одна лампа подсвечена подсказкой": "Light Bulbs screenshot: a 5 by 5 board of lit and dark bulbs with two stones, one bulb highlighted by a hint",
+"Нажатие переключает лампу и её соседей. Погаси все лампы за наименьшее число ходов: поля растут от 3×3 до 7×7, а на больших появляются камни, которые нельзя нажать.": "A tap switches a bulb and its neighbours. Turn every bulb off in as few moves as you can: boards grow from 3×3 to 7×7, and big ones have stones you can't tap.",
+"Пластиковая доска с круглыми окнами, фишки падают в колонки с отскоком, а Енот выглядывает из-за доски и следит за каждым ходом. Те же раунды и рекорды, что в 2D.": "A plastic board with round windows, discs bounce as they drop into the columns, and the Raccoon peeks out from behind the board watching every move. The same rounds and records as in 2D.",
+"Объёмные плитки проседают под пальцем, флажки качаются на древках, а взрыв подбрасывает соседние клетки. То же поле 10 × 14 и общие с 2D рекорды по времени.": "Solid tiles sink under your finger, flags sway on their poles, and an explosion throws the nearby cells into the air. The same 10 × 14 field and time records shared with 2D.",
+"Раунд 4": "Round 4"
 });

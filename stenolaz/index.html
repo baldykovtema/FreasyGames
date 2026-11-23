@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../shared/session.js?v=2"></script>
+<script src="../shared/i18n.js?v=3" data-game="stenolaz"></script>
+<script src="../shared/fx.js" data-mute="stenolaz-muted"></script>
+<script src="../shared/clips.js?v=1"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Стенолаз — FreasyGames</title>
+<meta name="description" content="Стенолаз на FreasyGames: ниндзя карабкается между двумя башнями, касание — прыжок на другую стену. Уходи от шипов и пил, собирай монеты и забирайся выше всех.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">🥷 Новая игра</div>
+    <h1><span>Стенолаз</span></h1>
+    <p>Ниндзя сам карабкается вверх между двумя башнями. Касание — прыжок на другую стену, касание в прыжке — разворот назад.</p>
+    <p>Шипы на стене и летающие пилы — конец пути. Монеты — в отдельную таблицу, щит спасает от одного удара. Чем выше, тем быстрее.</p>
+    <p>Рекорд: <b id="bestStart">0</b> м · монет за подъём: <b id="coinsStart">0</b></p>
+    <button class="play" id="go" type="button">Вверх ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Касание, клик или пробел — прыжок</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow" id="overWhy">Ниндзя наткнулся на шипы</div>
+    <div class="big"><span id="final">0</span> <span>м</span></div>
+    <p id="overText">высота</p>
+    <p>Монет: <b id="coinsOver">0</b> · прыжков: <b id="jumpsOver">0</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> м · больше всего монет: <b id="bestCoinsOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), g = cv.getContext('2d');
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const coinsWord = (n) => plural(n, 'монета', 'монеты', 'монет');
+  // «м» goes through the dictionary on its own: inside a phrase a one-letter word is not translated
+  const unit = () => (window.FreasyI18n ? FreasyI18n.t('м') : 'м');
+
+  // The shaft is 420 units wide on every screen (walls included); its visible height follows the screen.
+  // A metre is 40 units. The ninja climbs at 190 units/s at first and up to 360 units/s.
+  const FW = 420, WALL = 46, LX = WALL + 14, RX = FW - WALL - 14, HERO = 15, M = 40, JUMP_T = 0.36;
+  let W = 0, H = 0, dpr = 1, scale = 1, ox = 0, VH = 700;
+  let state = 'start', hero, camY, spikes, saws, coins, shields, parts, score, coinCount, jumps, playTime, nextY, shake = 0, flash = 0, time = 0, demoing = false, overTimer = 0;
+  let best = +store.get('stenolaz-best', 0) || 0, bestCoins = +store.get('stenolaz-best-coins', 0) || 0;
+  let runs = {}; try { runs = JSON.parse(store.get('stenolaz-runs', '{}')) || {}; } catch { runs = {}; }
+  let muted = store.get('stenolaz-muted', '0') === '1';
+  FX.muted = () => muted || demoing;
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'square', v = 0.06, slide = 1, delay = 0) {
+    if (muted || demoing || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  const sfx = {
+    jump: () => { tone(320, 0.1, 'square', 0.04, 1.8); },
+    turn: () => tone(520, 0.06, 'triangle', 0.05, 0.7),
+    grab: () => tone(160, 0.05, 'triangle', 0.08, 0.8),
+    coin: (n) => { tone(1046 * Math.pow(2, (n % 8) / 24), 0.06, 'square', 0.035); tone(1568, 0.1, 'triangle', 0.05, 1, 0.05); },
+    shield: () => [0, 4, 7, 12].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.12, 'triangle', 0.07, 1, i * 0.05)),
+    block: () => { tone(900, 0.2, 'sawtooth', 0.05, 0.4); tone(1800, 0.15, 'sine', 0.05, 0.5); },
+    tens: () => [0, 7, 12].forEach((s, i) => tone(660 * Math.pow(2, s / 12), 0.12, 'triangle', 0.06, 1, i * 0.06)),
+    hit: () => { tone(180, 0.5, 'sawtooth', 0.09, 0.3); tone(80, 0.4, 'sine', 0.16, 0.5); },
+  };
+
+  // ——— World ———
+  // y grows downwards as usual, so climbing means y going down (negative).
+  const speed = () => 190 + Math.min(170, score * 1.1);
+  const metres = () => Math.max(0, Math.floor(-hero.y / M));
+  function reset() {
+    hero = { side: 0, x: LX, y: 0, t: 0, from: LX, to: LX, jumping: false, alive: true, shield: false, vy: 0, rot: 0 };
+    camY = 0; spikes = []; saws = []; coins = []; shields = []; parts = [];
+    score = 0; coinCount = 0; jumps = 0; playTime = 0; nextY = -560;
+    while (nextY > -2400) spawnRow();
+  }
+  // Every row is a short stretch of the shaft: spikes on one wall, sometimes a saw across the middle,
+  // a coin arc between the walls and now and then a shield. A free wall is always left to land on.
+  function spawnRow() {
+    const k = Math.min(1, -nextY / 16000);
+    let gap = 210 - k * 70 + Math.random() * 80;
+    const side = Math.random() < 0.5 ? 0 : 1, len = 70 + Math.random() * (60 + k * 90);
+    spikes.push({ side, y1: nextY - len, y2: nextY });
+    // sometimes spikes follow on the other wall too, but never at the same height: there is always a wall to land on
+    if (Math.random() < 0.25 + k * 0.25) {
+      const len2 = 50 + Math.random() * 70, y2 = nextY - len - 115;
+      spikes.push({ side: 1 - side, y1: y2 - len2, y2 });
+      gap = Math.max(gap, 115 + len2 + 90);
+    }
+    if (-nextY > 1500 && Math.random() < 0.22 + k * 0.35) {
+      const y = nextY - len / 2 - gap / 2;
+      saws.push({ y, x: FW / 2, amp: 60 + Math.random() * 60, ph: Math.random() * 6, sp: 1.6 + Math.random() * 1.4 + k, r: 17 });
+    }
+    if (Math.random() < 0.7) {
+      const y0 = nextY - len - 40, n = 5;
+      for (let i = 0; i < n; i++) { const f = i / (n - 1); coins.push({ x: LX + (RX - LX) * f, y: y0 - Math.sin(f * Math.PI) * 50, got: false, t: Math.random() * 6 }); }
+    }
+    if (Math.random() < 0.06) shields.push({ x: FW / 2, y: nextY - len - gap / 2 - 20, got: false });
+    nextY -= len + gap;
+  }
+
+  function burst(x, y, col, n = 14, sp = 200) { for (let i = 0; i < n; i++) { const a = Math.random() * 7, v = 40 + Math.random() * sp; parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, col, r: 2 + Math.random() * 3 }); } }
+  const scr = (x, y) => FX.g(x, y - camY);
+
+  function tap() {
+    if (state !== 'play' || lb.isOpen() || !hero.alive) return;
+    unlockAudio();
+    if (hero.jumping) { // turn back in the air
+      const done = hero.t / JUMP_T;
+      hero.from = hero.x; hero.to = hero.to === LX ? RX : LX; hero.t = 0; hero.dur = JUMP_T * Math.max(0.35, done); sfx.turn();
+      return;
+    }
+    hero.jumping = true; hero.t = 0; hero.dur = JUMP_T; hero.from = hero.x; hero.to = hero.side ? LX : RX; jumps++; sfx.jump();
+    for (let i = 0; i < 6; i++) parts.push({ x: hero.x, y: hero.y + 8, vx: (hero.side ? -1 : 1) * (20 + Math.random() * 60), vy: 40 + Math.random() * 60, life: 0.5, col: '#ffffff99', r: 2 });
+  }
+
+  function die(why) {
+    if (!hero.alive) return;
+    if (demoing) { reset(); return; }
+    hero.alive = false; hero.vy = -300; sfx.hit(); shake = 0.5; flash = 1;
+    burst(hero.x, hero.y, '#ff5f7a', 26); burst(hero.x, hero.y, '#2a2140', 12);
+    const [x, y] = scr(hero.x, hero.y); FX.over(x, y);
+    overTimer = setTimeout(() => gameOver(why), 900);
+  }
+  function hurt(why, x, y) {
+    if (hero.shield) {
+      hero.shield = false; sfx.block(); shake = 0.25; burst(x, y, '#6fe3ff', 20, 260);
+      if (!demoing) { const [sx, sy] = scr(x, y); FX.ring(sx, sy, '#6fe3ff', 90); FX.text(sx, sy - 30, 'Щит!', '#6fe3ff'); }
+      hero.safe = 0.6; return;
+    }
+    die(why);
+  }
+
+  function step(dt) {
+    if (state !== 'play' || lb.isOpen()) return;
+    playTime += dt; hero.safe = Math.max(0, (hero.safe || 0) - dt);
+    if (!hero.alive) { hero.vy += 1400 * dt; hero.y += hero.vy * dt; hero.rot += dt * 8; return; }
+    const before = metres();
+    hero.y -= speed() * dt * (hero.jumping ? 0.75 : 1);
+    if (hero.jumping) {
+      hero.t += dt; const f = Math.min(1, hero.t / hero.dur);
+      hero.x = hero.from + (hero.to - hero.from) * (1 - (1 - f) * (1 - f));
+      if (f >= 1) { hero.jumping = false; hero.side = hero.to === LX ? 0 : 1; hero.x = hero.to; sfx.grab(); for (let i = 0; i < 5; i++) parts.push({ x: hero.x + (hero.side ? 8 : -8), y: hero.y, vx: (hero.side ? -1 : 1) * Math.random() * 40, vy: Math.random() * 80, life: 0.4, col: '#d9cde8', r: 2 }); }
+    }
+    score = metres();
+    if (score !== before && score % 50 === 0 && score > 0) { sfx.tens(); if (!demoing) { const [sx, sy] = scr(FW / 2, hero.y - 60); FX.text(sx, sy, `${score} ${unit()}!`, '#ffd23f', 30); FX.sfx('levelup'); } }
+    // camera: the ninja stays in the lower third
+    camY = Math.min(camY, hero.y - VH * 0.68);
+    while (nextY > camY - 1200) spawnRow();
+    const bottom = camY + VH + 200;
+    spikes = spikes.filter((s) => s.y1 < bottom); saws = saws.filter((s) => s.y < bottom); coins = coins.filter((c) => c.y < bottom && !c.got); shields = shields.filter((s) => s.y < bottom && !s.got);
+    // hits
+    if (!hero.jumping && !hero.safe) for (const s of spikes) if (s.side === hero.side && hero.y + HERO > s.y1 && hero.y - HERO < s.y2) return hurt('Ниндзя наткнулся на шипы', hero.x, hero.y);
+    for (const s of saws) {
+      s.x = FW / 2 + Math.sin(time * s.sp + s.ph) * s.amp;
+      if (!hero.safe && (s.x - hero.x) ** 2 + (s.y - hero.y) ** 2 < (s.r + HERO - 3) ** 2) return hurt('Ниндзя задел пилу', hero.x, hero.y);
+    }
+    for (const c of coins) if (!c.got && (c.x - hero.x) ** 2 + (c.y - hero.y) ** 2 < (HERO + 12) ** 2) {
+      c.got = true; coinCount++; sfx.coin(coinCount); burst(c.x, c.y, '#ffd23f', 8, 120);
+      if (!demoing) { const [sx, sy] = scr(c.x, c.y); FX.sparkle(sx, sy, '#ffd23f'); }
+    }
+    for (const s of shields) if (!s.got && (s.x - hero.x) ** 2 + (s.y - hero.y) ** 2 < (HERO + 16) ** 2) {
+      s.got = true; hero.shield = true; sfx.shield(); if (!demoing) { const [sx, sy] = scr(s.x, s.y); FX.on('big', 0, sx, sy); FX.text(sx, sy - 30, 'Щит', '#6fe3ff'); }
+    }
+  }
+
+  // ——— Drawing ———
+  const towersBg = Array.from({ length: 14 }, (_, i) => ({ x: i * 70 - 100 + Math.random() * 30, w: 40 + Math.random() * 40, h: 180 + Math.random() * 260, lit: Math.random() }));
+  function round(x, y, w, h, r) { g.beginPath(); if (g.roundRect) g.roundRect(x, y, w, h, r); else g.rect(x, y, w, h); }
+  function drawWall(x0, w, side) {
+    const gr = g.createLinearGradient(x0, 0, x0 + w, 0);
+    if (side === 0) { gr.addColorStop(0, '#2a2140'); gr.addColorStop(1, '#3d3160'); } else { gr.addColorStop(0, '#3d3160'); gr.addColorStop(1, '#2a2140'); }
+    g.fillStyle = gr; g.fillRect(x0, camY - 10, w, VH + 20);
+    // bricks
+    g.strokeStyle = '#ffffff14'; g.lineWidth = 2;
+    const bh = 26, y0 = Math.floor((camY - 10) / bh) * bh;
+    for (let y = y0; y < camY + VH + bh; y += bh) {
+      g.beginPath(); g.moveTo(x0, y); g.lineTo(x0 + w, y); g.stroke();
+      const off = (Math.round(y / bh) % 2) * 23;
+      for (let x = x0 + off; x < x0 + w; x += 46) { g.beginPath(); g.moveTo(x, y); g.lineTo(x, y + bh); g.stroke(); }
+    }
+    // lanterns
+    for (let y = Math.floor(camY / 420) * 420; y < camY + VH + 420; y += 420) {
+      const lx = side ? x0 + 4 : x0 + w - 4, ly = y + (side ? 210 : 0);
+      g.fillStyle = '#ffb24d33'; g.beginPath(); g.arc(lx, ly, 34, 0, 7); g.fill();
+      g.fillStyle = '#ff7a3d'; round(lx - 6, ly - 9, 12, 18, 4); g.fill(); g.fillStyle = '#ffd9a0'; g.fillRect(lx - 3, ly - 5, 6, 10);
+    }
+  }
+  function drawSpikes(s) {
+    const x = s.side ? FW - WALL : WALL, dir = s.side ? -1 : 1;
+    g.fillStyle = '#c9c5dc'; g.strokeStyle = '#6d6884'; g.lineWidth = 1.5;
+    g.fillStyle = '#4a405f'; g.fillRect(s.side ? x - 6 : x, s.y1, 6, s.y2 - s.y1);
+    for (let y = s.y1; y < s.y2 - 4; y += 16) {
+      g.fillStyle = '#e2def0'; g.beginPath(); g.moveTo(x, y); g.lineTo(x + dir * 20, y + 8); g.lineTo(x, y + 16); g.closePath(); g.fill(); g.stroke();
+    }
+  }
+  function drawSaw(s) {
+    g.save(); g.translate(s.x, s.y); g.rotate(time * 14);
+    g.fillStyle = '#d9dbe8'; g.beginPath();
+    for (let i = 0; i < 24; i++) { const a = i * Math.PI / 12, r = i % 2 ? s.r - 4 : s.r + 3; g.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
+    g.closePath(); g.fill(); g.fillStyle = '#8a8ca0'; g.beginPath(); g.arc(0, 0, s.r * 0.45, 0, 7); g.fill(); g.fillStyle = '#ff5f7a'; g.beginPath(); g.arc(0, 0, 4, 0, 7); g.fill();
+    g.restore();
+    g.strokeStyle = '#ffffff18'; g.lineWidth = 2; g.setLineDash([6, 6]); g.beginPath(); g.moveTo(FW / 2 - s.amp, s.y); g.lineTo(FW / 2 + s.amp, s.y); g.stroke(); g.setLineDash([]);
+  }
+  function drawHero() {
+    const h = hero, flip = h.jumping ? (h.to === LX ? -1 : 1) : (h.side ? -1 : 1);
+    g.save(); g.translate(h.x, h.y); g.rotate(h.alive ? (h.jumping ? Math.sin(Math.min(1, h.t / h.dur) * Math.PI) * 0.6 * flip : 0) : h.rot);
+    g.scale(flip, 1);
+    // scarf
+    const wave = Math.sin(time * 18) * 4;
+    g.strokeStyle = '#ff3b5c'; g.lineWidth = 4; g.lineCap = 'round'; g.beginPath(); g.moveTo(-4, -8); g.quadraticCurveTo(-16, -4 + wave, -24, 4 - wave); g.stroke();
+    // body
+    g.fillStyle = '#1a1428'; round(-11, -14, 22, 28, 8); g.fill();
+    // legs and arms climbing
+    const climb = h.jumping ? 0 : Math.sin(time * 16) * 5;
+    g.fillStyle = '#1a1428'; g.fillRect(-12, 6 + climb, 6, 10); g.fillRect(-12, -10 - climb, 6, 8);
+    // face band
+    g.fillStyle = '#f3e3d0'; g.fillRect(-3, -9, 14, 7);
+    g.fillStyle = '#171225'; g.fillRect(4, -7, 3, 3);
+    g.fillStyle = '#ff3b5c'; g.fillRect(-11, -12, 22, 3);
+    g.restore();
+    if (h.shield && h.alive) { g.strokeStyle = `rgba(111,227,255,${0.6 + 0.3 * Math.sin(time * 8)})`; g.lineWidth = 3; g.beginPath(); g.arc(h.x, h.y, HERO + 9, 0, 7); g.stroke(); g.fillStyle = '#6fe3ff18'; g.fill(); }
+  }
+  function draw() {
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const sky = g.createLinearGradient(0, 0, 0, H); sky.addColorStop(0, '#0d0b22'); sky.addColorStop(1, '#2b1f4e');
+    g.fillStyle = sky; g.fillRect(0, 0, W, H);
+    // moon and far towers, slowly moving
+    g.fillStyle = '#fff1c8'; g.globalAlpha = 0.9; g.beginPath(); g.arc(W * 0.78, H * 0.16, 36, 0, 7); g.fill(); g.globalAlpha = 0.12; g.beginPath(); g.arc(W * 0.78, H * 0.16, 70, 0, 7); g.fill(); g.globalAlpha = 1;
+    const par = ((-camY * 0.08) % 300 + 300) % 300;
+    for (const t of towersBg) {
+      const x = W / 2 + (t.x - 400) * Math.max(1, W / 900), y = H - t.h + par * 0.4 - 60;
+      g.fillStyle = '#1b1636'; g.fillRect(x, y, t.w, H - y + 40);
+      g.fillStyle = '#ffd27a55'; for (let wy = y + 14; wy < H; wy += 26) for (let wx = x + 8; wx < x + t.w - 6; wx += 14) if ((wx * 7 + wy * 3 + t.lit * 100) % 5 < 1.3) g.fillRect(wx, wy, 5, 8);
+    }
+    const sh = shake > 0 ? (Math.random() - 0.5) * 14 * shake : 0;
+    g.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * (ox + sh), -dpr * camY * scale);
+    // the shaft between the towers
+    g.fillStyle = '#0d0b2266'; g.fillRect(WALL, camY - 10, FW - WALL * 2, VH + 20);
+    drawWall(0, WALL, 0); drawWall(FW - WALL, WALL, 1);
+    for (const s of spikes) if (s.y2 > camY - 20 && s.y1 < camY + VH + 20) drawSpikes(s);
+    for (const c of coins) if (!c.got) {
+      const y = c.y + Math.sin(time * 4 + c.t) * 3, sx = Math.abs(Math.cos(time * 3 + c.t));
+      g.fillStyle = '#c99a00'; g.beginPath(); g.ellipse(c.x, y, 9 * sx + 1, 9, 0, 0, 7); g.fill();
+      g.fillStyle = '#ffd23f'; g.beginPath(); g.ellipse(c.x, y, 7 * sx + 0.5, 7, 0, 0, 7); g.fill();
+    }
+    for (const s of shields) if (!s.got) {
+      const y = s.y + Math.sin(time * 3) * 5;
+      g.fillStyle = '#6fe3ff33'; g.beginPath(); g.arc(s.x, y, 20, 0, 7); g.fill();
+      g.fillStyle = '#6fe3ff'; g.beginPath(); g.moveTo(s.x, y - 12); g.lineTo(s.x + 10, y - 7); g.lineTo(s.x + 8, y + 5); g.lineTo(s.x, y + 12); g.lineTo(s.x - 8, y + 5); g.lineTo(s.x - 10, y - 7); g.closePath(); g.fill();
+    }
+    for (const s of saws) if (s.y > camY - 40 && s.y < camY + VH + 40) drawSaw(s);
+    drawHero();
+    for (const p of parts) { g.globalAlpha = Math.max(0, p.life); g.fillStyle = p.col; g.beginPath(); g.arc(p.x, p.y, p.r, 0, 7); g.fill(); } g.globalAlpha = 1;
+    // HUD
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (state !== 'start') {
+      g.textAlign = 'center'; g.fillStyle = '#fff'; g.font = '800 52px Manrope, system-ui'; g.shadowColor = '#0009'; g.shadowBlur = 10;
+      g.fillText(`${score} ${unit()}`, W / 2, 110); g.shadowBlur = 0;
+      g.font = '800 15px Manrope, system-ui'; g.fillStyle = '#ffd23f'; g.fillText(`● ${coinCount}`, W / 2, 136);
+      if (state === 'play' && playTime < 2.5) {
+        g.globalAlpha = 0.6 + 0.4 * Math.sin(time * 5); g.font = '800 18px Manrope, system-ui'; g.fillStyle = '#fff';
+        g.fillText('Касание — прыжок на другую стену', W / 2, H * 0.32); g.globalAlpha = 1;
+      }
+    }
+    if (flash > 0) { g.fillStyle = `rgba(255,70,90,${flash * 0.25})`; g.fillRect(0, 0, W, H); }
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.033, (now - last) / 1000)); last = now; time += dt;
+    if (state === 'start') demo(dt); else step(dt);
+    for (const p of parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 300 * dt; p.life -= dt * 1.6; } parts = parts.filter((p) => p.life > 0);
+    shake = Math.max(0, shake - dt); flash = Math.max(0, flash - dt * 2);
+    draw();
+    requestAnimationFrame(frame);
+  }
+  // Behind the start card the ninja climbs by himself: he jumps when spikes are ahead on his wall.
+  function demo(dt) {
+    state = 'play'; demoing = true;
+    if (!hero.jumping) {
+      const ahead = spikes.some((s) => s.side === hero.side && s.y2 > hero.y - 140 && s.y1 < hero.y);
+      if (ahead) tap();
+    }
+    step(dt);
+    if (score > 400) reset();
+    state = 'start'; demoing = false;
+  }
+
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr;
+    scale = Math.min(W / FW, H / 640); ox = (W - FW * scale) / 2; VH = H / scale;
+    FX.bind(cv, W / scale, VH);
+  }
+  // FX.g maps game points to the screen; the shaft is centred, so shift by its left edge.
+  const fxg = FX.g; FX.g = (x, y) => { const [sx, sy] = fxg(x, y); return [sx + ox, sy]; };
+
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('coinsStart').textContent = $('bestCoinsOver').textContent = bestCoins;
+  }
+  function start() { clearTimeout(overTimer); unlockAudio(); reset(); state = 'play'; chanceUsed = false; chance.hide(); $('start').hidden = true; $('over').hidden = true; }
+  // Once a game, an ad brings the ninja back with a shield, a little above where he fell.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'stenolaz-continue', label: '🎬 Продолжить за рекламу', onReward: () => {
+    chanceUsed = true; const y = Math.min(hero.y, camY + VH * 0.68);
+    spikes = spikes.filter((s) => s.y2 < y - 300 || s.y1 > y + 100); saws = saws.filter((s) => s.y < y - 300 || s.y > y + 100);
+    Object.assign(hero, { alive: true, y, x: LX, side: 0, jumping: false, shield: true, rot: 0, vy: 0, safe: 1 });
+    state = 'play'; $('over').hidden = true;
+  } });
+  function gameOver(why) {
+    if (state !== 'play') return;
+    state = 'over';
+    const run = { new_metres: score, new_coins: coinCount, new_time: Math.floor(playTime) }, record = score > best;
+    if (record && score) setTimeout(() => FX.record(), 400);
+    if (record) { best = score; store.set('stenolaz-best', best); runs.metres = run; }
+    if (coinCount > bestCoins) { bestCoins = coinCount; store.set('stenolaz-best-coins', bestCoins); runs.coins = run; }
+    store.set('stenolaz-runs', JSON.stringify(runs));
+    lb.submit(run);
+    $('overWhy').textContent = why;
+    $('final').textContent = score;
+    $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + 'высота';
+    $('coinsOver').textContent = coinCount; $('jumpsOver').textContent = jumps;
+    showBests(); $('over').hidden = false;
+    if (!chanceUsed) chance.show();
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'stenolaz',
+    boards: [
+      { id: 'metres', title: 'Высота', column: 'best_metres', order: 'desc', note: 'Выше всех за один подъём.', format: (v) => `${v} ${unit()}` },
+      { id: 'coins', title: 'Монеты', column: 'best_coins', order: 'desc', note: 'Больше всего монет за один подъём.', format: (v) => `${v} ${coinsWord(v)}` },
+    ],
+    bests: () => [runs.metres, runs.coins].filter(Boolean),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); tap(); });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && e.target.closest && e.target.closest('.screen button')) return;
+    if (e.code === 'Space' || e.code === 'Enter' || e.code === 'ArrowUp' || e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
+      e.preventDefault();
+      if (state === 'play') { if (!e.repeat) tap(); }
+      else if (!e.repeat && (!$('start').hidden || !$('over').hidden)) start();
+    }
+  });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('stenolaz-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  addEventListener('resize', resize);
+  resize(); reset(); showBests();
+  // #preview: a climb in progress, for the site's screenshot.
+  if (location.hash === '#preview') {
+    $('start').hidden = true; state = 'play'; playTime = 40;
+    hero.y = -4200; camY = hero.y - VH * 0.68; while (nextY > camY - 1200) spawnRow();
+    spikes = spikes.filter((s) => !(s.y2 > hero.y - 40 && s.y1 < hero.y + 40));
+    hero.jumping = true; hero.t = 0.16; hero.dur = JUMP_T; hero.from = LX; hero.to = RX; hero.x = LX + (RX - LX) * 0.6; hero.shield = true;
+    score = metres(); coinCount = 23;
+    saws.push({ y: hero.y - 230, x: FW / 2, amp: 80, ph: 0, sp: 2, r: 17 });
+    step = () => {};
+  }
+  // On a local server tests can look inside.
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__stenolaz = { get hero() { return hero; }, get spikes() { return spikes; }, get saws() { return saws; }, get score() { return score; }, get coins() { return coinCount; }, get state() { return state; }, tap };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/i18n.js?v=3" data-game="3d-chetyre"></script>
+<script src="../../shared/fx.js" data-mute="chetyre-muted"></script>
+<script src="../../shared/clips.js?v=1"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0d0f1c">
+<title>Четыре в ряд 3D — FreasyGames 3D</title>
+<meta name="description" content="Четыре в ряд 3D на FreasyGames: объёмная доска, фишки падают в колонки с отскоком, а Енот выглядывает из-за доски. Собери четыре подряд раньше него.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>#ov { pointer-events: none; }</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="ov"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames 3D</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ 3D</div>
+    <h1>Четыре в ряд <span>3D</span></h1>
+    <p>Бросай жёлтые фишки в колонки. Кто первым соберёт четыре подряд — по горизонтали, вертикали или диагонали, — тот и победил.</p>
+    <p>Соперник — Енот, он выглядывает из-за доски. Каждая победа открывает новый раунд, и Енот думает на ход дальше. Рекорды общие с обычными Четырьмя в ряд.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · побед подряд: <b id="streakStart">0</b></p>
+    <button class="play" id="go" type="button">Играть ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Касание или клик по колонке · клавиши 1–7 или стрелки и пробел</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow" id="overWhy">Енот собрал четыре</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">очков</p>
+    <p>Побед подряд: <b id="streakOver">0</b> · дошёл до раунда <b id="roundOver">1</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · лучшая серия: <b id="bestStreakOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<script src="../../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), ov = $('ov'), g = ov.getContext('2d');
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const pointsWord = (n) => plural(n, 'очко', 'очка', 'очков');
+  const winsWord = (n) => plural(n, 'победа', 'победы', 'побед');
+
+  const COLS = 7, ROWS = 6, YOU = 1, BOT = 2;
+  const COLORS = { 1: ['#ffd23f', '#c99a00', '#fff3a0'], 2: ['#ff5f7a', '#b8304a', '#ffc0cc'] };
+  let W = 0, H = 0, dpr = 1, cell = 60, bx = 0, by = 0;
+  let state = 'start', board, turn, round, streak, score, moves, playTime, roundTime, drops, winLine, hover = 3, busy = false, banner = null, time = 0, shake = 0, parts = [], thinking = 0;
+  let best = +store.get('chetyre-best', 0) || 0, bestStreak = +store.get('chetyre-best-streak', 0) || 0;
+  let runs = {}; try { runs = JSON.parse(store.get('chetyre-runs', '{}')) || {}; } catch { runs = {}; }
+  let muted = store.get('chetyre-muted', '0') === '1';
+  FX.muted = () => muted;
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'square', v = 0.06, slide = 1, delay = 0) {
+    if (muted || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  const sfx = {
+    move: () => tone(900, 0.03, 'sine', 0.03),
+    drop: (row) => { tone(320 + row * 40, 0.08, 'triangle', 0.1, 0.7); tone(140, 0.06, 'sine', 0.12, 0.6); },
+    bounce: () => tone(500, 0.04, 'triangle', 0.04, 0.8),
+    full: () => tone(160, 0.12, 'square', 0.05),
+    win: () => [0, 4, 7, 12, 16].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.16, 'triangle', 0.08, 1, i * 0.07)),
+    lose: () => [7, 4, 0, -5].forEach((s, i) => tone(392 * Math.pow(2, s / 12), 0.22, 'sawtooth', 0.04, 1, i * 0.14)),
+    draw: () => [0, 0].forEach((s, i) => tone(440, 0.15, 'triangle', 0.06, 1, i * 0.18)),
+  };
+
+  // ——— Rules ———
+  const empty = () => Array.from({ length: COLS }, () => []); // board[c] is the column from the bottom up
+  const at = (b, c, r) => (c >= 0 && c < COLS && r >= 0 && r < ROWS ? b[c][r] || 0 : 0);
+  const DIRS = [[1, 0], [0, 1], [1, 1], [1, -1]];
+  function fourAt(b, c, r) {
+    const who = at(b, c, r); if (!who) return null;
+    for (const [dx, dy] of DIRS) {
+      const line = [[c, r]];
+      for (let k = 1; at(b, c + dx * k, r + dy * k) === who; k++) line.push([c + dx * k, r + dy * k]);
+      for (let k = 1; at(b, c - dx * k, r - dy * k) === who; k++) line.unshift([c - dx * k, r - dy * k]);
+      if (line.length >= 4) return line;
+    }
+    return null;
+  }
+  const isFull = (b) => b.every((col) => col.length >= ROWS);
+
+  // ——— Енот: minimax with alpha-beta ———
+  // He looks `depth` half-moves ahead. In the first rounds he also sometimes plays a random reasonable move.
+  const ORDER = [3, 2, 4, 1, 5, 0, 6];
+  function scoreWindow(a, b, c, d, me) {
+    const w = [a, b, c, d], mine = w.filter((x) => x === me).length, his = w.filter((x) => x === 3 - me).length, none = 4 - mine - his;
+    if (mine === 3 && none === 1) return 6; if (mine === 2 && none === 2) return 2;
+    if (his === 3 && none === 1) return -8; if (his === 2 && none === 2) return -1;
+    return 0;
+  }
+  function evaluate(b, me) {
+    let s = 0;
+    for (let r = 0; r < ROWS; r++) { const v = at(b, 3, r); if (v === me) s += 3; else if (v) s -= 3; }
+    for (let c = 0; c < COLS; c++) for (let r = 0; r < ROWS; r++) for (const [dx, dy] of DIRS) {
+      const c3 = c + dx * 3, r3 = r + dy * 3; if (c3 < 0 || c3 >= COLS || r3 < 0 || r3 >= ROWS) continue;
+      s += scoreWindow(at(b, c, r), at(b, c + dx, r + dy), at(b, c + dx * 2, r + dy * 2), at(b, c3, r3), me);
+    }
+    return s;
+  }
+  // Negamax: value of the position for the side `who` to move.
+  function nega(b, depth, alpha, beta, who) {
+    let any = false, bestV = -Infinity;
+    for (const c of ORDER) {
+      if (b[c].length >= ROWS) continue;
+      any = true;
+      b[c].push(who); const r = b[c].length - 1;
+      let v;
+      if (fourAt(b, c, r)) v = 100000 + depth;
+      else if (depth <= 1) v = evaluate(b, who);
+      else v = -nega(b, depth - 1, -beta, -alpha, 3 - who);
+      b[c].pop();
+      if (v > bestV) bestV = v;
+      if (v > alpha) alpha = v;
+      if (alpha >= beta) break;
+    }
+    return any ? bestV : 0;
+  }
+  const depthFor = (n) => Math.min(7, 1 + n);          // round 1 — one half-move, round 6+ — seven
+  const slipFor = (n) => Math.max(0, 0.4 - (n - 1) * 0.1); // chance to play a random safe move
+  function botMove() {
+    const b = board.map((col) => col.slice()), legal = ORDER.filter((c) => b[c].length < ROWS);
+    // always take a win and always block a four
+    for (const who of [BOT, YOU]) for (const c of legal) { b[c].push(who); const w = fourAt(b, c, b[c].length - 1); b[c].pop(); if (w) return c; }
+    if (Math.random() < slipFor(round)) {
+      // a random move that does not hand the player a win right above it
+      const safe = legal.filter((c) => { if (b[c].length + 1 >= ROWS) return true; b[c].push(BOT); b[c].push(YOU); const w = fourAt(b, c, b[c].length - 1); b[c].pop(); b[c].pop(); return !w; });
+      const pool = safe.length ? safe : legal;
+      return pool[Math.floor(Math.random() * pool.length)];
+    }
+    const depth = depthFor(round);
+    let bestC = legal[0], bestV = -Infinity;
+    for (const c of legal) {
+      b[c].push(BOT);
+      const v = -nega(b, depth - 1 || 1, -Infinity, Infinity, YOU) + (Math.random() - 0.5) * 0.5;
+      b[c].pop();
+      if (v > bestV) { bestV = v; bestC = c; }
+    }
+    return bestC;
+  }
+
+  // ——— Game flow ———
+  function newRound() {
+    board = empty(); drops = []; winLine = null; moves = 0; roundTime = 0; busy = false;
+    turn = round % 2 === 1 ? YOU : BOT;
+    banner = { text: `Раунд ${round}`, sub: turn === YOU ? 'Ты ходишь первым' : 'Первым ходит Енот', life: 1.6 };
+    if (turn === BOT) { busy = true; setTimeout(botTurn, 1100); }
+  }
+  function start() {
+    unlockAudio(); clearTimeout(botTimer);
+    round = 1; streak = 0; score = 0; playTime = 0; state = 'play'; chanceUsed = false; chance.hide();
+    $('start').hidden = true; $('over').hidden = true; newRound();
+  }
+  let botTimer = 0;
+  function botTurn() {
+    if (state !== 'play') return;
+    thinking = 0.6;
+    botTimer = setTimeout(() => { if (state === 'play') { thinking = 0; drop(botMove(), BOT); } }, 420 + Math.random() * 300);
+  }
+  function drop(c, who) {
+    if (board[c].length >= ROWS) { if (who === YOU) { sfx.full(); shake = 0.15; } return false; }
+    board[c].push(who); const r = board[c].length - 1;
+    drops.push({ c, r, who, y: -1, vy: 0, done: false, bounced: 0 });
+    busy = true; if (who === YOU) moves++;
+    return true;
+  }
+  function landed(d) {
+    sfx.drop(d.r);
+    const w = fourAt(board, d.c, d.r);
+    if (w) return finish(d.who, w);
+    if (isFull(board)) return finish(0, null);
+    turn = 3 - d.who;
+    if (turn === BOT) botTurn(); else busy = false;
+  }
+  function finish(who, line) {
+    winLine = line; busy = true;
+    if (who === YOU) {
+      streak++;
+      const pts = 10 + round * 5 + Math.max(0, 21 - moves) * 2;
+      score += pts; sfx.win();
+      const [x, y] = cellCenter(...line[Math.floor(line.length / 2)]);
+      FX.win(); FX.text(x, y - 30, `+${pts}`, '#ffd23f', 34);
+      for (const [c, r] of line) { const [px, py] = cellCenter(c, r); FX.sparkle(px, py, '#ffd23f'); }
+      banner = { text: 'Победа!', sub: `Раунд ${round + 1}: Енот думает дальше`, life: 2.2 };
+      setTimeout(() => { if (state === 'play') { round++; newRound(); } }, 2300);
+    } else if (who === BOT) {
+      sfx.lose(); shake = 0.4;
+      for (const [c, r] of line) { const [px, py] = cellCenter(c, r); FX.burst(px, py, { n: 10, color: ['#ff5f7a', '#ffc0cc'], speed: 200 }); }
+      FX.bad(); banner = { text: 'Енот собрал четыре', sub: '', life: 2 };
+      setTimeout(() => gameOver('Енот собрал четыре'), 1600);
+    } else {
+      sfx.draw(); banner = { text: 'Ничья', sub: 'Раунд переигрывается', life: 2 };
+      setTimeout(() => { if (state === 'play') newRound(); }, 2000);
+    }
+  }
+
+  function step(dt) {
+    if (state !== 'play' || lb.isOpen()) return;
+    playTime += dt; roundTime += dt;
+    for (const d of drops) {
+      if (d.done) continue;
+      d.vy += 40 * dt; d.y += d.vy * dt;
+      const target = ROWS - 1 - d.r;
+      if (d.y >= target) {
+        d.y = target;
+        if (d.bounced < 2 && d.vy > 3) { d.vy = -d.vy * 0.28; d.bounced++; if (d.bounced === 1) { landed(d); } else sfx.bounce(); }
+        else { d.vy = 0; d.done = true; if (!d.bounced) landed(d); }
+      }
+    }
+  }
+
+  // ——— 3D ———
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); } catch (e) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="screen"><div class="box"><h1><span>3D</span> не запускается</h1><p>Браузер не поддерживает WebGL. Сыграй в обычные Четыре в ряд.</p><a class="play" style="text-decoration:none;display:block" href="../../chetyre/">Обычные Четыре в ряд ↗</a></div></div>');
+    throw e;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const scene = new THREE.Scene(); scene.background = new THREE.Color('#15122c'); scene.fog = new THREE.Fog('#15122c', 18, 40);
+  const camera = new THREE.PerspectiveCamera(38, 1, 0.3, 100);
+  FX.bind3(camera, cv);
+  scene.add(new THREE.HemisphereLight('#e9e2ff', '#2a1f4a', 0.65));
+  const key = new THREE.DirectionalLight('#fff4e0', 0.9); key.position.set(-5, 9, 9); key.castShadow = true;
+  key.shadow.mapSize.set(1024, 1024); Object.assign(key.shadow.camera, { left: -7, right: 7, top: 7, bottom: -6, near: 1, far: 30 }); scene.add(key);
+  const rim = new THREE.DirectionalLight('#ff8fb0', 0.45); rim.position.set(6, 3, -6); scene.add(rim);
+  const X3 = (c) => c - (COLS - 1) / 2, Y3 = (r) => r - (ROWS - 1) / 2; // r = 0 is the bottom row
+  // the floor with a soft spot of light
+  {
+    const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d');
+    const gr = x.createRadialGradient(128, 128, 10, 128, 128, 128); gr.addColorStop(0, '#3a2f6a'); gr.addColorStop(1, '#15122c');
+    x.fillStyle = gr; x.fillRect(0, 0, 256, 256);
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(16, 48), new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(c), roughness: 0.9 }));
+    floor.rotation.x = -Math.PI / 2; floor.position.y = Y3(0) - 1.35; floor.receiveShadow = true; scene.add(floor);
+  }
+  // the board: two plastic plates with round holes, discs slide between them
+  const plateMat = new THREE.MeshStandardMaterial({ color: '#5b4bd6', roughness: 0.35, metalness: 0.05 });
+  {
+    const w = COLS + 0.36, h = ROWS + 0.3, r = 0.22, sh = new THREE.Shape();
+    const x0 = -w / 2, y0 = -h / 2;
+    sh.moveTo(x0 + r, y0); sh.lineTo(x0 + w - r, y0); sh.quadraticCurveTo(x0 + w, y0, x0 + w, y0 + r); sh.lineTo(x0 + w, y0 + h - r); sh.quadraticCurveTo(x0 + w, y0 + h, x0 + w - r, y0 + h);
+    sh.lineTo(x0 + r, y0 + h); sh.quadraticCurveTo(x0, y0 + h, x0, y0 + h - r); sh.lineTo(x0, y0 + r); sh.quadraticCurveTo(x0, y0, x0 + r, y0);
+    for (let c = 0; c < COLS; c++) for (let rr = 0; rr < ROWS; rr++) { const hole = new THREE.Path(); hole.absarc(X3(c), Y3(rr), 0.41, 0, Math.PI * 2, true); sh.holes.push(hole); }
+    const geo = new THREE.ExtrudeGeometry(sh, { depth: 0.16, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.04, bevelSegments: 2, curveSegments: 20 });
+    for (const z of [0.2, -0.36]) { const m = new THREE.Mesh(geo, plateMat); m.position.z = z; m.castShadow = true; m.receiveShadow = true; scene.add(m); }
+    // side rails and feet
+    const railMat = new THREE.MeshStandardMaterial({ color: '#3a2c9e', roughness: 0.5 });
+    for (const sx of [-1, 1]) {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.22, h + 0.9, 0.8), railMat); rail.position.set(sx * (w / 2 + 0.08), -0.3, -0.06); rail.castShadow = true; scene.add(rail);
+      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.18, 2.2), railMat); foot.position.set(sx * (w / 2 + 0.08), Y3(0) - 1.26, -0.06); foot.castShadow = true; scene.add(foot);
+    }
+    const bottom = new THREE.Mesh(new THREE.BoxGeometry(w, 0.16, 0.56), railMat); bottom.position.set(0, -h / 2 - 0.08, -0.06); scene.add(bottom);
+  }
+  // discs
+  const discGeo = new THREE.CylinderGeometry(0.39, 0.39, 0.26, 36);
+  const discMats = { 1: new THREE.MeshStandardMaterial({ color: '#ffd23f', roughness: 0.3, metalness: 0.1, emissive: '#000' }), 2: new THREE.MeshStandardMaterial({ color: '#ff5f7a', roughness: 0.3, metalness: 0.1, emissive: '#000' }) };
+  const ringGeo = new THREE.TorusGeometry(0.24, 0.035, 8, 28);
+  const discs = new Map();
+  function discMesh(key, who) {
+    let m = discs.get(key);
+    if (!m || m.userData.who !== who) {
+      if (m) scene.remove(m);
+      m = new THREE.Group(); m.userData.who = who;
+      const mat = discMats[who].clone();
+      const body = new THREE.Mesh(discGeo, mat); body.rotation.x = Math.PI / 2; body.castShadow = true; m.add(body);
+      for (const z of [0.135, -0.135]) { const ring = new THREE.Mesh(ringGeo, mat); ring.position.z = z; m.add(ring); }
+      m.userData.mat = mat; scene.add(m); discs.set(key, m);
+    }
+    return m;
+  }
+  const hoverDisc = discMesh('hover', YOU);
+  // Енот behind the board, peeking over its top
+  const raccoon = new THREE.Group(); scene.add(raccoon);
+  {
+    const fur = new THREE.MeshStandardMaterial({ color: '#b6b9cc', roughness: 0.8 }), dark = new THREE.MeshStandardMaterial({ color: '#2a2738', roughness: 0.7 }), white = new THREE.MeshStandardMaterial({ color: '#f4f4fb', roughness: 0.5 });
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.9, 28, 20), fur); head.scale.set(1.1, 0.95, 0.9); head.castShadow = true; raccoon.add(head);
+    for (const sx of [-1, 1]) {
+      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.55, 12), fur); ear.position.set(sx * 0.62, 0.78, -0.05); ear.rotation.z = -sx * 0.35; raccoon.add(ear);
+      const mask = new THREE.Mesh(new THREE.SphereGeometry(0.33, 16, 12), dark); mask.scale.set(1.25, 0.8, 0.5); mask.position.set(sx * 0.36, 0.08, 0.68); raccoon.add(mask);
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.13, 14, 10), white); eye.position.set(sx * 0.34, 0.1, 0.8); raccoon.add(eye);
+      const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.065, 10, 8), dark); pupil.position.set(sx * 0.34, 0.1, 0.92); raccoon.add(pupil); raccoon.userData['p' + sx] = pupil;
+    }
+    const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.34, 16, 12), white); muzzle.scale.set(1.1, 0.75, 0.8); muzzle.position.set(0, -0.32, 0.66); raccoon.add(muzzle);
+    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 8), dark); nose.position.set(0, -0.2, 0.95); raccoon.add(nose);
+    const paws = [-1, 1].map((sx) => { const p = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), dark); p.scale.set(1, 0.7, 1); p.position.set(sx * 0.7, -0.95, 0.45); raccoon.add(p); return p; });
+    raccoon.userData.paws = paws;
+  }
+  raccoon.position.set(X3(COLS - 1) - 0.3, Y3(ROWS - 1) + 1.6, -1.1);
+  // the line through a four
+  const winBar = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 1, 12), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.85 }));
+  scene.add(winBar); winBar.visible = false;
+
+  function fitCamera() {
+    const a = W / Math.max(1, H);
+    camera.aspect = a; camera.updateProjectionMatrix();
+    const tanH = Math.tan(camera.fov * Math.PI / 360);
+    camDist = Math.max((ROWS + 5.4) / 2 / tanH, (COLS + 1.6) / 2 / (tanH * a));
+  }
+  let camDist = 14;
+  function placeCamera() {
+    const sh = shake > 0 ? (Math.random() - 0.5) * 0.25 * shake : 0;
+    const sway = state === 'start' ? Math.sin(time * 0.4) * 2.2 : (hover - 3) * 0.12;
+    camera.position.set(-1.4 + sway + sh, 1.8 + sh, camDist);
+    camera.lookAt(0, 0.85, 0);
+  }
+  function cellCenter(c, r) { const v = new THREE.Vector3(X3(c), Y3(r), 0.3).project(camera); return [(v.x + 1) / 2 * W, (1 - v.y) / 2 * H]; }
+  const ray = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), hit = new THREE.Vector3();
+  function colAt(x, y) {
+    ray.setFromCamera({ x: x / W * 2 - 1, y: -(y / H * 2 - 1) }, camera);
+    if (!ray.ray.intersectPlane(plane, hit)) return hover;
+    return Math.max(0, Math.min(COLS - 1, Math.round(hit.x + (COLS - 1) / 2)));
+  }
+
+  function draw() {
+    placeCamera();
+    const seen = new Set(['hover']);
+    for (let c = 0; c < COLS; c++) for (let r = 0; r < board[c].length; r++) {
+      const who = board[c][r], keyName = c + ':' + r, m = discMesh(keyName, who); seen.add(keyName);
+      const d = drops.find((q) => q.c === c && q.r === r);
+      const y = d && !d.done ? Y3(ROWS - 1 - d.y) : Y3(r);
+      m.position.set(X3(c), y, -0.08); m.rotation.z = 0;
+      const inLine = winLine && winLine.some(([lc, lr]) => lc === c && lr === r);
+      m.userData.mat.emissive.set(inLine ? (who === YOU ? '#ffb000' : '#ff2050') : '#000');
+      m.userData.mat.emissiveIntensity = inLine ? 0.4 + 0.4 * Math.sin(time * 10) : 0;
+    }
+    for (const [k, m] of discs) if (!seen.has(k)) { scene.remove(m); discs.delete(k); }
+    hoverDisc.visible = state === 'play' && !busy && turn === YOU;
+    hoverDisc.position.set(X3(hover), Y3(ROWS - 1) + 1.05 + Math.sin(time * 4) * 0.06, -0.08);
+    if (winLine) {
+      const a = new THREE.Vector3(X3(winLine[0][0]), Y3(winLine[0][1]), 0.32), b = new THREE.Vector3(X3(winLine[winLine.length - 1][0]), Y3(winLine[winLine.length - 1][1]), 0.32);
+      winBar.visible = true; winBar.position.copy(a).add(b).multiplyScalar(0.5);
+      winBar.scale.set(1, a.distanceTo(b) + 0.3, 1); winBar.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
+      winBar.material.opacity = 0.55 + 0.35 * Math.sin(time * 10);
+    } else winBar.visible = false;
+    // Енот: looks at the column, bobs while thinking, jumps when he wins and droops when he loses
+    const happy = banner && banner.text === 'Енот собрал четыре', sad = banner && banner.text === 'Победа!';
+    const thinkingNow = thinking > 0 || (turn === BOT && busy && !winLine);
+    raccoon.rotation.y = thinkingNow ? Math.sin(time * 6) * 0.25 : (hover - 3) * 0.08;
+    raccoon.rotation.z = sad ? -0.25 : 0;
+    raccoon.position.y = Y3(ROWS - 1) + 1.6 + (happy ? Math.abs(Math.sin(time * 9)) * 0.4 : thinkingNow ? Math.sin(time * 5) * 0.05 : 0) - (sad ? 0.35 : 0);
+    for (const sx of [-1, 1]) { const p = raccoon.userData['p' + sx]; p.position.x = sx * 0.34 + (thinkingNow ? Math.sin(time * 8) * 0.04 : (hover - 3) * 0.015); }
+    renderer.render(scene, camera);
+    // HUD on the 2D layer
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    if (state !== 'start') {
+      g.textAlign = 'center'; g.shadowColor = '#0009'; g.shadowBlur = 10;
+      g.fillStyle = '#fff'; g.font = '800 34px Manrope, system-ui'; g.fillText(score, W / 2, 96);
+      g.font = '800 13px Manrope, system-ui'; g.fillStyle = '#c9c2f0'; g.fillText(`РАУНД ${round} · ПОБЕД ПОДРЯД ${streak}`, W / 2, 118); g.shadowBlur = 0;
+      if (thinkingNow) { const [x, y] = (() => { const v = raccoon.position.clone(); v.y += 1.3; v.project(camera); return [(v.x + 1) / 2 * W, (1 - v.y) / 2 * H]; })(); g.fillStyle = '#ffffffdd'; g.font = '800 12px Manrope, system-ui'; g.fillText('Енот думает' + '.'.repeat(1 + Math.floor(time * 3) % 3), x, y); }
+    }
+    if (banner && banner.life > 0 && state === 'play') {
+      const a = Math.min(1, banner.life * 2.5), cy = H / 2;
+      g.globalAlpha = a; g.fillStyle = '#0d0f1ccc'; g.beginPath(); if (g.roundRect) g.roundRect(W / 2 - 170, cy - 46, 340, banner.sub ? 92 : 64, 18); else g.rect(W / 2 - 170, cy - 46, 340, banner.sub ? 92 : 64); g.fill();
+      g.fillStyle = '#fff'; g.font = '800 28px Manrope, system-ui'; g.textAlign = 'center'; g.fillText(banner.text, W / 2, cy - 4);
+      if (banner.sub) { g.font = '700 14px Manrope, system-ui'; g.fillStyle = '#c9c2f0'; g.fillText(banner.sub, W / 2, cy + 24); }
+      g.globalAlpha = 1;
+    }
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; time += dt;
+    step(dt);
+    if (banner) banner.life -= dt;
+    shake = Math.max(0, shake - dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight; ov.width = Math.round(W * dpr); ov.height = Math.round(H * dpr);
+    renderer.setSize(W, H, false); fitCamera();
+  }
+  function play(c) {
+    if (state !== 'play' || busy || turn !== YOU || lb.isOpen()) return;
+    unlockAudio(); hover = c;
+    drop(c, YOU);
+  }
+
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('streakStart').textContent = $('bestStreakOver').textContent = bestStreak;
+  }
+  // Once a game, an ad replays the lost round with the score and series kept.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'chetyre3d-continue', label: '🎬 Переиграть раунд за рекламу', onReward: () => {
+    chanceUsed = true; state = 'play'; $('over').hidden = true; newRound();
+  } });
+  function gameOver(why) {
+    if (state !== 'play') return;
+    state = 'over';
+    const run = { new_score: score, new_streak: streak, new_time: Math.floor(playTime) }, record = score > best;
+    if (record && score) setTimeout(() => FX.record(), 400);
+    if (record) { best = score; store.set('chetyre-best', best); runs.score = run; }
+    if (streak > bestStreak) { bestStreak = streak; store.set('chetyre-best-streak', bestStreak); runs.streak = run; }
+    store.set('chetyre-runs', JSON.stringify(runs));
+    lb.submit(run);
+    $('overWhy').textContent = why;
+    $('final').textContent = score;
+    $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + pointsWord(score);
+    $('streakOver').textContent = streak; $('roundOver').textContent = round;
+    showBests(); $('over').hidden = false;
+    if (!chanceUsed) chance.show();
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'chetyre',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за одну игру. Общая с обычными Четырьмя в ряд.', format: (v) => `${v} ${pointsWord(v)}` },
+      { id: 'streak', title: 'Серия', column: 'best_streak', order: 'desc', note: 'Больше всего побед над Енотом подряд.', format: (v) => `${v} ${winsWord(v)}` },
+    ],
+    bests: () => [runs.score, runs.streak].filter(Boolean),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  cv.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') { const c = colAt(e.clientX, e.clientY); if (c !== hover && state === 'play' && !busy) sfx.move(); hover = c; } });
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); play(colAt(e.clientX, e.clientY)); });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && e.target.closest && e.target.closest('.screen button')) return;
+    if (state === 'play') {
+      if (/^[1-7]$/.test(e.key)) { e.preventDefault(); play(+e.key - 1); }
+      else if (e.code === 'ArrowLeft') { e.preventDefault(); hover = Math.max(0, hover - 1); sfx.move(); }
+      else if (e.code === 'ArrowRight') { e.preventDefault(); hover = Math.min(COLS - 1, hover + 1); sfx.move(); }
+      else if (e.code === 'Space' || e.code === 'Enter' || e.code === 'ArrowDown') { e.preventDefault(); play(hover); }
+    } else if ((e.code === 'Space' || e.code === 'Enter') && !e.repeat && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); }
+  });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('chetyre-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  addEventListener('resize', resize);
+  resize(); board = empty(); drops = []; round = 1; streak = 0; score = 0; showBests();
+  // behind the start card: a finished position
+  for (const [c, w] of [[3, 1], [3, 2], [2, 1], [4, 2], [4, 1], [2, 2], [5, 1], [1, 2], [3, 1], [4, 2], [5, 2], [2, 1]]) board[c].push(w);
+  if (location.hash === '#preview') {
+    $('start').hidden = true; state = 'play'; round = 4; streak = 3; score = 168; turn = YOU; busy = false; hover = 1; playTime = 200;
+    step = () => {};
+  }
+  // On a local server tests can look inside.
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__chetyre3d = { get board() { return board; }, get state() { return state; }, get turn() { return turn; }, get busy() { return busy; }, get round() { return round; }, set round(v) { round = v; }, get score() { return score; }, get streak() { return streak; }, botMove: () => botMove(), play };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

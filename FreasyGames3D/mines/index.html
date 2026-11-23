@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/i18n.js?v=3" data-game="3d-mines"></script>
+<script src="../../shared/fx.js" data-mute="mines-muted"></script>
+<script src="../../shared/clips.js?v=1"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0d0f1c">
+<title>Минное поле 3D — FreasyGames 3D</title>
+<meta name="description" content="Минное поле 3D на FreasyGames: объёмные плитки проседают под пальцем, флажки качаются на древках, а мины взрываются так, что поле подпрыгивает. Те же поля и рекорды, что в 2D.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>
+  body { touch-action: manipulation; }
+  .top { position: fixed; top: 62px; left: 0; right: 0; display: flex; justify-content: center; gap: 8px; z-index: 3; pointer-events: none; }
+  .top span, .top button { pointer-events: auto; font: inherit; font-size: 15px; font-weight: 800; color: #f8f7ff; background: #1d1e31e6; border: 1px solid #ffffff24; border-radius: 100px; padding: 8px 14px; }
+  .top button { cursor: pointer; }
+  .top button[aria-pressed="true"] { background: #ffd23f; color: #171225; border-color: transparent; }
+  .top[hidden] { display: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames 3D</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+<div class="top" id="top" hidden><span id="minesLeft">💣 0</span><span id="clock">⏱ 0</span><button id="flagMode" type="button" aria-pressed="false">🚩 Флажок</button></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ 3D</div>
+    <h1>Минное поле <span>3D</span></h1>
+    <p>Открой все клетки без мин. Цифра — сколько мин вокруг клетки. Первая клетка всегда безопасна.</p>
+    <p>Флажок ставится долгим нажатием, правой кнопкой мыши или кнопкой «🚩 Флажок». Нажми на цифру, вокруг которой уже стоят все флажки, — откроются соседние клетки.</p>
+    <p>Лучшее время: <b id="bestStart">—</b> · побед: <b id="winsStart">0</b></p>
+    <button class="play" id="go" type="button">Разминировать ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Поле 10 × 14, 22 мины · рекорды общие с обычным Минным полем</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow" id="overWhy">Бум!</div>
+    <div class="big" id="final">—</div>
+    <p id="overText">Мина взорвалась</p>
+    <p>Лучшее время: <b id="bestOver">—</b> · побед: <b id="winsOver">0</b></p>
+    <button class="play" id="again" type="button">Новое поле ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<script src="../../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const cv = document.getElementById('c');
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  let best = Number(store.get('mines-best', 0)) || 0, wins = Number(store.get('mines-wins', 0)) || 0;
+  let muted = store.get('mines-muted', '0') === '1';
+  const secs = (t) => (t ? `${Math.floor(t / 60) ? Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0') : t + ' с'}` : '—');
+
+  // The same field everywhere, so times are fair in the leaderboard; it turns to fit a wide screen.
+  const C = 10, R = 14, MINES = 22;
+  let W = 0, H = 0, DPR = 1, cell = 30, ox = 0, oy = 0, wide = false;
+  let state = 'start', mines, open, flag, nums, opened, flags, startedAt = 0, elapsed = 0, firstDone, boom = null, lastT = 0, time = 0, shake = 0, parts = [];
+  const N = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];
+  const idx = (x, y) => y * C + x;
+
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    wide = W > H * 1.1;
+    renderer.setSize(W, H, false); fitCamera();
+  }
+
+  function reset() {
+    mines = new Uint8Array(C * R); open = new Uint8Array(C * R); flag = new Uint8Array(C * R); nums = new Uint8Array(C * R);
+    opened = 0; flags = 0; firstDone = false; elapsed = 0; boom = null; parts = [];
+    if (typeof clearScene === 'function') clearScene();
+  }
+  // Mines are placed after the first click, away from it, so the first click always opens an area.
+  function plant(sx, sy) {
+    let left = MINES;
+    while (left) {
+      const x = Math.floor(Math.random() * C), y = Math.floor(Math.random() * R);
+      if (mines[idx(x, y)] || (Math.abs(x - sx) <= 1 && Math.abs(y - sy) <= 1)) continue;
+      mines[idx(x, y)] = 1; left--;
+    }
+    for (let y = 0; y < R; y++) for (let x = 0; x < C; x++) nums[idx(x, y)] = N.reduce((n, [dx, dy]) => n + (inside(x + dx, y + dy) && mines[idx(x + dx, y + dy)] ? 1 : 0), 0);
+  }
+  const inside = (x, y) => x >= 0 && y >= 0 && x < C && y < R;
+
+  function reveal(x, y) {
+    const stack = [[x, y]];
+    while (stack.length) {
+      const [cx, cy] = stack.pop(), i = idx(cx, cy);
+      if (open[i] || flag[i]) continue;
+      open[i] = 1; opened++;
+      if (nums[i] === 0) for (const [dx, dy] of N) if (inside(cx + dx, cy + dy)) stack.push([cx + dx, cy + dy]);
+    }
+  }
+  function press(x, y) {
+    if (state !== 'play') return;
+    const i = idx(x, y);
+    if (!firstDone) { plant(x, y); firstDone = true; startedAt = performance.now(); }
+    if (flag[i]) return;
+    if (open[i]) {
+      // chord: a number with all its flags placed opens its other neighbours
+      const f = N.reduce((n, [dx, dy]) => n + (inside(x + dx, y + dy) && flag[idx(x + dx, y + dy)] ? 1 : 0), 0);
+      if (!nums[i] || f !== nums[i]) return;
+      for (const [dx, dy] of N) { const nx = x + dx, ny = y + dy; if (inside(nx, ny) && !flag[idx(nx, ny)] && !open[idx(nx, ny)]) { if (mines[idx(nx, ny)]) return explode(nx, ny); reveal(nx, ny); } }
+    } else {
+      if (mines[i]) return explode(x, y);
+      reveal(x, y);
+    }
+    sound('open');
+    if (opened === C * R - MINES) win();
+  }
+  function toggleFlag(x, y) {
+    if (state !== 'play') return;
+    const i = idx(x, y); if (open[i]) return;
+    flag[i] ^= 1; flags += flag[i] ? 1 : -1; sound('flag');
+    if (navigator.vibrate) navigator.vibrate(18);
+  }
+
+  function explode(x, y) {
+    boom = { x, y }; state = 'over'; shake = 0.6; elapsed = Math.floor((performance.now() - startedAt) / 1000);
+    const [px, py] = screenOf(x, y);
+    sound('boom'); FX.explode(px, py); blast(x, y);
+    setTimeout(() => {
+      if (state !== 'over') return;
+      $('overWhy').textContent = 'Бум!'; $('final').textContent = '💥';
+      $('overText').textContent = `Открыто ${Math.round(opened / (C * R - MINES) * 100)}% поля`;
+      showBests(); $('over').hidden = false;
+      if (!chanceUsed) chance.show();
+    }, 1100);
+  }
+  // Once a field, an ad defuses the mine you hit and the game goes on (the timer keeps counting).
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'mines3d-defuse', label: '🎬 Обезвредить мину за рекламу', onReward: () => {
+    chanceUsed = true; const i = idx(boom.x, boom.y); flag[i] = 1; flags++; boom = null; state = 'play';
+    startedAt = performance.now() - elapsed * 1000; $('over').hidden = true;
+  } });
+
+  function win() {
+    state = 'won'; elapsed = Math.max(1, Math.floor((performance.now() - startedAt) / 1000));
+    wins++; store.set('mines-wins', wins);
+    const record = !best || elapsed < best;
+    if (record && elapsed) setTimeout(() => FX.record(), 700);
+    if (record) { best = elapsed; store.set('mines-best', best); }
+    lb.submit({ new_time: elapsed, new_wins: wins });
+    for (let y = 0; y < R; y++) for (let x = 0; x < C; x++) if (mines[idx(x, y)] && !flag[idx(x, y)]) { flag[idx(x, y)] = 1; flags++; }
+    sound('win');
+    setTimeout(() => {
+      $('overWhy').textContent = 'Поле разминировано!'; $('final').textContent = secs(elapsed);
+      $('overText').innerHTML = record ? '<span class="new">Новый рекорд!</span>' : 'время';
+      showBests(); $('over').hidden = false;
+    }, 700);
+  }
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = secs(best);
+    $('winsStart').textContent = $('winsOver').textContent = wins;
+  }
+  function start() {
+    reset(); state = 'play'; chanceUsed = false; chance.hide(); flagMode = false; $('flagMode').setAttribute('aria-pressed', 'false');
+    $('start').hidden = true; $('over').hidden = true; $('top').hidden = false;
+    unlockAudio();
+  }
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (ac && ac.state === 'suspended') ac.resume(); }
+  function tone(f, dur, type, vol, slide = 1, delay = 0) {
+    if (!ac || muted) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function sound(kind) {
+    { const t = ({ open: 'soft', flag: 'tap', boom: 'boom', win: 'win' })[kind]; if (t && window.FX) FX.on(t, undefined); }
+    if (kind === 'boom') FX.shake(14, 600);
+    if (kind === 'open') tone(700 + Math.random() * 200, 0.05, 'triangle', 0.06);
+    else if (kind === 'flag') tone(520, 0.08, 'square', 0.05, 1.4);
+    else if (kind === 'boom') { tone(120, 0.7, 'sawtooth', 0.15, 0.3); tone(60, 0.6, 'sine', 0.3, 0.5); }
+    else if (kind === 'win') [0, 4, 7, 12, 16].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.18, 'square', 0.05, 1, i * 0.08));
+  }
+
+  // ——— 3D ———
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); } catch (e) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="screen"><div class="box"><h1><span>3D</span> не запускается</h1><p>Браузер не поддерживает WebGL. Сыграй в обычное Минное поле.</p><a class="play" style="text-decoration:none;display:block" href="../../mines/">Обычное Минное поле ↗</a></div></div>');
+    throw e;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const scene = new THREE.Scene(); scene.background = new THREE.Color('#141327'); scene.fog = new THREE.Fog('#141327', 26, 60);
+  const camera = new THREE.PerspectiveCamera(40, 1, 0.3, 120);
+  FX.bind3(camera, cv);
+  scene.add(new THREE.HemisphereLight('#e6deff', '#1d1838', 0.6));
+  const sun = new THREE.DirectionalLight('#fff3e0', 0.85); sun.position.set(-6, 14, 8); sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -11, right: 11, top: 11, bottom: -11, near: 1, far: 40 }); scene.add(sun);
+  const rim = new THREE.DirectionalLight('#8f7dff', 0.35); rim.position.set(8, 4, -8); scene.add(rim);
+  const field = new THREE.Group(); scene.add(field);
+  // the table under the field
+  const table = new THREE.Mesh(new THREE.BoxGeometry(C + 1.2, 0.5, R + 1.2), new THREE.MeshStandardMaterial({ color: '#221f3d', roughness: 0.8 }));
+  table.position.y = -0.27; table.receiveShadow = true; field.add(table);
+  const rimMat = new THREE.MeshStandardMaterial({ color: '#3a3466', roughness: 0.5 });
+  for (const [w, d, x, z] of [[C + 1.4, 0.3, 0, -(R + 1.1) / 2], [C + 1.4, 0.3, 0, (R + 1.1) / 2], [0.3, R + 1.4, -(C + 1.1) / 2, 0], [0.3, R + 1.4, (C + 1.1) / 2, 0]]) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.5, d), rimMat); m.position.set(x, 0.05, z); m.castShadow = true; m.receiveShadow = true; field.add(m);
+  }
+  const X3 = (x) => x - (C - 1) / 2, Z3 = (y) => y - (R - 1) / 2;
+  // tiles: a raised cap while closed, sinking into a dark slot when opened
+  const tileGeo = new THREE.BoxGeometry(0.9, 1, 0.9);
+  const closedMat = new THREE.MeshStandardMaterial({ color: '#4a4086', roughness: 0.45, metalness: 0.05 });
+  const hoverMat = new THREE.MeshStandardMaterial({ color: '#5d52a6', roughness: 0.45 });
+  const openMat = new THREE.MeshStandardMaterial({ color: '#1a1a30', roughness: 0.9 });
+  const boomMat = new THREE.MeshStandardMaterial({ color: '#c8343b', roughness: 0.6, emissive: '#5a0a10', emissiveIntensity: 0.6 });
+  const tiles = [];
+  for (let y = 0; y < R; y++) for (let x = 0; x < C; x++) {
+    const m = new THREE.Mesh(tileGeo, closedMat); m.position.set(X3(x), 0.18, Z3(y)); m.scale.y = 0.36; m.castShadow = true; m.receiveShadow = true;
+    m.userData = { h: 0.36, vy: 0, lift: 0, spin: 0 }; field.add(m); tiles.push(m);
+  }
+  // numbers: flat labels with the 2D colours
+  const COLORS = ['', '#6fe3ff', '#5df2a5', '#ff7a8a', '#bca0ff', '#ffb24d', '#4fd1c5', '#ffffff', '#c9c5dc'];
+  const numMats = COLORS.map((col, n) => {
+    if (!n) return null;
+    const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
+    x.font = '800 96px Manrope, system-ui'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = col; x.shadowColor = col; x.shadowBlur = 14; x.fillText(n, 64, 70);
+    return new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false });
+  });
+  const numGeo = new THREE.PlaneGeometry(0.8, 0.8);
+  const labels = [];
+  // flags and mines
+  const poleMat = new THREE.MeshStandardMaterial({ color: '#d1cde5', metalness: 0.6, roughness: 0.3 });
+  const clothMat = new THREE.MeshStandardMaterial({ color: '#ffd23f', roughness: 0.5, side: THREE.DoubleSide, emissive: '#5a4300', emissiveIntensity: 0.3 });
+  const wrongMat = new THREE.MeshStandardMaterial({ color: '#ff7a8a', roughness: 0.5, side: THREE.DoubleSide });
+  const clothGeo = new THREE.BufferGeometry(); clothGeo.setAttribute('position', new THREE.Float32BufferAttribute([0, 0.62, 0, 0.38, 0.5, 0, 0, 0.36, 0], 3)); clothGeo.computeVertexNormals();
+  function makeFlag() {
+    const g = new THREE.Group();
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.66, 8), poleMat); pole.position.y = 0.33; pole.castShadow = true; g.add(pole);
+    const cloth = new THREE.Mesh(clothGeo, clothMat); cloth.castShadow = true; g.add(cloth); g.userData.cloth = cloth;
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 0.05, 12), poleMat); g.add(base);
+    return g;
+  }
+  const mineMat = new THREE.MeshStandardMaterial({ color: '#15141f', roughness: 0.35, metalness: 0.5 });
+  function makeMine() {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.24, 16, 12), mineMat); body.castShadow = true; g.add(body);
+    for (const [ax, ay, az] of [[1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 0], [1, -1, 0], [0, 1, 1], [0, 1, -1]]) {
+      const s = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.7, 6), mineMat);
+      s.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(ax, ay, az).normalize()); g.add(s);
+    }
+    const shine = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), new THREE.MeshBasicMaterial({ color: '#ffffff' })); shine.position.set(-0.09, 0.12, 0.13); g.add(shine);
+    return g;
+  }
+  const flagObjs = [], mineObjs = [];
+
+  let camDist = 20, hoverCell = -1;
+  function fitCamera() {
+    const a = W / Math.max(1, H);
+    camera.aspect = a; camera.updateProjectionMatrix();
+    field.rotation.y = wide ? -Math.PI / 2 : 0;
+    const across = (wide ? R : C) + 2.4, deep = (wide ? C : R) + 2.4;
+    const tanH = Math.tan(camera.fov * Math.PI / 360);
+    camDist = Math.max((deep * 0.82 + 3.4) / 2 / tanH, across / 2 / (tanH * a));
+  }
+  function placeCamera() {
+    const sh = shake > 0 ? (Math.random() - 0.5) * 0.5 * shake : 0;
+    const sway = state === 'start' ? Math.sin(time * 0.3) * 0.25 : 0;
+    camera.position.set(Math.sin(sway) * camDist * 0.62 + sh, camDist * 0.8 + sh, Math.cos(sway) * camDist * 0.62 + 0.4);
+    camera.lookAt(0, 0, 0.9);
+  }
+  const ray = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.36), hit = new THREE.Vector3();
+  function fromScreen(px, py) {
+    ray.setFromCamera({ x: px / W * 2 - 1, y: -(py / H * 2 - 1) }, camera);
+    if (!ray.ray.intersectPlane(plane, hit)) return null;
+    const p = field.worldToLocal(hit.clone());
+    const x = Math.round(p.x + (C - 1) / 2), y = Math.round(p.z + (R - 1) / 2);
+    return x >= 0 && y >= 0 && x < C && y < R ? [x, y] : null;
+  }
+  function screenOf(x, y, h = 0.4) { const v = field.localToWorld(new THREE.Vector3(X3(x), h, Z3(y))).project(camera); return [(v.x + 1) / 2 * W, (1 - v.y) / 2 * H]; }
+  function blast(x, y) { // the tiles around the mine jump up
+    for (let yy = 0; yy < R; yy++) for (let xx = 0; xx < C; xx++) {
+      const d = Math.hypot(xx - x, yy - y); if (d > 3.2) continue;
+      const t = tiles[idx(xx, yy)].userData; t.vy = (3.4 - d) * 2.6; t.spin = (Math.random() - 0.5) * 6;
+    }
+  }
+
+  function draw(dt) {
+    placeCamera();
+    for (let y = 0; y < R; y++) for (let x = 0; x < C; x++) {
+      const i = idx(x, y), m = tiles[i], u = m.userData;
+      const isOpen = !!(mines && open[i]);
+      const target = isOpen ? 0.06 : 0.36;
+      u.h += (target - u.h) * Math.min(1, dt * 14);
+      u.vy -= 18 * dt; u.lift = Math.max(0, u.lift + u.vy * dt); if (u.lift === 0) { u.vy = 0; u.spin *= 0.8; }
+      m.scale.y = u.h; m.position.y = u.h / 2 + u.lift; m.rotation.x = u.lift * u.spin * 0.3; m.rotation.z = u.lift * u.spin * 0.2;
+      m.material = boom && boom.x === x && boom.y === y ? boomMat : isOpen ? openMat : (i === hoverCell && state === 'play' ? hoverMat : closedMat);
+      // number label
+      const n = isOpen ? nums[i] : 0;
+      if (n && !labels[i]) { const l = new THREE.Mesh(numGeo, numMats[n]); l.rotation.x = -Math.PI / 2; l.position.set(X3(x), 0.075, Z3(y)); field.add(l); labels[i] = l; }
+      if (labels[i]) { labels[i].visible = !!n; labels[i].position.y = u.h + u.lift + 0.012; labels[i].rotation.z = wide ? Math.PI / 2 : 0; }
+      // flag
+      const hasFlag = !!(mines && flag[i]);
+      if (hasFlag && !flagObjs[i]) { flagObjs[i] = makeFlag(); field.add(flagObjs[i]); flagObjs[i].userData.t = 0; }
+      if (flagObjs[i]) {
+        const f = flagObjs[i]; f.visible = hasFlag;
+        if (hasFlag) { f.userData.t = Math.min(1, f.userData.t + dt * 5); const s = f.userData.t; f.scale.set(s, s, s); f.position.set(X3(x), u.h + u.lift, Z3(y)); f.rotation.y = (wide ? Math.PI / 2 : 0) + Math.sin(time * 3 + i) * 0.15; f.userData.cloth.material = state === 'over' && !mines[i] ? wrongMat : clothMat; }
+        else f.userData.t = 0;
+      }
+      // mine shown after the game
+      const showMine = !!(mines && (state === 'over' || state === 'won') && mines[i] && !flag[i]);
+      if (showMine && !mineObjs[i]) { mineObjs[i] = makeMine(); field.add(mineObjs[i]); }
+      if (mineObjs[i]) { mineObjs[i].visible = showMine; mineObjs[i].position.set(X3(x), u.h + u.lift + 0.24, Z3(y)); mineObjs[i].rotation.y = time * 0.6 + i; }
+    }
+    renderer.render(scene, camera);
+    if (state === 'play' && mines) {
+      $('minesLeft').textContent = `💣 ${MINES - flags}`;
+      $('clock').textContent = `⏱ ${firstDone ? Math.floor((performance.now() - startedAt) / 1000) : 0}`;
+    }
+  }
+  function frame(now) {
+    const dt = Math.min(0.05, (now - lastT) / 1000 || 0); lastT = now; time += dt;
+    shake = Math.max(0, shake - dt);
+    draw(dt);
+    requestAnimationFrame(frame);
+  }
+  function clearScene() { // a new field: drop old labels, flags and mines
+    for (const arr of [labels, flagObjs, mineObjs]) { for (const o of arr) if (o) field.remove(o); arr.length = 0; }
+    for (const t of tiles) Object.assign(t.userData, { lift: 0, vy: 0, spin: 0 });
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'mines',
+    boards: [
+      { id: 'time', title: 'Время', column: 'best_time', order: 'asc', note: 'Быстрее всех разминировали поле 10 × 14 с 22 минами. Общая с обычным Минным полем.', format: secs },
+      { id: 'wins', title: 'Победы', column: 'wins', order: 'desc', note: 'Больше всего разминированных полей.', format: (v) => `${v}` },
+    ],
+    bests: () => (best ? { new_time: best, new_wins: wins } : null),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  // Tap — open (or flag in flag mode); long press or right click — flag.
+  let flagMode = false, holdTimer = null, held = false;
+  cv.addEventListener('contextmenu', (e) => e.preventDefault());
+  cv.addEventListener('pointerdown', (e) => {
+    unlockAudio(); const c = fromScreen(e.clientX, e.clientY); if (!c) return;
+    if (e.button === 2) { toggleFlag(...c); return; }
+    held = false; clearTimeout(holdTimer);
+    holdTimer = setTimeout(() => { held = true; toggleFlag(...c); }, 380);
+  });
+  cv.addEventListener('pointerup', (e) => {
+    if (e.button === 2) return;
+    clearTimeout(holdTimer); if (held) return;
+    const c = fromScreen(e.clientX, e.clientY); if (!c) return;
+    if (flagMode && !open[idx(...c)]) toggleFlag(...c); else press(...c);
+  });
+  cv.addEventListener('pointercancel', () => clearTimeout(holdTimer));
+  cv.addEventListener('pointermove', (e) => { if (holdTimer && (Math.abs(e.movementX) + Math.abs(e.movementY) > 6)) clearTimeout(holdTimer); const c = fromScreen(e.clientX, e.clientY); hoverCell = c ? idx(...c) : -1; });
+  $('flagMode').addEventListener('click', () => { flagMode = !flagMode; $('flagMode').setAttribute('aria-pressed', String(flagMode)); });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.target.closest && e.target.closest('.box button, a, .top button')) return;
+    if (e.code === 'KeyF' && state === 'play') { $('flagMode').click(); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && state !== 'play' && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); }
+  });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('mines-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; });
+  addEventListener('resize', resize);
+  resize(); reset(); showBests();
+  // #preview: a field in progress, for the catalog.
+  if (location.hash === '#preview') {
+    start(); press(4, 7); let f = 0;
+    for (let y = 0; y < R && f < 6; y++) for (let x = 0; x < C && f < 6; x++) { const i = idx(x, y); if (mines[i] && !flag[i] && N.some(([dx, dy]) => inside(x + dx, y + dy) && open[idx(x + dx, y + dy)])) { toggleFlag(x, y); f++; } }
+    startedAt = performance.now() - 41000;
+  }
+  // For automated checks only (?test=1).
+  if (new URLSearchParams(location.search).get('test') === '1') window.__mines3d = { get: () => ({ state, mines, open, flag, nums, C, R }), press, toggleFlag, scene, labels };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

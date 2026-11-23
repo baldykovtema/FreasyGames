@@ -7,7 +7,7 @@
 <script src="../shared/theme.js?v=1"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0d0f1c">
-  <meta name="description" content="FreasyGames 3D — бесплатные 3D-игры прямо в браузере: RCFCG 3D, Растения против Зомби 3D, Мемный Кот: Прыг 3D, Отель «Полночь», Трасса 3D, Шариковый рекорд 3D, Лиана 3D, Слияние звёзд 3D, Звёздная башня 3D, Кирпичики 3D, Нарезка 3D, Лабиринт 3D, Блоки 3D, Лунка 3D, Аэрохоккей 3D, Бревно 3D, Колбы 3D, Танкодром 3D, Грузчик 3D, Мостик 3D и Посадка 3D.">
+  <meta name="description" content="FreasyGames 3D — бесплатные 3D-игры прямо в браузере: RCFCG 3D, Растения против Зомби 3D, Мемный Кот: Прыг 3D, Отель «Полночь», Трасса 3D, Шариковый рекорд 3D, Лиана 3D, Слияние звёзд 3D, Звёздная башня 3D, Кирпичики 3D, Нарезка 3D, Лабиринт 3D, Блоки 3D, Лунка 3D, Аэрохоккей 3D, Бревно 3D, Колбы 3D, Танкодром 3D, Грузчик 3D, Мостик 3D, Посадка 3D, Четыре в ряд 3D и Минное поле 3D.">
   <title>FreasyGames 3D</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -303,6 +303,10 @@
     .art.tubes3d { background: #111321 url(../images/kolby3d.jpg) 50% 55% / 140% auto no-repeat; }
     .art.tank3d { background: #111a14 url(../images/tankodrom3d.jpg) 50% 45% / 150% auto no-repeat; }
     .art.crate3d { background: #1b1712 url(../images/gruzchik3d.jpg) 50% 50% / 140% auto no-repeat; }
+    .art.four3d { background: #15122c url(../images/chetyre3d.jpg) 50% 45% / 150% auto no-repeat; }
+    .art.mines3d { background: #141327 url(../images/mines3d.jpg) 50% 45% / 150% auto no-repeat; }
+    .art.four3d::after, .art.mines3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, var(--card)); pointer-events: none; }
+    .art .pct.fourp { color: #ffd23f; font-size: 13px; } .art .pct.minesp { color: #ff7a8a; font-size: 13px; }
     .art.bridge3d { background: #2b1f5c url(../images/mostik3d.jpg) 30% 55% / 150% auto no-repeat; }
     .art.lander3d { background: #0b0d1c url(../images/posadka3d.jpg) 50% 60% / 140% auto no-repeat; }
     .art.bridge3d::after, .art.lander3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, var(--card)); pointer-events: none; }
@@ -359,7 +363,7 @@
     <section class="wrap hero">
       <span class="eyebrow">Только 3D</span>
       <h1>Freasy<span class="three">Games 3D</span></h1>
-      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже тридцать игр, и будут ещё.</p>
+      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже тридцать две игры, и будут ещё.</p>
       <a class="hero-action" href="#games">Смотреть игры ↓</a>
       <div class="hint">Двигай мышкой или пальцем — сцена повернётся</div>
     </section>
@@ -449,6 +453,10 @@
           <span class="tag live">Играть</span><h3>Мостик 3D</h3><p>Объёмные колонны на фоне закатных гор, золотой мостик падает с тенью, герой в повязке шагает по нему. Те же правила, серии и рекорды, что в 2D.</p></div>
         <div class="slot game" data-game="3d-posadka" data-tags="Аркада, Космос, Таблица лидеров"><a class="slot-link" href="posadka/" aria-label="Играть: Посадка 3D"></a><div class="art lander3d" aria-hidden="true"><span class="pct landerp">Площадка ×3</span></div>
           <span class="tag live">Играть</span><h3>Посадка 3D</h3><p>Объёмная ракета с пламенем и светом, горы чужой планеты и светящиеся площадки, камера подлетает к ракете у самой земли. Те же планеты, площадки и рекорды, что в 2D.</p></div>
+        <div class="slot game" data-game="3d-chetyre" data-tags="Стратегия, Против компьютера, Таблица лидеров"><a class="slot-link" href="chetyre/" aria-label="Играть: Четыре в ряд 3D"></a><div class="art four3d" aria-hidden="true"><span class="pct fourp">Раунд 4</span></div>
+          <span class="tag live">Играть</span><h3>Четыре в ряд 3D</h3><p>Пластиковая доска с круглыми окнами, фишки падают в колонки с отскоком, а Енот выглядывает из-за доски и следит за каждым ходом. Те же раунды и рекорды, что в 2D.</p></div>
+        <div class="slot game" data-game="3d-mines" data-tags="Головоломка, Таблица лидеров"><a class="slot-link" href="mines/" aria-label="Играть: Минное поле 3D"></a><div class="art mines3d" aria-hidden="true"><span class="pct minesp">💣 22</span></div>
+          <span class="tag live">Играть</span><h3>Минное поле 3D</h3><p>Объёмные плитки проседают под пальцем, флажки качаются на древках, а взрыв подбрасывает соседние клетки. То же поле 10 × 14 и общие с 2D рекорды по времени.</p></div>
       </div>
     </section>
 
