@@ -1,0 +1,28 @@
+// English texts of this game: {"Russian text": "English"}.
+FreasyI18n.add({
+"Пятнашки — FreasyGames": "Fifteen — FreasyGames",
+"Пятнашки": "Fifteen",
+"🔢 Новая игра": "🔢 New game",
+"☰ Поле": "☰ Board",
+"⟲ Перемешать": "⟲ Shuffle",
+"Расставь числа по порядку, от 1 в левом верхнем углу, а пустую клетку оставь в правом нижнем.": "Put the numbers in order, starting with 1 in the top left corner, and leave the empty cell in the bottom right.",
+"Касание плитки в одном ряду или столбце с пустой клеткой сдвигает сразу все плитки между ними. Можно и смахивать.": "Tapping a tile in the same row or column as the empty cell slides every tile between them at once. You can swipe too.",
+"Лучшее время 4×4:": "Best 4×4 time:",
+"· собрано:": "· solved:",
+"Играть ↗": "Play ↗",
+"Касание, смахивание или стрелки · в таблицу идёт время на поле 4×4": "Tap, swipe or arrows · the leaderboard counts the 4×4 time",
+"Собрано!": "Solved!",
+"Ещё раз ↗": "Again ↗",
+"Выбрать поле": "Choose a board",
+"ход": "move",
+"хода": "moves",
+"ходов": "moves",
+"Поле": "Board",
+"собрано!": "solved!",
+"лучшее на": "best on",
+"лучшее": "best",
+"Время 4×4": "Time 4×4",
+"Быстрее всех собрали поле 4×4.": "Solved the 4×4 board the fastest.",
+"Собрано": "Solved",
+"Больше всего собранных полей любого размера.": "Most boards solved, any size."
+});

@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/i18n.js?v=3" data-game="3d-lampochki"></script>
+<script src="../../shared/fx.js" data-mute="lampochki-muted"></script>
+<script src="../../shared/clips.js?v=1"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0d0f1c">
+<title>Лампочки 3D — FreasyGames 3D</title>
+<meta name="description" content="Лампочки 3D на FreasyGames: стеклянные лампы в патронах светятся и освещают комнату. Погаси их все — и комнату заполнят светлячки. Те же уровни и рекорды, что в 2D.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>#ov { pointer-events: none; }</style>
+<style>
+  .bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: max(16px, env(safe-area-inset-bottom)); z-index: 3; display: flex; gap: 10px; }
+  .bar[hidden] { display: none; }
+  .bar button { height: 48px; padding: 0 16px; border-radius: 14px; border: 1px solid #ffffff2a; background: #1d1e31dd; color: #f8f7ff; font: 800 15px Manrope, system-ui; backdrop-filter: blur(6px); cursor: pointer; }
+  .bar button:disabled { opacity: .4; cursor: default; }
+  .bar button:not(:disabled):hover { background: #2a2b45; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="ov"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames 3D</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+<div class="bar" id="bar" hidden><button type="button" id="undo">↶ Отменить</button><button type="button" id="hint">💡 Подсказка</button><button type="button" id="reset">⟲ Заново</button></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ 3D</div>
+    <h1>Лампочки <span>3D</span></h1>
+    <p>Нажатие переключает лампу и её соседей сверху, снизу, слева и справа. Погаси все лампы — и уровень пройден.</p>
+    <p>Уложился в цель по ходам — три звезды. Поля растут от 3×3 до 7×7, на больших появляются камни. Уровни, прогресс и рекорды общие с обычными Лампочками.</p>
+    <p>Уровень: <b id="levelStart">1</b> · очков: <b id="scoreStart">0</b></p>
+    <button class="play" id="go" type="button">Играть ↗</button>
+    <button class="ghost" type="button" id="restart">Начать с первого уровня</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Касание или клик по лампе · Z — отменить</div>
+  </div>
+</div>
+
+<div class="screen" id="done" hidden>
+  <div class="box">
+    <div class="eyebrow" id="doneWhy">Все лампы погашены!</div>
+    <div class="big" id="doneStars">★★★</div>
+    <p id="doneText"></p>
+    <p>Всего очков: <b id="doneScore">0</b></p>
+    <button class="play" id="next" type="button">Следующий уровень ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<script src="../../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), ov = $('ov'), g = ov.getContext('2d');
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const movesWord = (n) => plural(n, 'ход', 'хода', 'ходов');
+  const pointsWord = (n) => plural(n, 'очко', 'очка', 'очков');
+  const levelsWord = (n) => plural(n, 'уровень', 'уровня', 'уровней');
+
+  // Progress is kept on this device: the level to play and the score for all passed levels.
+  let level = Math.max(1, +store.get('lampochki-level', 1) || 1), total = +store.get('lampochki-score', 0) || 0;
+  let muted = store.get('lampochki-muted', '0') === '1';
+  FX.muted = () => muted;
+  let W = 0, H = 0, dpr = 1, cell = 60, bx = 0, by = 0;
+  let state = 'start', N, lit, stone, solution, par, moves, history, hintCell = -1, hintsUsed = 0, glow, ripples = [], time = 0, winT = 0, rng;
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'square', v = 0.06, slide = 1, delay = 0) {
+    if (muted || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  const sfx = {
+    // the pitch follows how many lamps are still on: fewer — higher
+    press: (left) => { tone(220 + (1 - left) * 520, 0.08, 'triangle', 0.07); tone(1600, 0.02, 'square', 0.02); },
+    stone: () => { tone(120, 0.1, 'square', 0.06, 0.7); },
+    undo: () => tone(500, 0.06, 'sine', 0.05, 0.6),
+    hint: () => [0, 7].forEach((s, i) => tone(880 * Math.pow(2, s / 12), 0.12, 'sine', 0.05, 1, i * 0.08)),
+    win: (stars) => [0, 4, 7, 12, 16, 19].slice(0, 3 + stars).forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.18, 'triangle', 0.08, 1, i * 0.08)),
+  };
+
+  // ——— Levels ———
+  // A seeded random generator: the same level number is the same puzzle for everyone.
+  function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  const sizeFor = (n) => (n <= 3 ? 3 : n <= 7 ? 4 : n <= 14 ? 5 : n <= 22 ? 6 : 7);
+  const neighbours = (i) => { const x = i % N, y = Math.floor(i / N), out = [i]; if (x > 0) out.push(i - 1); if (x < N - 1) out.push(i + 1); if (y > 0) out.push(i - N); if (y < N - 1) out.push(i + N); return out; };
+  // The puzzle is made by pressing random cells of a dark board, so it can always be solved;
+  // the presses themselves are the solution (pressing a cell twice cancels it out).
+  function buildLevel() {
+    rng = mulberry(level * 7919 + 17);
+    N = sizeFor(level);
+    stone = new Array(N * N).fill(false);
+    if (N >= 5) { const stones = Math.min(1 + Math.floor((level - 8) / 3), N - 2); let k = 0; while (k < stones) { const i = Math.floor(rng() * N * N); if (!stone[i]) { stone[i] = true; k++; } } }
+    const presses = Math.min(N * N - 2, Math.round(N + 1 + (level % 4) + Math.min(6, level / 4)));
+    for (let tries = 0; tries < 20; tries++) {
+      lit = new Array(N * N).fill(false); solution = new Array(N * N).fill(false);
+      let k = 0;
+      while (k < presses) { const i = Math.floor(rng() * N * N); if (stone[i] || solution[i]) continue; solution[i] = true; k++; for (const j of neighbours(i)) lit[j] = !lit[j]; }
+      if (lit.some(Boolean)) break;
+    }
+    par = solution.filter(Boolean).length;
+    moves = 0; history = []; hintCell = -1; hintsUsed = 0; glow = lit.map((v) => (v ? 1 : 0)); winT = 0;
+    $('undo').disabled = true;
+  }
+
+  function press(i, quiet = false) {
+    if (stone[i]) { if (!quiet) { sfx.stone(); ripples.push({ i, t: 0, col: '#ff7a8a' }); } return false; }
+    for (const j of neighbours(i)) lit[j] = !lit[j];
+    solution[i] = !solution[i];
+    return true;
+  }
+  function play(i) {
+    if (state !== 'play' || lb.isOpen()) return;
+    unlockAudio();
+    if (!press(i)) return;
+    moves++; history.push(i); $('undo').disabled = false;
+    if (hintCell === i) hintCell = -1;
+    const left = lit.filter(Boolean).length / (N * N);
+    sfx.press(left); ripples.push({ i, t: 0, col: '#ffd23f' });
+    if (!lit.some(Boolean)) win();
+  }
+  function undo() {
+    if (state !== 'play' || !history.length) return;
+    const i = history.pop(); press(i, true); moves--; sfx.undo(); ripples.push({ i, t: 0, col: '#bca0ff' });
+    $('undo').disabled = !history.length;
+  }
+  function hint() {
+    if (state !== 'play') return;
+    const cells = solution.map((v, i) => (v ? i : -1)).filter((i) => i >= 0);
+    if (!cells.length) return;
+    hintCell = cells[Math.floor(Math.random() * cells.length)]; hintsUsed++; sfx.hint();
+  }
+  function starsFor() { let s = moves <= par ? 3 : moves <= par + Math.max(3, N) ? 2 : 1; if (hintsUsed) s = Math.min(s, 2); return s; }
+  function win() {
+    state = 'won'; winT = 0;
+    const stars = starsFor(), pts = 40 + N * 20 + stars * 30;
+    total += pts; const passed = level; level++;
+    store.set('lampochki-level', level); store.set('lampochki-score', total);
+    lb.submit({ new_score: total, new_level: passed });
+    sfx.win(stars);
+    FX.win(); if (stars === 3) FX.text(innerWidth / 2, innerHeight * 0.3, '★★★', '#ffd23f', 44);
+    $('bar').hidden = true;
+    setTimeout(() => {
+      if (state !== 'won') return;
+      $('doneStars').textContent = '★'.repeat(stars) + '☆'.repeat(3 - stars);
+      $('doneWhy').textContent = `Уровень ${passed} пройден!`;
+      $('doneText').textContent = `${moves} ${movesWord(moves)} · цель ${par} · +${pts} ${pointsWord(pts)}` + (hintsUsed ? ' · с подсказкой' : '');
+      $('doneScore').textContent = total;
+      $('done').hidden = false;
+    }, 1100);
+  }
+  function startLevel() { buildLevel(); state = 'play'; $('start').hidden = true; $('done').hidden = true; $('bar').hidden = false; layout(); }
+
+  // ——— 3D ———
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); } catch (e) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="screen"><div class="box"><h1><span>3D</span> не запускается</h1><p>Браузер не поддерживает WebGL. Сыграй в обычные Лампочки.</p><a class="play" style="text-decoration:none;display:block" href="../../lampochki/">Обычные Лампочки ↗</a></div></div>');
+    throw e;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const scene = new THREE.Scene(); const bgCol = new THREE.Color('#120f22'); scene.background = bgCol;
+  const camera = new THREE.PerspectiveCamera(38, 1, 0.3, 120);
+  FX.bind3(camera, cv);
+  const hemi = new THREE.HemisphereLight('#d9d0ff', '#1a1430', 0.35); scene.add(hemi);
+  const key = new THREE.DirectionalLight('#fff0dc', 0.35); key.position.set(-4, 10, 7); key.castShadow = true;
+  key.shadow.mapSize.set(1024, 1024); Object.assign(key.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6, near: 1, far: 30 }); scene.add(key);
+  // the whole room is lit by the bulbs: one warm light whose strength follows how many are on
+  const roomLight = new THREE.PointLight('#ffcf7a', 0, 30); roomLight.position.set(0, 4, 2); scene.add(roomLight);
+  const board = new THREE.Group(); scene.add(board);
+  const plateMat = new THREE.MeshStandardMaterial({ color: '#2a2440', roughness: 0.7, metalness: 0.1 });
+  const socketMat = new THREE.MeshStandardMaterial({ color: '#8a84a6', roughness: 0.35, metalness: 0.8 });
+  const wireMat = new THREE.MeshStandardMaterial({ color: '#3a3456', roughness: 0.6 });
+  const glassGeo = new THREE.SphereGeometry(0.34, 28, 20), socketGeo = new THREE.CylinderGeometry(0.17, 0.19, 0.26, 18);
+  const coilGeo = new THREE.TorusGeometry(0.08, 0.018, 6, 20), stoneGeo = new THREE.DodecahedronGeometry(0.36, 0);
+  const stoneMat = new THREE.MeshStandardMaterial({ color: '#4c4666', roughness: 0.95, flatShading: true });
+  // a soft halo sprite around a lit bulb
+  const haloTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d'); const gr = x.createRadialGradient(64, 64, 4, 64, 64, 64); gr.addColorStop(0, 'rgba(255,220,140,0.9)'); gr.addColorStop(0.35, 'rgba(255,190,90,0.35)'); gr.addColorStop(1, 'rgba(255,190,90,0)'); x.fillStyle = gr; x.fillRect(0, 0, 128, 128); return new THREE.CanvasTexture(c); })();
+  let built = 0, bulbs = [];
+  const P3 = (i) => [(i % N) - (N - 1) / 2, ((N - 1) / 2 - Math.floor(i / N))];
+  function buildBoard() {
+    if (built === N && bulbs.length === N * N && bulbs.every((b, i) => b.stone === stone[i])) return;
+    while (board.children.length) board.remove(board.children[0]);
+    bulbs = []; built = N;
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(N + 0.5, N + 0.5, 0.3), plateMat); plate.position.z = -0.32; plate.receiveShadow = true; board.add(plate);
+    for (let k = 0; k < N; k++) {
+      const h = new THREE.Mesh(new THREE.BoxGeometry(N - 1, 0.05, 0.05), wireMat); h.position.set(0, (N - 1) / 2 - k, -0.15); board.add(h);
+      const v = new THREE.Mesh(new THREE.BoxGeometry(0.05, N - 1, 0.05), wireMat); v.position.set(k - (N - 1) / 2, 0, -0.15); board.add(v);
+    }
+    for (let i = 0; i < N * N; i++) {
+      const [x, y] = P3(i), grp = new THREE.Group(); grp.position.set(x, y, 0); board.add(grp);
+      const b = { grp, stone: stone[i] };
+      if (stone[i]) {
+        const rock = new THREE.Mesh(stoneGeo, stoneMat); rock.rotation.set(i, i * 2, 0); rock.position.z = 0.05; rock.castShadow = true; grp.add(rock);
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 8), new THREE.MeshStandardMaterial({ color: '#ffd23f', emissive: '#ffd23f', emissiveIntensity: 0 })); eye.position.set(0, -0.12, 0.36); grp.add(eye);
+        b.eye = eye;
+      } else {
+        const socket = new THREE.Mesh(socketGeo, socketMat); socket.rotation.x = Math.PI / 2; socket.position.z = -0.08; socket.castShadow = true; grp.add(socket);
+        const glassMat = new THREE.MeshPhysicalMaterial({ color: '#ffffff', roughness: 0.08, metalness: 0, transparent: true, opacity: 0.55, emissive: '#ffb84d', emissiveIntensity: 0, clearcoat: 1 });
+        const glass = new THREE.Mesh(glassGeo, glassMat); glass.position.z = 0.26; grp.add(glass);
+        const coilMat = new THREE.MeshBasicMaterial({ color: '#6a6280' });
+        const coil = new THREE.Mesh(coilGeo, coilMat); coil.position.z = 0.26; grp.add(coil);
+        const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
+        halo.scale.set(1.9, 1.9, 1); halo.position.z = 0.3; grp.add(halo);
+        Object.assign(b, { glass, coil, halo });
+      }
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.44, 0.03, 8, 40), new THREE.MeshBasicMaterial({ color: '#6fe3ff', transparent: true, opacity: 0 })); ring.position.z = 0.3; grp.add(ring); b.ring = ring;
+      bulbs.push(b);
+    }
+  }
+  // fireflies when the room goes dark
+  const flies = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({ color: '#d6ff7a', size: 0.09, transparent: true, opacity: 0 }));
+  { const p = []; for (let k = 0; k < 90; k++) p.push((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 9, Math.random() * 3); flies.geometry.setAttribute('position', new THREE.Float32BufferAttribute(p, 3)); }
+  scene.add(flies);
+
+  let camDist = 12;
+  function fitCamera() {
+    const a = W / Math.max(1, H); camera.aspect = a; camera.updateProjectionMatrix();
+    const tanH = Math.tan(camera.fov * Math.PI / 360), s = (N || 3) + 1.4;
+    camDist = Math.max((s + 2.6) / 2 / tanH, s / 2 / (tanH * a));
+  }
+  function placeCamera() {
+    const sway = state === 'start' ? Math.sin(time * 0.4) * 0.35 : 0.12;
+    camera.position.set(Math.sin(sway) * camDist * 0.35, -camDist * 0.32, camDist * 0.95);
+    camera.lookAt(0, -0.25, 0);
+  }
+  function cellCenter(i) { const [x, y] = P3(i), v = board.localToWorld(new THREE.Vector3(x, y, 0.3)).project(camera); return [(v.x + 1) / 2 * W, (1 - v.y) / 2 * H]; }
+  const ray = new THREE.Raycaster();
+  function cellAt(px, py) {
+    ray.setFromCamera({ x: px / W * 2 - 1, y: -(py / H * 2 - 1) }, camera);
+    const hits = ray.intersectObjects(bulbs.map((b) => b.grp), true);
+    if (!hits.length) return -1;
+    let o = hits[0].object; while (o && o.parent !== board) o = o.parent;
+    return bulbs.findIndex((b) => b.grp === o);
+  }
+
+  function draw() {
+    if (!lit) return;
+    buildBoard(); placeCamera();
+    const litShare = state === 'start' ? 0.5 : lit.filter(Boolean).length / (N * N);
+    roomLight.intensity = 0.25 + litShare * 1.6; hemi.intensity = 0.18 + litShare * 0.35;
+    bgCol.setRGB(0.05 + litShare * 0.09, 0.045 + litShare * 0.06, 0.1 + litShare * 0.04);
+    for (let i = 0; i < bulbs.length; i++) {
+      const b = bulbs[i], v = glow[i];
+      const rip = ripples.find((r) => r.i === i);
+      const pop = rip ? Math.sin(rip.t * Math.PI) * 0.12 : 0;
+      b.grp.scale.setScalar(1 + pop);
+      if (b.stone) { b.eye.material.emissiveIntensity = v * 1.2; b.eye.material.color.setRGB(0.3 + v * 0.7, 0.25 + v * 0.6, 0.2); }
+      else {
+        b.glass.material.emissiveIntensity = v * 1.4; b.glass.material.opacity = 0.45 + v * 0.45;
+        b.coil.material.color.setRGB(0.42 + v * 0.58, 0.38 + v * 0.55, 0.5 + v * 0.1);
+        b.halo.material.opacity = v * 0.85;
+      }
+      b.ring.material.opacity = i === hintCell ? 0.6 + 0.4 * Math.sin(time * 8) : rip ? (1 - rip.t) * 0.8 : 0;
+      b.ring.material.color.set(i === hintCell ? '#6fe3ff' : rip ? rip.col : '#6fe3ff');
+    }
+    flies.material.opacity = state === 'won' ? Math.min(1, winT) * 0.9 : 0;
+    if (flies.material.opacity > 0) { const a = flies.geometry.attributes.position; for (let k = 0; k < a.count; k++) { a.setY(k, a.getY(k) + Math.sin(time * 2 + k) * 0.004); a.setX(k, a.getX(k) + Math.cos(time * 1.3 + k * 2) * 0.004); } a.needsUpdate = true; }
+    board.rotation.x = -0.05; board.rotation.y = state === 'won' ? Math.sin(winT * 2) * 0.08 : 0;
+    renderer.render(scene, camera);
+    // HUD on the 2D layer
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    if (state !== 'start') {
+      g.textAlign = 'center'; g.shadowColor = '#000a'; g.shadowBlur = 10;
+      g.fillStyle = '#fff'; g.font = '800 28px Manrope, system-ui'; g.fillText(`Уровень ${state === 'won' ? level - 1 : level}`, W / 2, 96);
+      g.font = '800 14px Manrope, system-ui'; g.fillStyle = moves > par ? '#ffb3c0' : '#c9c2f0';
+      g.fillText(`${N}×${N} · ходов ${moves} · цель ${par} · очков ${total}`, W / 2, 120); g.shadowBlur = 0;
+    }
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; time += dt; winT += dt;
+    if (lit) for (let i = 0; i < glow.length; i++) { const t = state === 'start' ? 0.5 + 0.5 * Math.sin(time * 1.3 + i * 1.7) : lit[i] ? 1 : 0; glow[i] += (t - glow[i]) * Math.min(1, dt * 14); }
+    for (const r of ripples) r.t += dt * 2.5; ripples = ripples.filter((r) => r.t < 1);
+    draw();
+    requestAnimationFrame(frame);
+  }
+  function layout() { if (N) fitCamera(); }
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight; ov.width = Math.round(W * dpr); ov.height = Math.round(H * dpr);
+    renderer.setSize(W, H, false); layout();
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'lampochki',
+    boards: [
+      { id: 'level', title: 'Уровни', column: 'best_level', order: 'desc', note: 'Больше всего пройденных уровней.', format: (v) => `${v} ${levelsWord(v)}` },
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за все уровни.', format: (v) => `${v} ${pointsWord(v)}` },
+    ],
+    bests: () => (level > 1 ? { new_score: total, new_level: level - 1 } : null),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); const i = cellAt(e.clientX, e.clientY); if (i >= 0) play(i); });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.target.closest && e.target.closest('button, a')) return;
+    if (state === 'play' && (e.code === 'KeyZ' || e.code === 'Backspace')) { e.preventDefault(); undo(); }
+    else if ((e.code === 'Space' || e.code === 'Enter') && !$('start').hidden) { e.preventDefault(); startLevel(); }
+    else if ((e.code === 'Space' || e.code === 'Enter') && !$('done').hidden) { e.preventDefault(); startLevel(); }
+  });
+  function showStart() { $('levelStart').textContent = level; $('scoreStart').textContent = total; }
+  $('go').addEventListener('click', startLevel);
+  $('next').addEventListener('click', startLevel);
+  $('restart').addEventListener('click', () => { if (level > 1 && !confirm('Начать с первого уровня? Очки обнулятся, а рекорд в таблице лидеров останется.')) return; level = 1; total = 0; store.set('lampochki-level', 1); store.set('lampochki-score', 0); showStart(); startLevel(); });
+  $('undo').addEventListener('click', undo);
+  $('hint').addEventListener('click', hint);
+  $('reset').addEventListener('click', () => { if (state === 'play') { buildLevel(); layout(); sfx.undo(); } });
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('lampochki-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  addEventListener('resize', resize);
+  resize(); buildLevel(); layout(); showStart();
+  // #preview: a level in progress, for the site's screenshot.
+  if (location.hash === '#preview') {
+    level = 12; total = 2140; buildLevel(); layout(); state = 'play'; $('start').hidden = true; $('bar').hidden = false;
+    const sol = solution.map((v, i) => (v ? i : -1)).filter((i) => i >= 0);
+    press(sol[0], true); press(sol[1], true); moves = 2; hintCell = sol[2]; glow = lit.map((v) => (v ? 1 : 0));
+  }
+  // On a local server tests can look inside.
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__lampochki3d = { get lit() { return lit; }, get solution() { return solution; }, get state() { return state; }, get level() { return level; }, get par() { return par; }, get N() { return N; }, get stone() { return stone; }, play, startLevel };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

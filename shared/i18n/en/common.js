@@ -468,7 +468,7 @@ FreasyI18n.add({
 "Игры": "Games",
 "О сайте": "About",
 "Только 3D": "3D only",
-"Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже тридцать две игры, и будут ещё.": "Free 3D games right in your browser. Nothing to download — just open and play. Thirty-two games already, with more to come.",
+"Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже тридцать четыре игры, и будут ещё.": "Free 3D games right in your browser. Nothing to download — just open and play. Thirty-four games already, with more to come.",
 "Двигай мышкой или пальцем — сцена повернётся": "Move your mouse or finger — the scene will turn",
 "Каталог": "Catalog",
 "🌐 онлайн": "🌐 online",
@@ -691,5 +691,15 @@ FreasyI18n.add({
 "Нажатие переключает лампу и её соседей. Погаси все лампы за наименьшее число ходов: поля растут от 3×3 до 7×7, а на больших появляются камни, которые нельзя нажать.": "A tap switches a bulb and its neighbours. Turn every bulb off in as few moves as you can: boards grow from 3×3 to 7×7, and big ones have stones you can't tap.",
 "Пластиковая доска с круглыми окнами, фишки падают в колонки с отскоком, а Енот выглядывает из-за доски и следит за каждым ходом. Те же раунды и рекорды, что в 2D.": "A plastic board with round windows, discs bounce as they drop into the columns, and the Raccoon peeks out from behind the board watching every move. The same rounds and records as in 2D.",
 "Объёмные плитки проседают под пальцем, флажки качаются на древках, а взрыв подбрасывает соседние клетки. То же поле 10 × 14 и общие с 2D рекорды по времени.": "Solid tiles sink under your finger, flags sway on their poles, and an explosion throws the nearby cells into the air. The same 10 × 14 field and time records shared with 2D.",
-"Раунд 4": "Round 4"
+"Раунд 4": "Round 4",
+"Пятнашки": "Fifteen",
+"Звездопад": "Starfall",
+"Скриншот Пятнашек: поле 4 на 4 из цветных плиток с числами, два верхних ряда уже собраны, одна клетка пустая": "Fifteen screenshot: a 4 by 4 board of coloured numbered tiles, the two top rows already in place, one cell empty",
+"Расставь числа по порядку на полях 3×3, 4×4 и 5×5. Касание сдвигает сразу весь ряд, плитки раскрашены по своим рядам, а в таблицу лидеров идёт лучшее время на поле 4×4.": "Put the numbers in order on 3×3, 4×4 and 5×5 boards. A tap slides a whole row at once, tiles are coloured by their row, and the leaderboard counts your best 4×4 time.",
+"Скриншот Звездопада: лисёнок держит над головой корзинку, сверху падают звёзды, золотая звезда, бомба, сердечко и часы, в небе месяц": "Starfall screenshot: a fox holds a basket over its head as stars, a golden star, a bomb, a heart and a clock fall from a sky with a crescent moon",
+"Лисёнок ловит падающие звёзды в корзинку. Серия поимок поднимает множитель до ×5, часы замедляют время, магнит притягивает звёзды, а бомбы лучше пропустить.": "A fox catches falling stars in a basket. A streak of catches raises the multiplier up to ×5, a clock slows time down, a magnet pulls stars in, and bombs are best let fall.",
+"Стеклянные лампы в патронах светятся и освещают комнату, а камни на больших полях выглядят как глыбы. Погаси все — и комнату заполнят светлячки. Те же уровни и рекорды, что в 2D.": "Glass bulbs in their sockets glow and light up the room, and the stones on big boards are real rocks. Turn them all off and fireflies fill the room. The same levels and records as in 2D.",
+"Стеклянные кнопки на круглой сцене поднимаются и загораются по очереди, отбрасывая цветной свет. Каждые 5 раундов сцена прокручивается. Те же раунды и рекорды, что в 2D.": "Glass buttons on a round stage rise and light up in turn, casting coloured light. Every 5 rounds the stage spins. The same rounds and records as in 2D.",
+"Уровень 12": "Level 12",
+"Раунд 8": "Round 8"
 });

@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../shared/session.js?v=2"></script>
+<script src="../shared/i18n.js?v=3" data-game="zvezdopad"></script>
+<script src="../shared/fx.js" data-mute="zvezdopad-muted"></script>
+<script src="../shared/clips.js?v=1"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Звездопад — FreasyGames</title>
+<meta name="description" content="Звездопад на FreasyGames: лисёнок ловит падающие звёзды в корзинку. Серия поимок поднимает множитель, часы замедляют время, магнит притягивает звёзды, а бомбы лучше пропустить.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">🌠 Новая игра</div>
+    <h1><span>Звездопад</span></h1>
+    <p>Води лисёнка с корзинкой и лови падающие звёзды. Каждые пять поимок подряд поднимают множитель до ×5, пропущенная звезда сбрасывает его.</p>
+    <p>Золотая звезда — +5, сердечко — жизнь, часы замедляют время, магнит притягивает звёзды. Бомба отнимает жизнь — пропусти её.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · лучший множитель: <b id="comboStart">—</b></p>
+    <button class="play" id="go" type="button">Ловить ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Веди пальцем или мышью · стрелки или A и D</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow" id="overWhy">Жизни кончились</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">очков</p>
+    <p>Звёзд поймано: <b id="caughtOver">0</b> · лучшая серия: <b id="streakOver">0</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · лучший множитель: <b id="bestComboOver">—</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), g = cv.getContext('2d');
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const pointsWord = (n) => plural(n, 'очко', 'очка', 'очков');
+
+  // The sky is 480 units wide on every screen; its height is 760, scaled to fit.
+  const FW = 480, FH = 760, GROUND = 690, BASKET = 66, BASKET_Y = 118, LIVES = 3;
+  let W = 0, H = 0, dpr = 1, scale = 1, ox = 0, oy = 0;
+  let state = 'start', fox, items, score, caught, streak, bestStreakRun, mult, bestMultRun, lives, playTime, spawnT, slowT, magnetT, parts, popups, shake = 0, flash = 0, time = 0, demoing = false, overTimer = 0;
+  let best = +store.get('zvezdopad-best', 0) || 0, bestMult = +store.get('zvezdopad-best-mult', 0) || 0;
+  let runs = {}; try { runs = JSON.parse(store.get('zvezdopad-runs', '{}')) || {}; } catch { runs = {}; }
+  let muted = store.get('zvezdopad-muted', '0') === '1';
+  FX.muted = () => muted || demoing;
+  const keys = new Set();
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'square', v = 0.06, slide = 1, delay = 0) {
+    if (muted || demoing || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  const SCALE = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21];
+  const sfx = {
+    star: (n) => { const f = 523 * Math.pow(2, SCALE[n % SCALE.length] / 12); tone(f, 0.1, 'triangle', 0.08); tone(f * 2, 0.06, 'sine', 0.03, 1, 0.03); },
+    gold: () => [0, 7, 12, 19].forEach((s, i) => tone(784 * Math.pow(2, s / 12), 0.1, 'square', 0.04, 1, i * 0.04)),
+    heart: () => [0, 4, 7].forEach((s, i) => tone(440 * Math.pow(2, s / 12), 0.16, 'sine', 0.08, 1, i * 0.07)),
+    power: () => { tone(300, 0.3, 'sawtooth', 0.04, 3); tone(600, 0.3, 'triangle', 0.05, 2, 0.05); },
+    mult: (m) => [0, 4, 7, 12].forEach((s, i) => tone(392 * Math.pow(2, (s + m * 2) / 12), 0.12, 'triangle', 0.07, 1, i * 0.05)),
+    miss: () => tone(200, 0.12, 'sine', 0.05, 0.6),
+    bomb: () => { tone(120, 0.6, 'sawtooth', 0.1, 0.3); tone(60, 0.5, 'sine', 0.2, 0.5); },
+  };
+
+  // ——— World ———
+  const KINDS = {
+    star: { r: 15, pts: 1 }, gold: { r: 17, pts: 5 }, heart: { r: 15 }, clock: { r: 16 }, magnet: { r: 16 }, bomb: { r: 17 },
+  };
+  function reset() {
+    fox = { x: FW / 2, tx: FW / 2, vx: 0, tilt: 0, hurt: 0, happy: 0 };
+    items = []; parts = []; popups = [];
+    score = 0; caught = 0; streak = 0; bestStreakRun = 0; mult = 1; bestMultRun = 1; lives = LIVES; playTime = 0; spawnT = 0.6; slowT = 0; magnetT = 0;
+  }
+  const hard = () => Math.min(1, playTime / 150);
+  function spawn() {
+    const k = hard(), roll = Math.random();
+    let kind = 'star';
+    if (roll < 0.12 + k * 0.16) kind = 'bomb';
+    else if (roll < 0.2 + k * 0.16) kind = 'gold';
+    else if (roll < 0.215 + k * 0.16 && lives < LIVES) kind = 'heart';
+    else if (roll < 0.235 + k * 0.16) kind = Math.random() < 0.5 ? 'clock' : 'magnet';
+    const r = KINDS[kind].r;
+    items.push({ kind, x: r + 10 + Math.random() * (FW - 2 * r - 20), y: -30, vy: 150 + k * 170 + Math.random() * 60, vx: (Math.random() - 0.5) * (20 + k * 60), rot: Math.random() * 6, r, t: 0 });
+  }
+  const scr = (x, y) => FX.g(x, y);
+
+  function catchItem(it) {
+    const [sx, sy] = scr(it.x, it.y);
+    if (it.kind === 'bomb') {
+      lives--; streak = 0; mult = 1; fox.hurt = 1; sfx.bomb(); shake = 0.5; flash = 1;
+      burst(it.x, it.y, '#ff7a3d', 24); burst(it.x, it.y, '#3a3550', 10);
+      if (!demoing) { FX.explode(sx, sy); FX.shake(10, 400); }
+      if (lives <= 0) return die();
+      return;
+    }
+    if (it.kind === 'heart') { lives = Math.min(LIVES, lives + 1); sfx.heart(); popup(it.x, it.y - 20, '+♥', '#ff7eb6'); if (!demoing) FX.ring(sx, sy, '#ff7eb6', 70); return; }
+    if (it.kind === 'clock') { slowT = 5; sfx.power(); popup(it.x, it.y - 20, 'Медленнее!', '#6fe3ff'); if (!demoing) FX.on('big', 0, sx, sy); return; }
+    if (it.kind === 'magnet') { magnetT = 6; sfx.power(); popup(it.x, it.y - 20, 'Магнит!', '#ff9a5c'); if (!demoing) FX.on('big', 0, sx, sy); return; }
+    // a star
+    caught++; streak++; bestStreakRun = Math.max(bestStreakRun, streak); fox.happy = 0.4;
+    const pts = KINDS[it.kind].pts * mult; score += pts;
+    if (it.kind === 'gold') sfx.gold(); else sfx.star(streak);
+    popup(it.x, it.y - 20, `+${pts}`, it.kind === 'gold' ? '#ffd23f' : '#fff');
+    burst(it.x, it.y, it.kind === 'gold' ? '#ffd23f' : '#fff3a0', 10, 150);
+    if (!demoing) FX.sparkle(sx, sy, it.kind === 'gold' ? '#ffd23f' : '#fff6c0');
+    const m = Math.min(5, 1 + Math.floor(streak / 5));
+    if (m > mult) { mult = m; bestMultRun = Math.max(bestMultRun, mult); sfx.mult(mult); popup(fox.x, GROUND - 120, `×${mult}!`, '#5df2a5', true); if (!demoing) { const [fx, fy] = scr(fox.x, GROUND - 120); FX.on('combo', mult * 2, fx, fy); } }
+  }
+  function die() {
+    if (demoing) { reset(); return; }
+    state = 'dying'; overTimer = setTimeout(() => gameOver('Жизни кончились'), 1000);
+    FX.over();
+  }
+
+  function burst(x, y, col, n = 14, sp = 200) { for (let i = 0; i < n; i++) { const a = Math.random() * 7, v = 40 + Math.random() * sp; parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, life: 1, col, r: 2 + Math.random() * 3 }); } }
+  function popup(x, y, text, col = '#f8f7ff', big = false) { popups.push({ x, y, text, col, life: 1, big }); }
+
+  function step(dt) {
+    if (state !== 'play' || lb.isOpen()) return;
+    playTime += dt; slowT = Math.max(0, slowT - dt); magnetT = Math.max(0, magnetT - dt);
+    const tdt = dt * (slowT > 0 ? 0.5 : 1);
+    // the fox follows the finger or the keys
+    const dir = (keys.has('L') ? -1 : 0) + (keys.has('R') ? 1 : 0);
+    if (dir) fox.tx = Math.max(BASKET / 2, Math.min(FW - BASKET / 2, fox.tx + dir * 520 * dt));
+    const before = fox.x;
+    fox.x += (fox.tx - fox.x) * Math.min(1, dt * 16);
+    fox.vx = (fox.x - before) / Math.max(dt, 0.001); fox.tilt += (Math.max(-0.35, Math.min(0.35, fox.vx / 1600)) - fox.tilt) * Math.min(1, dt * 10);
+    fox.hurt = Math.max(0, fox.hurt - dt * 1.5); fox.happy = Math.max(0, fox.happy - dt);
+    spawnT -= tdt;
+    if (spawnT <= 0) { spawn(); spawnT = Math.max(0.32, 0.85 - hard() * 0.5) * (0.7 + Math.random() * 0.6); }
+    const bx = fox.x, by = GROUND - BASKET_Y;
+    for (const it of items) {
+      it.t += tdt; it.rot += tdt * 2;
+      if (magnetT > 0 && it.kind !== 'bomb' && it.y > 100) { it.vx += Math.sign(bx - it.x) * 900 * dt; it.vx *= 0.96; }
+      it.x += it.vx * tdt; it.y += it.vy * tdt;
+      if (it.x < it.r) { it.x = it.r; it.vx = Math.abs(it.vx); } if (it.x > FW - it.r) { it.x = FW - it.r; it.vx = -Math.abs(it.vx); }
+      // into the basket: inside its mouth while falling through its rim
+      if (!it.done && it.y > by - 10 && it.y < by + 22 && Math.abs(it.x - bx) < BASKET / 2 + it.r * 0.4) { it.done = true; catchItem(it); if (state !== 'play') return; }
+      if (!it.done && it.y > GROUND + 10) {
+        it.done = true;
+        if (it.kind === 'star' || it.kind === 'gold') { if (streak > 0 || mult > 1) { sfx.miss(); popup(it.x, GROUND - 10, mult > 1 ? `×${mult} сгорел` : 'мимо', '#ff9aa8'); } streak = 0; mult = 1; burst(it.x, GROUND, '#8a7fb0', 6, 80); }
+      }
+    }
+    items = items.filter((it) => !it.done);
+  }
+
+  // ——— Drawing ———
+  const sky = Array.from({ length: 110 }, () => ({ x: Math.random(), y: Math.random() * 0.8, s: Math.random() * 1.6 + 0.3, p: Math.random() * 6 }));
+  function round(x, y, w, h, r) { g.beginPath(); if (g.roundRect) g.roundRect(x, y, w, h, r); else g.rect(x, y, w, h); }
+  function starPath(x, y, r, rot) { g.beginPath(); for (let i = 0; i < 10; i++) { const a = rot + i * Math.PI / 5 - Math.PI / 2, rr = i % 2 ? r * 0.45 : r; g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); } g.closePath(); }
+  function drawItem(it) {
+    const { x, y, r } = it;
+    // a little trail
+    if (it.kind === 'star' || it.kind === 'gold') {
+      const tr = g.createLinearGradient(x, y - 60, x, y); tr.addColorStop(0, 'rgba(255,240,180,0)'); tr.addColorStop(1, it.kind === 'gold' ? 'rgba(255,210,63,.5)' : 'rgba(255,255,255,.35)');
+      g.fillStyle = tr; g.beginPath(); g.moveTo(x - r * 0.5, y); g.lineTo(x - it.vx * 0.1, y - 60); g.lineTo(x + r * 0.5, y); g.fill();
+    }
+    if (it.kind === 'star' || it.kind === 'gold') {
+      g.fillStyle = it.kind === 'gold' ? '#ffd23f55' : '#fff6c033'; g.beginPath(); g.arc(x, y, r * 1.6, 0, 7); g.fill();
+      g.fillStyle = it.kind === 'gold' ? '#ffd23f' : '#fff6c0'; starPath(x, y, r, it.rot); g.fill();
+      g.fillStyle = '#ffffff99'; starPath(x - r * 0.15, y - r * 0.15, r * 0.4, it.rot); g.fill();
+      if (it.kind === 'gold') { g.fillStyle = '#171225'; g.font = '800 11px Manrope, system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('5', x, y + 1); }
+    } else if (it.kind === 'bomb') {
+      g.fillStyle = '#1c1a2a'; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+      g.fillStyle = '#3a3652'; g.beginPath(); g.arc(x - r * 0.3, y - r * 0.3, r * 0.35, 0, 7); g.fill();
+      g.fillStyle = '#4c4666'; g.fillRect(x - 4, y - r - 6, 8, 7);
+      g.strokeStyle = '#c9a36b'; g.lineWidth = 2; g.beginPath(); g.moveTo(x, y - r - 6); g.quadraticCurveTo(x + 8, y - r - 16, x + 4, y - r - 20); g.stroke();
+      g.fillStyle = Math.sin(time * 30) > 0 ? '#ffd23f' : '#ff5f3d'; g.beginPath(); g.arc(x + 4, y - r - 20, 3.5, 0, 7); g.fill();
+    } else if (it.kind === 'heart') {
+      g.fillStyle = '#ff7eb6'; g.beginPath(); g.moveTo(x, y + r * 0.8); g.bezierCurveTo(x - r * 1.4, y - r * 0.2, x - r * 0.6, y - r * 1.2, x, y - r * 0.4); g.bezierCurveTo(x + r * 0.6, y - r * 1.2, x + r * 1.4, y - r * 0.2, x, y + r * 0.8); g.fill();
+    } else if (it.kind === 'clock') {
+      g.fillStyle = '#6fe3ff'; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); g.fillStyle = '#e8fbff'; g.beginPath(); g.arc(x, y, r * 0.75, 0, 7); g.fill();
+      g.strokeStyle = '#171225'; g.lineWidth = 2.4; g.beginPath(); g.moveTo(x, y); g.lineTo(x, y - r * 0.55); g.moveTo(x, y); g.lineTo(x + r * 0.4 * Math.cos(time * 3), y + r * 0.4 * Math.sin(time * 3)); g.stroke();
+    } else if (it.kind === 'magnet') {
+      g.strokeStyle = '#ff5f7a'; g.lineWidth = 8; g.lineCap = 'butt'; g.beginPath(); g.arc(x, y - 2, r * 0.7, Math.PI, 0); g.stroke();
+      g.strokeStyle = '#ff5f7a'; g.beginPath(); g.moveTo(x - r * 0.7, y - 2); g.lineTo(x - r * 0.7, y + r * 0.6); g.moveTo(x + r * 0.7, y - 2); g.lineTo(x + r * 0.7, y + r * 0.6); g.stroke();
+      g.fillStyle = '#d9dbe8'; g.fillRect(x - r * 0.7 - 4, y + r * 0.45, 8, 6); g.fillRect(x + r * 0.7 - 4, y + r * 0.45, 8, 6);
+    }
+  }
+  function drawFox() {
+    const x = fox.x, y = GROUND;
+    g.save(); g.translate(x, y); g.rotate(fox.tilt);
+    const bob = Math.abs(Math.sin(time * 10)) * Math.min(1, Math.abs(fox.vx) / 300) * 4;
+    // tail
+    g.fillStyle = '#ff8a3d'; g.beginPath(); g.ellipse(-30, -22 - bob, 22, 10, -0.6 + Math.sin(time * 6) * 0.2, 0, 7); g.fill();
+    g.fillStyle = '#fff'; g.beginPath(); g.ellipse(-44, -34 - bob, 8, 6, -0.6, 0, 7); g.fill();
+    // body and legs
+    g.fillStyle = '#ff8a3d'; round(-18, -40 - bob, 36, 36, 14); g.fill();
+    g.fillStyle = '#fff3e6'; round(-10, -30 - bob, 20, 22, 9); g.fill();
+    g.fillStyle = '#3a2a2a'; g.fillRect(-14, -6, 8, 6); g.fillRect(6, -6, 8, 6);
+    // head
+    g.fillStyle = '#ff8a3d'; g.beginPath(); g.moveTo(-20, -66 - bob); g.lineTo(-13, -86 - bob); g.lineTo(-5, -70 - bob); g.fill(); g.beginPath(); g.moveTo(20, -66 - bob); g.lineTo(13, -86 - bob); g.lineTo(5, -70 - bob); g.fill();
+    g.beginPath(); g.ellipse(0, -60 - bob, 20, 17, 0, 0, 7); g.fill();
+    g.fillStyle = '#fff3e6'; g.beginPath(); g.ellipse(0, -53 - bob, 11, 8, 0, 0, 7); g.fill();
+    g.fillStyle = '#171225'; g.beginPath(); g.arc(0, -57 - bob, 3, 0, 7); g.fill();
+    if (fox.hurt > 0.3) { g.strokeStyle = '#171225'; g.lineWidth = 2; for (const sx of [-8, 8]) { g.beginPath(); g.moveTo(sx - 3, -67 - bob); g.lineTo(sx + 3, -61 - bob); g.moveTo(sx + 3, -67 - bob); g.lineTo(sx - 3, -61 - bob); g.stroke(); } }
+    else if (fox.happy > 0) { g.strokeStyle = '#171225'; g.lineWidth = 2.4; for (const sx of [-8, 8]) { g.beginPath(); g.arc(sx, -62 - bob, 3.5, Math.PI + 0.3, -0.3); g.stroke(); } }
+    else { g.fillStyle = '#171225'; for (const sx of [-8, 8]) { g.beginPath(); g.arc(sx, -64 - bob, 2.8, 0, 7); g.fill(); } }
+    g.restore();
+    // the basket in front, held up high
+    const bx = x, by = GROUND - BASKET_Y;
+    // arms up to the basket
+    g.strokeStyle = '#ff8a3d'; g.lineWidth = 6; g.lineCap = 'round'; g.beginPath(); g.moveTo(x - 14, GROUND - 34); g.lineTo(bx - BASKET / 2 + 10, by + 26); g.moveTo(x + 14, GROUND - 34); g.lineTo(bx + BASKET / 2 - 10, by + 26); g.stroke();
+    if (magnetT > 0) { g.strokeStyle = `rgba(255,154,92,${0.3 + 0.3 * Math.sin(time * 10)})`; g.lineWidth = 3; g.beginPath(); g.arc(bx, by, 50 + Math.sin(time * 8) * 6, 0, 7); g.stroke(); }
+    g.fillStyle = '#a8683a'; g.beginPath(); g.moveTo(bx - BASKET / 2, by); g.lineTo(bx + BASKET / 2, by); g.lineTo(bx + BASKET / 2 - 8, by + 30); g.lineTo(bx - BASKET / 2 + 8, by + 30); g.closePath(); g.fill();
+    g.strokeStyle = '#7a4a26'; g.lineWidth = 2; for (let i = 1; i < 6; i++) { const xx = bx - BASKET / 2 + i * BASKET / 6; g.beginPath(); g.moveTo(xx, by); g.lineTo(xx + (xx < bx ? 3 : -3), by + 30); g.stroke(); }
+    g.beginPath(); g.moveTo(bx - BASKET / 2 + 4, by + 15); g.lineTo(bx + BASKET / 2 - 4, by + 15); g.stroke();
+    g.fillStyle = '#c98a52'; round(bx - BASKET / 2 - 3, by - 5, BASKET + 6, 8, 4); g.fill();
+    g.strokeStyle = '#c98a52'; g.lineWidth = 4; g.beginPath(); g.arc(bx, by - 2, BASKET / 2 - 2, Math.PI, 0); g.stroke();
+  }
+  function draw() {
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const bg = g.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#0b0a24'); bg.addColorStop(0.7, '#2b1f5c'); bg.addColorStop(1, slowT > 0 ? '#1f5a7a' : '#5a3a7e');
+    g.fillStyle = bg; g.fillRect(0, 0, W, H);
+    for (const s of sky) { g.globalAlpha = 0.35 + 0.35 * Math.sin(time * 2 + s.p); g.fillStyle = '#efe6ff'; g.fillRect(s.x * W, s.y * H, s.s, s.s); } g.globalAlpha = 1;
+    g.save(); g.beginPath(); g.arc(W * 0.82, H * 0.13, 34, 0, 7); g.clip(); g.fillStyle = '#fff1c8'; g.fill(); g.fillStyle = '#100d2c'; g.beginPath(); g.arc(W * 0.82 + 13, H * 0.13 - 9, 30, 0, 7); g.fill(); g.restore();
+    const sh = shake > 0 ? (Math.random() - 0.5) * 16 * shake : 0;
+    g.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * (ox + sh), dpr * oy);
+    // hills and grass, wider than the play area
+    g.fillStyle = '#1d1538'; g.beginPath(); g.moveTo(-ox / scale - 20, FH + 200); for (let x = -ox / scale - 20; x < FW + ox / scale + 40; x += 40) g.lineTo(x, GROUND - 40 - Math.sin(x * 0.012) * 26 - Math.sin(x * 0.031) * 12); g.lineTo(FW + ox / scale + 40, FH + 200); g.fill();
+    g.fillStyle = '#2a1d4a'; g.fillRect(-ox / scale - 20, GROUND, FW + 2 * ox / scale + 40, FH - GROUND + 300);
+    g.fillStyle = '#3a2a62'; for (let x = -ox / scale - 20; x < FW + ox / scale + 20; x += 14) { g.beginPath(); g.moveTo(x, GROUND + 2); g.lineTo(x + 4, GROUND - 8); g.lineTo(x + 8, GROUND + 2); g.fill(); }
+    // edges of the play area
+    g.fillStyle = '#ffffff08'; g.fillRect(0, 0, 2, GROUND); g.fillRect(FW - 2, 0, 2, GROUND);
+    for (const it of items) drawItem(it);
+    drawFox();
+    for (const p of parts) { g.globalAlpha = Math.max(0, p.life); g.fillStyle = p.col; g.beginPath(); g.arc(p.x, p.y, p.r, 0, 7); g.fill(); } g.globalAlpha = 1;
+    for (const p of popups) { g.globalAlpha = Math.min(1, p.life * 2); g.fillStyle = p.col; g.font = `800 ${p.big ? 28 : 18}px Manrope, system-ui`; g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillText(p.text, p.x, p.y - (1 - p.life) * 40); } g.globalAlpha = 1;
+    // HUD
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (state !== 'start') {
+      g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillStyle = '#fff'; g.font = '800 48px Manrope, system-ui'; g.fillText(score, W / 2, 104);
+      g.font = '800 15px Manrope, system-ui'; g.fillStyle = mult > 1 ? '#5df2a5' : '#c9c2f0';
+      g.fillText(`×${mult}` + (streak ? ` · серия ${streak}` : ''), W / 2, 128);
+      g.font = '22px system-ui'; g.fillStyle = '#ff7eb6'; g.fillText('♥'.repeat(Math.max(0, lives)).padEnd(LIVES, '♡').split('').join(' '), W / 2, 156);
+      const tags = []; if (slowT > 0) tags.push(`⏱ ${Math.ceil(slowT)}`); if (magnetT > 0) tags.push(`🧲 ${Math.ceil(magnetT)}`);
+      if (tags.length) { g.font = '800 14px Manrope, system-ui'; g.fillStyle = '#6fe3ff'; g.fillText(tags.join('   '), W / 2, 180); }
+      if (state === 'play' && playTime < 3) { g.globalAlpha = 0.6 + 0.4 * Math.sin(time * 5); g.font = '800 18px Manrope, system-ui'; g.fillStyle = '#fff'; g.fillText('Веди лисёнка пальцем — лови звёзды', W / 2, H * 0.36); g.globalAlpha = 1; }
+    }
+    if (flash > 0) { g.fillStyle = `rgba(255,90,60,${flash * 0.22})`; g.fillRect(0, 0, W, H); }
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.033, (now - last) / 1000)); last = now; time += dt;
+    if (state === 'start') demo(dt); else step(dt);
+    for (const p of parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 400 * dt; p.life -= dt * 1.5; } parts = parts.filter((p) => p.life > 0);
+    for (const p of popups) p.life -= dt * 1.1; popups = popups.filter((p) => p.life > 0);
+    shake = Math.max(0, shake - dt); flash = Math.max(0, flash - dt * 2);
+    draw();
+    requestAnimationFrame(frame);
+  }
+  // Behind the start card the fox catches by itself and steps away from bombs.
+  function demo(dt) {
+    state = 'play'; demoing = true;
+    const target = items.filter((it) => it.kind !== 'bomb').sort((a, b) => b.y - a.y)[0];
+    const bomb = items.find((it) => it.kind === 'bomb' && it.y > GROUND - 260 && Math.abs(it.x - fox.x) < 70);
+    if (bomb) fox.tx = bomb.x > fox.x ? Math.max(40, bomb.x - 120) : Math.min(FW - 40, bomb.x + 120); else if (target) fox.tx = target.x;
+    step(dt);
+    if (playTime > 60) reset();
+    state = 'start'; demoing = false;
+  }
+
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr;
+    scale = Math.min(W / FW, H / FH); ox = (W - FW * scale) / 2; oy = H - FH * scale;
+    FX.bind(cv, W / scale, H / scale);
+  }
+  // FX.g maps game points to the screen; the sky is centred and pinned to the bottom.
+  const fxg = FX.g; FX.g = (x, y) => [ox + x * scale, oy + y * scale]; void fxg;
+
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('comboStart').textContent = $('bestComboOver').textContent = bestMult > 1 ? '×' + bestMult : '—';
+  }
+  function start() { clearTimeout(overTimer); unlockAudio(); reset(); state = 'play'; chanceUsed = false; chance.hide(); $('start').hidden = true; $('over').hidden = true; }
+  // Once a game, an ad gives one life back and clears the sky of bombs.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'zvezdopad-continue', label: '🎬 Ещё одна жизнь за рекламу', onReward: () => {
+    chanceUsed = true; lives = 1; items = items.filter((it) => it.kind !== 'bomb'); fox.hurt = 0; state = 'play'; $('over').hidden = true;
+  } });
+  function gameOver(why) {
+    if (state !== 'dying') return;
+    state = 'over';
+    const run = { new_score: score, new_mult: bestMultRun, new_caught: caught, new_time: Math.floor(playTime) }, record = score > best;
+    if (record && score) setTimeout(() => FX.record(), 400);
+    if (record) { best = score; store.set('zvezdopad-best', best); runs.score = run; }
+    if (bestMultRun > bestMult) { bestMult = bestMultRun; store.set('zvezdopad-best-mult', bestMult); runs.mult = run; }
+    store.set('zvezdopad-runs', JSON.stringify(runs));
+    lb.submit(run);
+    $('overWhy').textContent = why;
+    $('final').textContent = score;
+    $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + pointsWord(score);
+    $('caughtOver').textContent = caught; $('streakOver').textContent = bestStreakRun;
+    showBests(); $('over').hidden = false;
+    if (!chanceUsed) chance.show();
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'zvezdopad',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за одну игру.', format: (v) => `${v} ${pointsWord(v)}` },
+      { id: 'caught', title: 'Звёзды', column: 'best_caught', order: 'desc', note: 'Больше всего пойманных звёзд за одну игру.', format: (v) => `★ ${v}` },
+    ],
+    bests: () => [runs.score, runs.mult].filter(Boolean),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  const toWorldX = (cx) => (cx - ox) / scale;
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); unlockAudio(); fox.tx = Math.max(BASKET / 2, Math.min(FW - BASKET / 2, toWorldX(e.clientX))); });
+  cv.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse' || e.buttons) fox.tx = Math.max(BASKET / 2, Math.min(FW - BASKET / 2, toWorldX(e.clientX))); });
+  const KEYS = { ArrowLeft: 'L', KeyA: 'L', ArrowRight: 'R', KeyD: 'R' };
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && e.target.closest && e.target.closest('.screen button')) return;
+    if (KEYS[e.code]) { e.preventDefault(); keys.add(KEYS[e.code]); }
+    else if ((e.code === 'Space' || e.code === 'Enter') && state !== 'play' && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); }
+  });
+  addEventListener('keyup', (e) => { if (KEYS[e.code]) keys.delete(KEYS[e.code]); });
+  addEventListener('blur', () => keys.clear());
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('zvezdopad-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  addEventListener('resize', resize);
+  resize(); reset(); showBests();
+  // #preview: a game in progress, for the site's screenshot.
+  if (location.hash === '#preview') {
+    $('start').hidden = true; state = 'play'; score = 386; caught = 71; streak = 13; mult = 3; lives = 2; playTime = 70; magnetT = 4.2; fox.x = fox.tx = 250;
+    items = [
+      { kind: 'star', x: 120, y: 240, vx: 10, vy: 200, rot: 0.3, r: 15, t: 0 }, { kind: 'gold', x: 300, y: 380, vx: -10, vy: 200, rot: 1, r: 17, t: 0 },
+      { kind: 'bomb', x: 400, y: 300, vx: 0, vy: 200, rot: 0, r: 17, t: 0 }, { kind: 'star', x: 230, y: 520, vx: 0, vy: 200, rot: 2, r: 15, t: 0 },
+      { kind: 'heart', x: 80, y: 470, vx: 0, vy: 200, rot: 0, r: 15, t: 0 }, { kind: 'clock', x: 360, y: 140, vx: 0, vy: 200, rot: 0, r: 16, t: 0 },
+    ];
+    popup(250, 560, '+3', '#fff');
+    step = () => {};
+  }
+  // On a local server tests can look inside.
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__zvezdopad = { get fox() { return fox; }, get items() { return items; }, get state() { return state; }, get score() { return score; }, get lives() { return lives; }, get caught() { return caught; }, get mult() { return mult; } };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../shared/chat-boot.js?v=5"></script>
+</body>
+</html>
