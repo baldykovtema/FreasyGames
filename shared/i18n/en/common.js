@@ -468,7 +468,7 @@ FreasyI18n.add({
 "Игры": "Games",
 "О сайте": "About",
 "Только 3D": "3D only",
-"Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже тридцать четыре игры, и будут ещё.": "Free 3D games right in your browser. Nothing to download — just open and play. Thirty-four games already, with more to come.",
+"Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже тридцать шесть игр, и будут ещё.": "Free 3D games right in your browser. Nothing to download — just open and play. Thirty-six games already, with more to come.",
 "Двигай мышкой или пальцем — сцена повернётся": "Move your mouse or finger — the scene will turn",
 "Каталог": "Catalog",
 "🌐 онлайн": "🌐 online",
@@ -701,5 +701,13 @@ FreasyI18n.add({
 "Стеклянные лампы в патронах светятся и освещают комнату, а камни на больших полях выглядят как глыбы. Погаси все — и комнату заполнят светлячки. Те же уровни и рекорды, что в 2D.": "Glass bulbs in their sockets glow and light up the room, and the stones on big boards are real rocks. Turn them all off and fireflies fill the room. The same levels and records as in 2D.",
 "Стеклянные кнопки на круглой сцене поднимаются и загораются по очереди, отбрасывая цветной свет. Каждые 5 раундов сцена прокручивается. Те же раунды и рекорды, что в 2D.": "Glass buttons on a round stage rise and light up in turn, casting coloured light. Every 5 rounds the stage spins. The same rounds and records as in 2D.",
 "Уровень 12": "Level 12",
-"Раунд 8": "Round 8"
+"Раунд 8": "Round 8",
+"Судоку": "Sudoku",
+"Бильярд": "Billiards",
+"Скриншот Судоку: поле 9 на 9, часть цифр уже вписана, в нескольких клетках заметки мелкими цифрами, выделены строка, столбец и квадрат выбранной клетки": "Sudoku screenshot: a 9 by 9 grid partly filled in, small pencil notes in some cells, the row, column and square of the selected cell highlighted",
+"Новое судоку каждый раз, и у каждого ровно одно решение. Три сложности, заметки, отмена и три подсказки — но три ошибки заканчивают игру.": "A new sudoku every time, each with exactly one solution. Three difficulties, notes, undo and three hints — but three mistakes end the game.",
+"Скриншот Бильярда: зелёный стол с деревянными бортами и шестью лузами, номерные шары, пунктир прицела от белого шара и кий": "Billiards screenshot: a green table with wooden rails and six pockets, numbered balls, a dotted aim line from the white ball and the cue",
+"Оттяни биток как рогатку и загони все шары в лузы за отведённые удары. Пунктир показывает, куда пойдут шары, а несколько шаров за удар умножают очки. Каждая партия труднее.": "Pull the cue ball back like a slingshot and pot every ball within your shots. The dotted line shows where the balls will go, and several balls in one shot multiply the points. Every rack is harder.",
+"Глянцевые объёмные плитки скользят в деревянном лотке, а после сборки по ним пробегает волна. Те же поля 3×3, 4×4 и 5×5 и общие с 2D рекорды.": "Glossy solid tiles slide in a wooden tray, and a wave runs across them once it's solved. The same 3×3, 4×4 and 5×5 boards and records shared with 2D.",
+"Объёмный лисёнок с плетёной корзинкой ловит вращающиеся светящиеся звёзды под луной, а бомбы искрят фитилём. Те же множители, бонусы и рекорды, что в 2D.": "A solid fox with a woven basket catches spinning glowing stars under the moon, while bombs spark their fuses. The same multipliers, bonuses and records as in 2D."
 });

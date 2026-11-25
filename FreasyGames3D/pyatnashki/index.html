@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/i18n.js?v=3" data-game="3d-pyatnashki"></script>
+<script src="../../shared/fx.js" data-mute="pyatnashki-muted"></script>
+<script src="../../shared/clips.js?v=1"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0d0f1c">
+<title>Пятнашки 3D — FreasyGames 3D</title>
+<meta name="description" content="Пятнашки 3D на FreasyGames: глянцевые объёмные плитки скользят в деревянном лотке. Поля 3×3, 4×4 и 5×5, целый ряд сдвигается одним касанием, рекорды общие с обычными Пятнашками.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>#ov { pointer-events: none; }</style>
+<style>
+  .sizes { display: flex; gap: 8px; justify-content: center; margin: 14px 0 4px; }
+  .sizes button { flex: 1; font: inherit; font-weight: 800; font-size: 16px; padding: 12px 0; border-radius: 14px; border: 1px solid #ffffff24; background: #ffffff0d; color: #f8f7ff; cursor: pointer; }
+  .sizes button[aria-pressed="true"] { background: #bca0ff; color: #171225; border-color: transparent; }
+  .bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: max(16px, env(safe-area-inset-bottom)); z-index: 3; display: flex; gap: 10px; }
+  .bar[hidden] { display: none; }
+  .bar button { height: 46px; padding: 0 16px; border-radius: 14px; border: 1px solid #ffffff2a; background: #1d1e31dd; color: #f8f7ff; font: 800 15px Manrope, system-ui; backdrop-filter: blur(6px); cursor: pointer; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="ov"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames 3D</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+<div class="bar" id="bar" hidden><button type="button" id="menu">☰ Поле</button><button type="button" id="reshuffle">⟲ Перемешать</button></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ 3D</div>
+    <h1>Пятнашки <span>3D</span></h1>
+    <p>Расставь числа по порядку, от 1 в левом верхнем углу, а пустую клетку оставь в правом нижнем.</p>
+    <p>Касание плитки в одном ряду или столбце с пустой клеткой сдвигает сразу все плитки между ними. Можно и смахивать.</p>
+    <div class="sizes" id="sizes"><button type="button" data-n="3">3×3</button><button type="button" data-n="4" aria-pressed="true">4×4</button><button type="button" data-n="5">5×5</button></div>
+    <p>Лучшее время 4×4: <b id="bestStart">—</b> · собрано: <b id="solvedStart">0</b></p>
+    <button class="play" id="go" type="button">Играть ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Касание, смахивание или стрелки · рекорды общие с обычными Пятнашками</div>
+  </div>
+</div>
+
+<div class="screen" id="done" hidden>
+  <div class="box">
+    <div class="eyebrow" id="doneWhy">Собрано!</div>
+    <div class="big" id="doneTime">0:00</div>
+    <p id="doneText"></p>
+    <p>Лучшее время 4×4: <b id="bestDone">—</b> · собрано: <b id="solvedDone">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" id="toMenu">Выбрать поле</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<script src="../../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), ov = $('ov'), g = ov.getContext('2d');
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const movesWord = (n) => plural(n, 'ход', 'хода', 'ходов');
+  const clock = (s) => (s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : '—');
+
+  let best = +store.get('pyatnashki-best', 0) || 0, solved = +store.get('pyatnashki-solved', 0) || 0;
+  let bests = {}; try { bests = JSON.parse(store.get('pyatnashki-bests', '{}')) || {}; } catch { bests = {}; }
+  let N = +store.get('pyatnashki-size', 4) || 4;
+  let muted = store.get('pyatnashki-muted', '0') === '1';
+  FX.muted = () => muted;
+  let W = 0, H = 0, dpr = 1, cell = 80, bx = 0, by = 0;
+  let state = 'start', tiles, pos, moves, startedAt = 0, elapsed = 0, time = 0, shake = 0, solvedAnim = 0;
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'square', v = 0.06, slide = 1, delay = 0) {
+    if (muted || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  const sfx = {
+    slide: (n) => { for (let i = 0; i < n; i++) tone(300 + i * 40, 0.05, 'triangle', 0.06, 0.8, i * 0.03); },
+    place: () => tone(880, 0.06, 'sine', 0.04),
+    nope: () => tone(140, 0.08, 'square', 0.04),
+    win: () => [0, 4, 7, 12, 16].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.18, 'triangle', 0.08, 1, i * 0.08)),
+  };
+
+  // ——— Board ———
+  // tiles[i] is the number on cell i (0 is the gap); pos[n] is where tile n is drawn now (it slides to its cell).
+  function solvedBoard() { tiles = Array.from({ length: N * N }, (_, i) => (i + 1) % (N * N)); }
+  const gapAt = () => tiles.indexOf(0);
+  // Shuffled by random legal moves from the solved board, so every puzzle can be solved.
+  function shuffle() {
+    solvedBoard();
+    let gap = gapAt(), prev = -1;
+    const steps = N === 3 ? 120 : N === 4 ? 320 : 600;
+    for (let k = 0; k < steps; k++) {
+      const x = gap % N, y = Math.floor(gap / N), opts = [];
+      if (x > 0) opts.push(gap - 1); if (x < N - 1) opts.push(gap + 1); if (y > 0) opts.push(gap - N); if (y < N - 1) opts.push(gap + N);
+      const choices = opts.filter((o) => o !== prev);
+      const j = choices[Math.floor(Math.random() * choices.length)];
+      tiles[gap] = tiles[j]; tiles[j] = 0; prev = gap; gap = j;
+    }
+    if (isSolved()) shuffle();
+    pos = {}; for (let i = 0; i < tiles.length; i++) if (tiles[i]) pos[tiles[i]] = { x: i % N, y: Math.floor(i / N), s: 1 };
+  }
+  const isSolved = () => tiles.every((v, i) => v === (i + 1) % (N * N));
+  // A tap on a tile in the gap's row or column slides every tile between them towards the gap.
+  function tapCell(i) {
+    if (state !== 'play' || lb.isOpen()) return;
+    unlockAudio();
+    const gap = gapAt(), gx = gap % N, gy = Math.floor(gap / N), x = i % N, y = Math.floor(i / N);
+    if (i === gap) return;
+    if (x !== gx && y !== gy) { sfx.nope(); shake = 0.12; return; }
+    const step = x === gx ? (y < gy ? -N : N) : (x < gx ? -1 : 1);
+    let n = 0, g0 = gap;
+    while (g0 !== i) { const nxt = g0 + step; tiles[g0] = tiles[nxt]; tiles[nxt] = 0; g0 = nxt; n++; }
+    if (!startedAt) startedAt = performance.now();
+    moves += n; sfx.slide(Math.min(n, 4));
+    for (let k = 0; k < tiles.length; k++) if (tiles[k] && tiles[k] === k + 1 && pos[tiles[k]] && (Math.round(pos[tiles[k]].x) !== k % N || Math.round(pos[tiles[k]].y) !== Math.floor(k / N))) { pos[tiles[k]].glow = 1; }
+    if (isSolved()) win();
+  }
+  // Arrow keys and swipes move the tile next to the gap into it.
+  function nudge(dx, dy) {
+    const gap = gapAt(), gx = gap % N, gy = Math.floor(gap / N), x = gx - dx, y = gy - dy;
+    if (x < 0 || y < 0 || x >= N || y >= N) { sfx.nope(); return; }
+    tapCell(y * N + x);
+  }
+
+  function win() {
+    state = 'won'; elapsed = Math.max(1, Math.round((performance.now() - startedAt) / 1000)); solvedAnim = 0;
+    solved++; store.set('pyatnashki-solved', solved);
+    const prevBest = bests[N] || 0, record = !prevBest || elapsed < prevBest;
+    if (record) { bests[N] = elapsed; store.set('pyatnashki-bests', JSON.stringify(bests)); }
+    if (N === 4 && (!best || elapsed < best)) { best = elapsed; store.set('pyatnashki-best', best); }
+    lb.submit({ new_time: N === 4 ? elapsed : 0, new_solved: solved });
+    sfx.win(); FX.win(); if (record && prevBest) setTimeout(() => FX.record(), 600);
+    $('bar').hidden = true;
+    setTimeout(() => {
+      if (state !== 'won') return;
+      $('doneWhy').textContent = `Поле ${N}×${N} собрано!`;
+      $('doneTime').textContent = clock(elapsed);
+      $('doneText').innerHTML = (record && prevBest ? '<span class="new">Новый рекорд!</span> ' : '') + `${moves} ${movesWord(moves)} · лучшее на ${N}×${N}: ${clock(bests[N])}`;
+      showBests(); $('done').hidden = false;
+    }, 1300);
+  }
+  function startGame() {
+    unlockAudio(); shuffle(); moves = 0; startedAt = 0; elapsed = 0; state = 'play';
+    $('start').hidden = true; $('done').hidden = true; $('bar').hidden = false; layout();
+  }
+  function showBests() {
+    $('bestStart').textContent = $('bestDone').textContent = clock(best);
+    $('solvedStart').textContent = $('solvedDone').textContent = solved;
+  }
+
+  // ——— 3D ———
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); } catch (e) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="screen"><div class="box"><h1><span>3D</span> не запускается</h1><p>Браузер не поддерживает WebGL. Сыграй в обычные Пятнашки.</p><a class="play" style="text-decoration:none;display:block" href="../../pyatnashki/">Обычные Пятнашки ↗</a></div></div>');
+    throw e;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const scene = new THREE.Scene(); scene.background = new THREE.Color('#15132a'); scene.fog = new THREE.Fog('#15132a', 16, 40);
+  const camera = new THREE.PerspectiveCamera(38, 1, 0.3, 100);
+  FX.bind3(camera, cv);
+  scene.add(new THREE.HemisphereLight('#eae4ff', '#1d1838', 0.55));
+  const sun = new THREE.DirectionalLight('#fff4e0', 0.85); sun.position.set(-4, 9, 6); sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024); Object.assign(sun.shadow.camera, { left: -5, right: 5, top: 5, bottom: -5, near: 1, far: 30 }); scene.add(sun);
+  const table = new THREE.Mesh(new THREE.CircleGeometry(22, 48), new THREE.MeshStandardMaterial({ color: '#1f1a38', roughness: 0.95 }));
+  table.rotation.x = -Math.PI / 2; table.position.y = -0.36; table.receiveShadow = true; scene.add(table);
+  const tray = new THREE.Group(); scene.add(tray);
+  const woodMat = new THREE.MeshStandardMaterial({ color: '#7a4a24', roughness: 0.6 }), feltMat = new THREE.MeshStandardMaterial({ color: '#241f40', roughness: 1 });
+  const PAL = [['#bca0ff', '#7a5bd6'], ['#6fe3ff', '#2a9fc0'], ['#5df2a5', '#2a9f64'], ['#ffd23f', '#c99a00'], ['#ff7eb6', '#c0407a']];
+  function roundedTile() {
+    const s = 0.92, r = 0.14, sh = new THREE.Shape(), h = s / 2;
+    sh.moveTo(-h + r, -h); sh.lineTo(h - r, -h); sh.quadraticCurveTo(h, -h, h, -h + r); sh.lineTo(h, h - r); sh.quadraticCurveTo(h, h, h - r, h);
+    sh.lineTo(-h + r, h); sh.quadraticCurveTo(-h, h, -h, h - r); sh.lineTo(-h, -h + r); sh.quadraticCurveTo(-h, -h, -h + r, -h);
+    const geo = new THREE.ExtrudeGeometry(sh, { depth: 0.26, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.05, bevelSegments: 3, curveSegments: 6 });
+    geo.rotateX(-Math.PI / 2); return geo;
+  }
+  const tileGeo = roundedTile(), faceGeo = new THREE.PlaneGeometry(0.86, 0.86);
+  const faceTex = new Map();
+  function faceMat(n) {
+    const key = N + ':' + n; if (faceTex.has(key)) return faceTex.get(key);
+    const row = Math.floor((n - 1) / N), [c1, c2] = PAL[row % PAL.length];
+    const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
+    const gr = x.createLinearGradient(0, 0, 0, 128); gr.addColorStop(0, c1); gr.addColorStop(1, c2); x.fillStyle = gr; x.fillRect(0, 0, 128, 128);
+    x.fillStyle = 'rgba(255,255,255,.25)'; x.fillRect(10, 8, 108, 26);
+    x.fillStyle = '#171225'; x.font = `800 ${n > 9 ? 62 : 72}px Manrope, system-ui`; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(n, 64, 70);
+    const m = new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(c), roughness: 0.35 });
+    faceTex.set(key, m); return m;
+  }
+  let builtN = 0, meshes = {}, camDist = 10;
+  function buildTray() {
+    if (builtN === N && Object.keys(meshes).length === N * N - 1) return;
+    while (tray.children.length) tray.remove(tray.children[0]);
+    meshes = {}; builtN = N;
+    const felt = new THREE.Mesh(new THREE.BoxGeometry(N + 0.1, 0.1, N + 0.1), feltMat); felt.position.y = -0.05; felt.receiveShadow = true; tray.add(felt);
+    for (const [w, d, x, z] of [[N + 0.7, 0.3, 0, -(N + 0.4) / 2], [N + 0.7, 0.3, 0, (N + 0.4) / 2], [0.3, N + 0.1, -(N + 0.4) / 2, 0], [0.3, N + 0.1, (N + 0.4) / 2, 0]]) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.5, d), woodMat); m.position.set(x, 0.1, z); m.castShadow = true; m.receiveShadow = true; tray.add(m);
+    }
+    const base = new THREE.Mesh(new THREE.BoxGeometry(N + 0.7, 0.26, N + 0.7), woodMat); base.position.y = -0.23; base.receiveShadow = true; tray.add(base);
+    for (let n = 1; n < N * N; n++) {
+      const row = Math.floor((n - 1) / N), [c1, c2] = PAL[row % PAL.length];
+      const grp = new THREE.Group();
+      const body = new THREE.Mesh(tileGeo, new THREE.MeshStandardMaterial({ color: c2, roughness: 0.4 })); body.castShadow = true; body.receiveShadow = true; grp.add(body);
+      const face = new THREE.Mesh(faceGeo, faceMat(n)); face.rotation.x = -Math.PI / 2; face.position.y = 0.315; grp.add(face);
+      const dot = new THREE.Mesh(new THREE.CircleGeometry(0.05, 12), new THREE.MeshBasicMaterial({ color: '#ffffff' })); dot.rotation.x = -Math.PI / 2; dot.position.set(0.3, 0.32, -0.3); grp.add(dot);
+      grp.userData = { dot, body, c1 };
+      tray.add(grp); meshes[n] = grp;
+    }
+    fitCamera();
+  }
+  const X3 = (x) => x - (N - 1) / 2, Z3 = (y) => y - (N - 1) / 2;
+  function fitCamera() {
+    const a = W / Math.max(1, H); camera.aspect = a; camera.updateProjectionMatrix();
+    const tanH = Math.tan(camera.fov * Math.PI / 360), s = (N || 4) + 1;
+    camDist = Math.max((s * 0.92 + 2.2) / 2 / tanH, s / 2 / (tanH * a));
+    cell = Math.min(W, H) / (N + 2); // only for the swipe distance
+  }
+  function placeCamera() {
+    const sway = state === 'start' ? Math.sin(time * 0.35) * 0.3 : 0;
+    camera.position.set(Math.sin(sway) * camDist * 0.4, camDist * 0.82, camDist * 0.58); camera.lookAt(0, 0, 0.35);
+  }
+  const ray = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.3), hit = new THREE.Vector3();
+  function cellAt(px, py) {
+    ray.setFromCamera({ x: px / W * 2 - 1, y: -(py / H * 2 - 1) }, camera);
+    if (!ray.ray.intersectPlane(plane, hit)) return -1;
+    const cx = Math.round(hit.x + (N - 1) / 2), cy = Math.round(hit.z + (N - 1) / 2);
+    return cx >= 0 && cy >= 0 && cx < N && cy < N ? cy * N + cx : -1;
+  }
+  function draw() {
+    if (!tiles) return;
+    buildTray(); placeCamera();
+    for (let n = 1; n < N * N; n++) {
+      const p = pos[n], m = meshes[n]; if (!p || !m) continue;
+      const wave = state === 'won' ? Math.max(0, Math.sin(Math.min(Math.PI, solvedAnim * 6 - (n - 1) * 0.25))) : 0;
+      const home = tiles.indexOf(n) === n - 1;
+      m.position.set(X3(p.x), 0.04 + wave * 0.5 + (p.glow || 0) * 0.12, Z3(p.y));
+      m.rotation.y = wave * 0.4;
+      m.userData.dot.visible = home;
+      m.userData.body.material.emissive.set(p.glow ? '#ffffff' : '#000000'); m.userData.body.material.emissiveIntensity = (p.glow || 0) * 0.3;
+    }
+    tray.position.x = shake > 0 ? (Math.random() - 0.5) * 0.2 * shake : 0;
+    renderer.render(scene, camera);
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    if (state !== 'start') {
+      const secs = state === 'won' ? elapsed : startedAt ? Math.floor((performance.now() - startedAt) / 1000) : 0;
+      g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.shadowColor = '#000a'; g.shadowBlur = 10;
+      g.fillStyle = '#fff'; g.font = '800 30px Manrope, system-ui'; g.fillText(clock(secs) === '—' ? '0:00' : clock(secs), W / 2, 100);
+      g.font = '800 13px Manrope, system-ui'; g.fillStyle = '#c9c2f0';
+      g.fillText(`${N}×${N} · ходов ${moves}` + (bests[N] ? ` · лучшее ${clock(bests[N])}` : ''), W / 2, 122); g.shadowBlur = 0;
+    }
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; time += dt; solvedAnim += dt;
+    if (tiles) for (let i = 0; i < tiles.length; i++) {
+      const n = tiles[i]; if (!n) continue; const p = pos[n], tx = i % N, ty = Math.floor(i / N);
+      p.x += (tx - p.x) * Math.min(1, dt * 18); p.y += (ty - p.y) * Math.min(1, dt * 18);
+      if (p.glow) p.glow = Math.max(0, p.glow - dt * 2);
+    }
+    if (state === 'start' && tiles && time % 1.1 < dt) { const gap = gapAt(), gx = gap % N, gy = Math.floor(gap / N), o = []; if (gx > 0) o.push(gap - 1); if (gx < N - 1) o.push(gap + 1); if (gy > 0) o.push(gap - N); if (gy < N - 1) o.push(gap + N); const j = o[Math.floor(Math.random() * o.length)]; tiles[gap] = tiles[j]; tiles[j] = 0; }
+    shake = Math.max(0, shake - dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+  function layout() { if (tiles) { buildTray(); fitCamera(); } }
+  function resize() { dpr = Math.min(2, window.devicePixelRatio || 1); W = innerWidth; H = innerHeight; ov.width = Math.round(W * dpr); ov.height = Math.round(H * dpr); renderer.setSize(W, H, false); fitCamera(); }
+
+  const lb = FreasyLeaderboard({
+    key: 'pyatnashki',
+    boards: [
+      { id: 'time', title: 'Время 4×4', column: 'best_time', order: 'asc', note: 'Быстрее всех собрали поле 4×4.', format: clock },
+      { id: 'solved', title: 'Собрано', column: 'solved', order: 'desc', note: 'Больше всего собранных полей любого размера.', format: (v) => `${v}` },
+    ],
+    bests: () => (solved ? { new_time: best || 0, new_solved: solved } : null),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  let down = null;
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); down = { x: e.clientX, y: e.clientY }; });
+  cv.addEventListener('pointerup', (e) => {
+    if (!down) return; const dx = e.clientX - down.x, dy = e.clientY - down.y; down = null;
+    if (Math.hypot(dx, dy) > cell * 0.35) { if (Math.abs(dx) > Math.abs(dy)) nudge(Math.sign(dx), 0); else nudge(0, Math.sign(dy)); return; }
+    const i = cellAt(e.clientX, e.clientY); if (i >= 0) tapCell(i);
+  });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.target.closest && e.target.closest('button, a')) return;
+    const k = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1], KeyA: [-1, 0], KeyD: [1, 0], KeyW: [0, -1], KeyS: [0, 1] }[e.code];
+    if (k && state === 'play') { e.preventDefault(); nudge(...k); }
+    else if ((e.code === 'Space' || e.code === 'Enter') && (!$('start').hidden || !$('done').hidden)) { e.preventDefault(); startGame(); }
+  });
+  function pickSize(n) { N = n; store.set('pyatnashki-size', N); document.querySelectorAll('#sizes button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.n === N))); solvedBoard(); pos = {}; for (let i = 0; i < tiles.length; i++) if (tiles[i]) pos[tiles[i]] = { x: i % N, y: Math.floor(i / N), s: 1 }; layout(); }
+  document.querySelectorAll('#sizes button').forEach((b) => b.addEventListener('click', () => pickSize(+b.dataset.n)));
+  function toMenu() { state = 'start'; $('done').hidden = true; $('bar').hidden = true; $('start').hidden = false; pickSize(N); }
+  $('go').addEventListener('click', startGame);
+  $('again').addEventListener('click', startGame);
+  $('reshuffle').addEventListener('click', startGame);
+  $('menu').addEventListener('click', toMenu);
+  $('toMenu').addEventListener('click', toMenu);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('pyatnashki-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  addEventListener('resize', resize);
+  resize(); pickSize(N); showBests();
+  // #preview: a board in progress, for the site's screenshot.
+  if (location.hash === '#preview') {
+    pickSize(4); startGame(); startedAt = performance.now() - 47000; moves = 38;
+    tiles = [1, 2, 3, 4, 5, 6, 7, 8, 9, 14, 10, 12, 13, 0, 11, 15]; pos = {}; for (let i = 0; i < 16; i++) if (tiles[i]) pos[tiles[i]] = { x: i % 4, y: Math.floor(i / 4), s: 1 };
+  }
+  // On a local server tests can look inside.
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__pyatnashki3d = { get tiles() { return tiles; }, get state() { return state; }, get N() { return N; }, tapCell, nudge, startGame, pickSize };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

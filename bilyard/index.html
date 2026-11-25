@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../shared/session.js?v=2"></script>
+<script src="../shared/i18n.js?v=3" data-game="bilyard"></script>
+<script src="../shared/fx.js" data-mute="bilyard-muted"></script>
+<script src="../shared/clips.js?v=1"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Бильярд — FreasyGames</title>
+<meta name="description" content="Бильярд на FreasyGames: оттяни биток как рогатку и загони все шары в лузы за ограниченное число ударов. Чем больше шаров за удар, тем больше множитель. Каждая партия труднее.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">🎱 Новая игра</div>
+    <h1><span>Бильярд</span></h1>
+    <p>Оттяни палец или мышь назад от белого шара, как рогатку, и отпусти — чем дальше, тем сильнее удар. Пунктир покажет, куда покатится шар.</p>
+    <p>Загони все цветные шары в лузы за отведённые удары. Два шара за удар — очки ×2, три — ×3. Белый шар в лузе — штраф: минус удар.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · лучшая партия: <b id="rackStart">—</b></p>
+    <button class="play" id="go" type="button">Разбить ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Тяни назад и отпускай · Esc — отменить прицел</div>
+  </div>
+</div>
+
+<div class="screen" id="cleared" hidden>
+  <div class="box">
+    <div class="eyebrow" id="clearedWhy">Стол чист!</div>
+    <div class="big" id="clearedPts">+0</div>
+    <p id="clearedText"></p>
+    <button class="play" id="next" type="button">Следующая партия ↗</button>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow" id="overWhy">Удары кончились</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">очков</p>
+    <p>Партий: <b id="racksOver">0</b> · шаров забито: <b id="pottedOver">0</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · лучшая партия: <b id="bestRackOver">—</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), g = cv.getContext('2d');
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const pointsWord = (n) => plural(n, 'очко', 'очка', 'очков');
+  const shotsWord = (n) => plural(n, 'удар', 'удара', 'ударов');
+
+  // The table is 440 × 780 units on every screen; the playing field sits inside the cushions.
+  const TW = 440, TH = 780, RAIL = 34, R = 12, POCKET = 22, FRICTION = 0.988, MAXPOW = 1700;
+  const L = RAIL, T = RAIL, Rt = TW - RAIL, B = TH - RAIL;
+  const POCKETS = [[L, T], [Rt, T], [L - 4, TH / 2], [Rt + 4, TH / 2], [L, B], [Rt, B]];
+  const COLORS = ['#ffd23f', '#3a6bff', '#ff5f5f', '#a45cff', '#ff9a3d', '#2fbf74', '#b8304a', '#171225', '#ffd23f', '#3a6bff', '#ff5f5f', '#a45cff', '#ff9a3d', '#2fbf74', '#b8304a'];
+  let W = 0, H = 0, dpr = 1, scale = 1, ox = 0, oy = 0;
+  let state = 'start', balls, cue, aim = null, moving = false, shotPotted = [], shots, rack, score, potted, racksDone, scratched = false, time = 0, shake = 0, parts = [], popups = [], demoing = false;
+  let best = +store.get('bilyard-best', 0) || 0, bestRack = +store.get('bilyard-best-rack', 0) || 0;
+  let runs = {}; try { runs = JSON.parse(store.get('bilyard-runs', '{}')) || {}; } catch { runs = {}; }
+  let muted = store.get('bilyard-muted', '0') === '1';
+  FX.muted = () => muted || demoing;
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  let clicks = 0;
+  function tone(f, d, type = 'square', v = 0.06, slide = 1, delay = 0) {
+    if (muted || demoing || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  const sfx = {
+    cue: (p) => { tone(320 + p * 200, 0.05, 'square', 0.05 + p * 0.06, 0.5); tone(90, 0.08, 'sine', 0.12 * p, 0.6); },
+    // a ball click, louder for harder hits; limited so a break does not turn into noise
+    click: (v) => { if (clicks > 6) return; clicks++; tone(1800 + Math.random() * 600, 0.03, 'triangle', Math.min(0.09, 0.01 + v / 9000)); },
+    rail: (v) => tone(140, 0.05, 'sine', Math.min(0.1, v / 9000)),
+    pocket: (n) => { tone(220, 0.15, 'sine', 0.12, 0.6); tone(660 * Math.pow(2, Math.min(n, 6) * 2 / 12), 0.12, 'triangle', 0.07, 1, 0.08); },
+    scratch: () => { tone(300, 0.3, 'sawtooth', 0.06, 0.5); },
+    clear: () => [0, 4, 7, 12, 16].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.18, 'triangle', 0.08, 1, i * 0.08)),
+  };
+
+  // ——— Racks ———
+  // Every rack has more balls and fewer spare shots: 6 balls and 6 spare at first, up to 15 balls and 2 spare.
+  const ballsFor = (n) => Math.min(15, 5 + n);
+  const spareFor = (n) => Math.max(2, 7 - Math.ceil(n / 2));
+  function setupRack() {
+    balls = [];
+    const n = ballsFor(rack);
+    let k = 0;
+    for (let row = 0; k < n; row++) for (let j = 0; j <= row && k < n; j++, k++) {
+      const x = TW / 2 + (j - row / 2) * (R * 2 + 0.6), y = 250 - row * (R * 1.74 + 0.4);
+      balls.push({ x, y, vx: 0, vy: 0, c: COLORS[k % COLORS.length], n: k + 1, stripe: k >= 8, in: false });
+    }
+    cue = { x: TW / 2, y: 600, vx: 0, vy: 0, cue: true, in: false };
+    balls.push(cue);
+    shots = n + spareFor(rack); scratched = false; aim = null; moving = false;
+  }
+  function start() { unlockAudio(); rack = 1; score = 0; potted = 0; racksDone = 0; setupRack(); state = 'play'; chanceUsed = false; chance.hide(); $('start').hidden = true; $('over').hidden = true; $('cleared').hidden = true; }
+
+  // ——— Physics ———
+  function stepPhysics(dt) {
+    const sub = 4, h = dt / sub;
+    for (let s = 0; s < sub; s++) {
+      for (const b of balls) {
+        if (b.in) continue;
+        b.x += b.vx * h; b.y += b.vy * h;
+        // pockets swallow a ball whose centre gets close enough
+        for (const [px, py] of POCKETS) if ((b.x - px) ** 2 + (b.y - py) ** 2 < POCKET * POCKET) { pocketBall(b, px, py); break; }
+        if (b.in) continue;
+        // cushions, except near the pocket mouths
+        const nearPocket = POCKETS.some(([px, py]) => Math.abs(b.x - px) < POCKET + 6 && Math.abs(b.y - py) < POCKET + 6);
+        if (!nearPocket) {
+          if (b.x < L + R) { b.x = L + R; if (b.vx < 0) { sfx.rail(-b.vx); b.vx = -b.vx * 0.78; } }
+          if (b.x > Rt - R) { b.x = Rt - R; if (b.vx > 0) { sfx.rail(b.vx); b.vx = -b.vx * 0.78; } }
+          if (b.y < T + R) { b.y = T + R; if (b.vy < 0) { sfx.rail(-b.vy); b.vy = -b.vy * 0.78; } }
+          if (b.y > B - R) { b.y = B - R; if (b.vy > 0) { sfx.rail(b.vy); b.vy = -b.vy * 0.78; } }
+        } else { // keep it from flying off the table in a pocket mouth
+          b.x = Math.max(L - 10, Math.min(Rt + 10, b.x)); b.y = Math.max(T - 10, Math.min(B + 10, b.y));
+        }
+      }
+      // ball to ball: equal masses, a little energy lost
+      for (let i = 0; i < balls.length; i++) for (let j = i + 1; j < balls.length; j++) {
+        const a = balls[i], b = balls[j]; if (a.in || b.in) continue;
+        const dx = b.x - a.x, dy = b.y - a.y, d2 = dx * dx + dy * dy;
+        if (d2 >= 4 * R * R || d2 === 0) continue;
+        const d = Math.sqrt(d2), nx = dx / d, ny = dy / d, overlap = 2 * R - d;
+        a.x -= nx * overlap / 2; a.y -= ny * overlap / 2; b.x += nx * overlap / 2; b.y += ny * overlap / 2;
+        const rel = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
+        if (rel > 0) { const imp = rel * 0.97; a.vx -= imp * nx; a.vy -= imp * ny; b.vx += imp * nx; b.vy += imp * ny; sfx.click(rel); }
+      }
+      for (const b of balls) { if (b.in) continue; const f = Math.pow(FRICTION, h * 60); b.vx *= f; b.vy *= f; if (b.vx * b.vx + b.vy * b.vy < 36) { b.vx = 0; b.vy = 0; } }
+    }
+  }
+  const scr = (x, y) => [ox + x * scale, oy + y * scale];
+  function pocketBall(b, px, py) {
+    b.in = true; b.vx = b.vy = 0; const [sx, sy] = scr(px, py);
+    if (b.cue) { scratched = true; sfx.scratch(); popup(px, py, 'Штраф!', '#ff7a8a'); if (!demoing) { FX.shake(5, 200); FX.flash('#ff3b5c', 0.15); } return; }
+    shotPotted.push(b); potted++; sfx.pocket(shotPotted.length);
+    const pts = 10 * shotPotted.length; score += pts;
+    popup(px, py, shotPotted.length > 1 ? `+${pts} ×${shotPotted.length}` : `+${pts}`, shotPotted.length > 1 ? '#5df2a5' : '#ffd23f');
+    if (!demoing) { FX.burst(sx, sy, { n: 14, color: [b.c, '#ffffff'], speed: 220, shape: 'star' }); if (shotPotted.length > 1) FX.on('combo', shotPotted.length, sx, sy); }
+  }
+  function shoot(dx, dy, p) {
+    if (moving || state !== 'play' || lb.isOpen()) return;
+    const len = Math.hypot(dx, dy) || 1, pow = p * MAXPOW;
+    cue.vx = dx / len * pow; cue.vy = dy / len * pow; moving = true; shotPotted = []; clicks = 0; shots--;
+    sfx.cue(p);
+  }
+  function settle() {
+    moving = false;
+    if (scratched) {
+      // the white ball comes back to its spot; the penalty is one more shot
+      scratched = false; shots = Math.max(0, shots - 1);
+      cue.in = false; cue.vx = cue.vy = 0; cue.x = TW / 2; cue.y = 600;
+      while (balls.some((b) => b !== cue && !b.in && Math.hypot(b.x - cue.x, b.y - cue.y) < 2 * R + 2)) cue.y -= 6;
+    }
+    if (balls.every((b) => b.cue || b.in)) return clearRack();
+    if (shots <= 0) return lose();
+  }
+  function clearRack() {
+    const spare = shots, bonus = spare * 20 + rack * 25; score += bonus; racksDone++;
+    sfx.clear(); if (!demoing) FX.win();
+    state = 'cleared';
+    $('clearedWhy').textContent = `Партия ${rack}: стол чист!`;
+    $('clearedPts').textContent = `+${bonus}`;
+    $('clearedText').textContent = `Осталось ${spare} ${shotsWord(spare)} — по 20 очков за каждый · всего ${score} ${pointsWord(score)}`;
+    setTimeout(() => { if (state === 'cleared' && !demoing) $('cleared').hidden = false; }, 900);
+  }
+  function nextRack() { rack++; setupRack(); state = 'play'; $('cleared').hidden = true; }
+  function lose() {
+    state = 'over'; FX.over();
+    const run = { new_score: score, new_rack: racksDone, new_potted: potted }, record = score > best;
+    if (record && score) setTimeout(() => FX.record(), 500);
+    if (record) { best = score; store.set('bilyard-best', best); runs.score = run; }
+    if (racksDone > bestRack) { bestRack = racksDone; store.set('bilyard-best-rack', bestRack); runs.rack = run; }
+    store.set('bilyard-runs', JSON.stringify(runs));
+    lb.submit(run);
+    setTimeout(() => {
+      $('overWhy').textContent = 'Удары кончились';
+      $('final').textContent = score;
+      $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + pointsWord(score);
+      $('racksOver').textContent = racksDone; $('pottedOver').textContent = potted;
+      showBests(); $('over').hidden = false;
+      if (!chanceUsed) chance.show();
+    }, 900);
+  }
+  // Once a game, an ad gives three more shots for this rack.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'bilyard-shots', label: '🎬 Ещё 3 удара за рекламу', onReward: () => {
+    chanceUsed = true; shots = 3; state = 'play'; $('over').hidden = true;
+  } });
+
+  function burst(x, y, col, n = 10, sp = 160) { for (let i = 0; i < n; i++) { const a = Math.random() * 7, v = 30 + Math.random() * sp; parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, col }); } }
+  function popup(x, y, text, col) { popups.push({ x, y, text, col, life: 1 }); }
+  void burst;
+
+  // ——— Aiming ———
+  // The shot goes opposite to the pull; the ghost ball shows where the white ball first touches another.
+  function aimInfo() {
+    if (!aim) return null;
+    const dx = aim.sx - aim.x, dy = aim.sy - aim.y, len = Math.hypot(dx, dy);
+    if (len < 6) return null;
+    const ux = dx / len, uy = dy / len, p = Math.min(1, len / 170);
+    let hitT = Infinity, hitBall = null;
+    for (const b of balls) {
+      if (b.cue || b.in) continue;
+      const fx = b.x - cue.x, fy = b.y - cue.y, t = fx * ux + fy * uy; if (t < 0) continue;
+      const dist2 = fx * fx + fy * fy - t * t; if (dist2 > 4 * R * R) continue;
+      const tt = t - Math.sqrt(4 * R * R - dist2); if (tt < hitT) { hitT = tt; hitBall = b; }
+    }
+    let wallT = Infinity;
+    if (ux > 0) wallT = Math.min(wallT, (Rt - R - cue.x) / ux); if (ux < 0) wallT = Math.min(wallT, (L + R - cue.x) / ux);
+    if (uy > 0) wallT = Math.min(wallT, (B - R - cue.y) / uy); if (uy < 0) wallT = Math.min(wallT, (T + R - cue.y) / uy);
+    const t = Math.min(hitT, wallT);
+    return { ux, uy, p, t, gx: cue.x + ux * t, gy: cue.y + uy * t, hitBall: hitT <= wallT ? hitBall : null };
+  }
+
+  // ——— Drawing ———
+  function round(x, y, w, h, r) { g.beginPath(); if (g.roundRect) g.roundRect(x, y, w, h, r); else g.rect(x, y, w, h); }
+  function drawBall(b) {
+    const { x, y } = b;
+    g.fillStyle = '#0006'; g.beginPath(); g.ellipse(x + 3, y + 4, R, R * 0.9, 0, 0, 7); g.fill();
+    if (b.cue) { g.fillStyle = '#f7f4ea'; g.beginPath(); g.arc(x, y, R, 0, 7); g.fill(); }
+    else if (b.stripe) {
+      g.fillStyle = '#f7f4ea'; g.beginPath(); g.arc(x, y, R, 0, 7); g.fill();
+      g.save(); g.beginPath(); g.arc(x, y, R, 0, 7); g.clip(); g.fillStyle = b.c; g.fillRect(x - R, y - R * 0.5, R * 2, R); g.restore();
+    } else { g.fillStyle = b.c; g.beginPath(); g.arc(x, y, R, 0, 7); g.fill(); }
+    if (!b.cue) { g.fillStyle = '#fff'; g.beginPath(); g.arc(x, y, R * 0.48, 0, 7); g.fill(); g.fillStyle = '#171225'; g.font = `800 ${R * 0.75}px Manrope, system-ui`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(b.n, x, y + 0.5); }
+    const sh = g.createRadialGradient(x - R * 0.4, y - R * 0.45, 1, x, y, R);
+    sh.addColorStop(0, 'rgba(255,255,255,.55)'); sh.addColorStop(0.35, 'rgba(255,255,255,0)'); sh.addColorStop(1, 'rgba(0,0,0,.28)');
+    g.fillStyle = sh; g.beginPath(); g.arc(x, y, R, 0, 7); g.fill();
+  }
+  function draw() {
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const bg = g.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.7);
+    bg.addColorStop(0, '#2a1f3c'); bg.addColorStop(1, '#0e0c18');
+    g.fillStyle = bg; g.fillRect(0, 0, W, H);
+    // a lamp above the table
+    g.fillStyle = 'rgba(255,230,170,.05)'; g.beginPath(); g.ellipse(W / 2, H / 2, W * 0.45, H * 0.5, 0, 0, 7); g.fill();
+    if (!balls) return;
+    const sh = shake > 0 ? (Math.random() - 0.5) * 10 * shake : 0;
+    g.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * (ox + sh), dpr * oy);
+    // wooden rails, cushions and cloth
+    const wood = g.createLinearGradient(0, 0, TW, 0); wood.addColorStop(0, '#5a3418'); wood.addColorStop(0.5, '#7a4a24'); wood.addColorStop(1, '#5a3418');
+    g.fillStyle = '#00000066'; round(6, 10, TW, TH, 26); g.fill();
+    g.fillStyle = wood; round(0, 0, TW, TH, 26); g.fill();
+    const cloth = g.createRadialGradient(TW / 2, TH / 2, 40, TW / 2, TH / 2, TH * 0.6); cloth.addColorStop(0, '#2fa86a'); cloth.addColorStop(1, '#1d7a4a');
+    g.fillStyle = '#1a6640'; round(L - 10, T - 10, Rt - L + 20, B - T + 20, 10); g.fill();
+    g.fillStyle = cloth; g.fillRect(L, T, Rt - L, B - T);
+    g.strokeStyle = '#ffffff22'; g.lineWidth = 2; g.beginPath(); g.moveTo(L, 600); g.lineTo(Rt, 600); g.stroke();
+    g.fillStyle = '#ffffff44'; g.beginPath(); g.arc(TW / 2, 600, 3, 0, 7); g.fill(); g.beginPath(); g.arc(TW / 2, 250, 3, 0, 7); g.fill();
+    // diamonds on the rails
+    g.fillStyle = '#f3e3c3'; for (let k = 1; k < 4; k++) { for (const x of [L + (Rt - L) * k / 4]) { g.beginPath(); g.arc(x, T / 2, 2.5, 0, 7); g.fill(); g.beginPath(); g.arc(x, TH - T / 2, 2.5, 0, 7); g.fill(); } }
+    for (let k = 1; k < 8; k++) if (k !== 4) { const y = T + (B - T) * k / 8; g.beginPath(); g.arc(L / 2, y, 2.5, 0, 7); g.fill(); g.beginPath(); g.arc(TW - L / 2, y, 2.5, 0, 7); g.fill(); }
+    for (const [px, py] of POCKETS) { g.fillStyle = '#0b0a10'; g.beginPath(); g.arc(px, py, POCKET, 0, 7); g.fill(); g.strokeStyle = '#3a2412'; g.lineWidth = 3; g.stroke(); }
+    // aim line and ghost ball
+    const ai = state === 'play' && !moving ? aimInfo() : null;
+    if (ai) {
+      g.strokeStyle = `rgba(255,255,255,${0.35 + ai.p * 0.4})`; g.lineWidth = 2; g.setLineDash([6, 6]);
+      g.beginPath(); g.moveTo(cue.x, cue.y); g.lineTo(ai.gx, ai.gy); g.stroke(); g.setLineDash([]);
+      g.strokeStyle = '#ffffffaa'; g.beginPath(); g.arc(ai.gx, ai.gy, R, 0, 7); g.stroke();
+      if (ai.hitBall) { // where the object ball will go
+        const nx = ai.hitBall.x - ai.gx, ny = ai.hitBall.y - ai.gy, nl = Math.hypot(nx, ny) || 1;
+        g.strokeStyle = '#ffd23faa'; g.beginPath(); g.moveTo(ai.hitBall.x, ai.hitBall.y); g.lineTo(ai.hitBall.x + nx / nl * 80, ai.hitBall.y + ny / nl * 80); g.stroke();
+      }
+      // the cue stick behind the white ball
+      const back = 18 + ai.p * 60;
+      g.save(); g.translate(cue.x, cue.y); g.rotate(Math.atan2(ai.uy, ai.ux));
+      const stick = g.createLinearGradient(-back - 300, 0, -back, 0); stick.addColorStop(0, '#3a2412'); stick.addColorStop(0.7, '#d9b07a'); stick.addColorStop(1, '#f3e3c3');
+      g.fillStyle = stick; g.beginPath(); g.moveTo(-back, -3); g.lineTo(-back - 300, -6); g.lineTo(-back - 300, 6); g.lineTo(-back, 3); g.fill();
+      g.fillStyle = '#6fe3ff'; g.fillRect(-back - 2, -3, 4, 6);
+      g.restore();
+    }
+    for (const b of balls) if (!b.in) drawBall(b);
+    for (const p of popups) { g.globalAlpha = Math.min(1, p.life * 2); g.fillStyle = p.col; g.font = '800 18px Manrope, system-ui'; g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillText(p.text, p.x, p.y - 14 - (1 - p.life) * 40); } g.globalAlpha = 1;
+    // HUD
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (state !== 'start') {
+      const left = balls.filter((b) => !b.cue && !b.in).length;
+      g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillStyle = '#fff'; g.font = '800 28px Manrope, system-ui';
+      const top = oy - 52;
+      g.fillText(score, W / 2, top);
+      g.font = '800 13px Manrope, system-ui'; g.fillStyle = shots <= Math.max(1, left - 1) ? '#ffb3c0' : '#c9c2f0';
+      g.fillText(`Партия ${rack} · ударов ${shots} · шаров ${left}`, W / 2, top + 20);
+      if (ai) { g.fillStyle = '#ffffff22'; round(W / 2 - 80, top + 30, 160, 8, 4); g.fill(); g.fillStyle = ai.p > 0.8 ? '#ff7a8a' : '#ffd23f'; round(W / 2 - 80, top + 30, 160 * ai.p, 8, 4); g.fill(); }
+    }
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.033, (now - last) / 1000)); last = now; time += dt;
+    if (state === 'start') demo(dt);
+    else if ((state === 'play' || state === 'cleared') && moving) { stepPhysics(dt); if (balls.every((b) => b.in || (!b.vx && !b.vy))) settle(); }
+    for (const p of popups) p.life -= dt * 1.1; popups = popups.filter((p) => p.life > 0);
+    shake = Math.max(0, shake - dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+  // Behind the start card a few breaks play by themselves.
+  let demoWait = 0.6;
+  function demo(dt) {
+    demoing = true; const keep = state; state = 'play';
+    if (moving) { stepPhysics(dt); if (balls.every((b) => b.in || (!b.vx && !b.vy))) { moving = false; scratched = false; if (cue.in) { cue.in = false; cue.x = TW / 2; cue.y = 600; } demoWait = 1; } }
+    else if ((demoWait -= dt) <= 0) {
+      const left = balls.filter((b) => !b.cue && !b.in);
+      if (left.length < 3) { rack = 1; setupRack(); }
+      const t = left[Math.floor(Math.random() * left.length)] || { x: TW / 2, y: 250 };
+      shoot(t.x - cue.x, t.y - cue.y, 0.55 + Math.random() * 0.4); shots = 99;
+    }
+    state = keep; demoing = false;
+  }
+
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr;
+    scale = Math.min((W - 20) / TW, (H - 176) / TH); ox = (W - TW * scale) / 2; oy = Math.max(160, (H - TH * scale) / 2 + 40);
+  }
+  const toWorld = (x, y) => [(x - ox) / scale, (y - oy) / scale];
+
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('rackStart').textContent = $('bestRackOver').textContent = bestRack || '—';
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'bilyard',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за одну игру.', format: (v) => `${v} ${pointsWord(v)}` },
+      { id: 'rack', title: 'Партии', column: 'best_rack', order: 'desc', note: 'Больше всего очищенных столов за одну игру.', format: (v) => `${v}` },
+    ],
+    bests: () => [runs.score, runs.rack].filter(Boolean),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  cv.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); unlockAudio();
+    if (state !== 'play' || moving || lb.isOpen()) return;
+    const [x, y] = toWorld(e.clientX, e.clientY); aim = { x, y, sx: x, sy: y }; cv.setPointerCapture(e.pointerId);
+  });
+  cv.addEventListener('pointermove', (e) => { if (!aim) return; const [x, y] = toWorld(e.clientX, e.clientY); aim.x = x; aim.y = y; });
+  cv.addEventListener('pointerup', () => { if (!aim) return; const ai = aimInfo(); aim = null; if (ai && ai.p > 0.04) shoot(ai.ux, ai.uy, ai.p); });
+  cv.addEventListener('pointercancel', () => { aim = null; });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.key === 'Escape') { aim = null; return; }
+    if (e.target.closest && e.target.closest('.screen button')) return;
+    if ((e.code === 'Space' || e.code === 'Enter') && !$('cleared').hidden) { e.preventDefault(); nextRack(); }
+    else if ((e.code === 'Space' || e.code === 'Enter') && state !== 'play' && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); }
+  });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  $('next').addEventListener('click', nextRack);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('bilyard-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  addEventListener('resize', resize);
+  resize(); rack = 1; score = 0; potted = 0; racksDone = 0; setupRack(); showBests();
+  // #preview: a shot being aimed, for the site's screenshot.
+  if (location.hash === '#preview') {
+    $('start').hidden = true; state = 'play'; rack = 3; setupRack(); score = 470; racksDone = 2; shots = 9;
+    const pos = [[120, 160], [300, 210], [250, 330], [180, 420], [330, 470], [90, 560], [260, 120], [150, 300]];
+    balls.filter((b) => !b.cue).forEach((b, i) => { if (pos[i]) { b.x = pos[i][0]; b.y = pos[i][1]; } else b.in = true; });
+    cue.x = 240; cue.y = 560; aim = { sx: 240, sy: 560, x: 240 + 30, y: 560 + 95 };
+  }
+  // On a local server tests can look inside.
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__bilyard = { get balls() { return balls; }, get cue() { return cue; }, get state() { return state; }, get shots() { return shots; }, get score() { return score; }, get moving() { return moving; }, get rack() { return rack; }, shoot, nextRack, POCKETS };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

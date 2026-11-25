@@ -7,7 +7,7 @@
 <script src="../shared/theme.js?v=1"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0d0f1c">
-  <meta name="description" content="FreasyGames 3D — бесплатные 3D-игры прямо в браузере: RCFCG 3D, Растения против Зомби 3D, Мемный Кот: Прыг 3D, Отель «Полночь», Трасса 3D, Шариковый рекорд 3D, Лиана 3D, Слияние звёзд 3D, Звёздная башня 3D, Кирпичики 3D, Нарезка 3D, Лабиринт 3D, Блоки 3D, Лунка 3D, Аэрохоккей 3D, Бревно 3D, Колбы 3D, Танкодром 3D, Грузчик 3D, Мостик 3D, Посадка 3D, Четыре в ряд 3D, Минное поле 3D, Лампочки 3D и Цветная память 3D.">
+  <meta name="description" content="FreasyGames 3D — бесплатные 3D-игры прямо в браузере: RCFCG 3D, Растения против Зомби 3D, Мемный Кот: Прыг 3D, Отель «Полночь», Трасса 3D, Шариковый рекорд 3D, Лиана 3D, Слияние звёзд 3D, Звёздная башня 3D, Кирпичики 3D, Нарезка 3D, Лабиринт 3D, Блоки 3D, Лунка 3D, Аэрохоккей 3D, Бревно 3D, Колбы 3D, Танкодром 3D, Грузчик 3D, Мостик 3D, Посадка 3D, Четыре в ряд 3D, Минное поле 3D, Лампочки 3D, Цветная память 3D, Пятнашки 3D и Звездопад 3D.">
   <title>FreasyGames 3D</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -303,6 +303,10 @@
     .art.tubes3d { background: #111321 url(../images/kolby3d.jpg) 50% 55% / 140% auto no-repeat; }
     .art.tank3d { background: #111a14 url(../images/tankodrom3d.jpg) 50% 45% / 150% auto no-repeat; }
     .art.crate3d { background: #1b1712 url(../images/gruzchik3d.jpg) 50% 50% / 140% auto no-repeat; }
+    .art.fifteen3d { background: #15132a url(../images/pyatnashki3d.jpg) 50% 45% / 150% auto no-repeat; }
+    .art.starfall3d { background: #0b0a24 url(../images/zvezdopad3d.jpg) 50% 60% / 140% auto no-repeat; }
+    .art.fifteen3d::after, .art.starfall3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, var(--card)); pointer-events: none; }
+    .art .pct.fifteenp { color: #fff; font-size: 13px; } .art .pct.starfallp { color: #5df2a5; font-size: 13px; }
     .art.bulbs3d { background: #120f22 url(../images/lampochki3d.jpg) 50% 45% / 150% auto no-repeat; }
     .art.memory3d { background: #121128 url(../images/pamyat3d.jpg) 50% 50% / 140% auto no-repeat; }
     .art.bulbs3d::after, .art.memory3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, var(--card)); pointer-events: none; }
@@ -367,7 +371,7 @@
     <section class="wrap hero">
       <span class="eyebrow">Только 3D</span>
       <h1>Freasy<span class="three">Games 3D</span></h1>
-      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже тридцать четыре игры, и будут ещё.</p>
+      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже тридцать шесть игр, и будут ещё.</p>
       <a class="hero-action" href="#games">Смотреть игры ↓</a>
       <div class="hint">Двигай мышкой или пальцем — сцена повернётся</div>
     </section>
@@ -465,6 +469,10 @@
           <span class="tag live">Играть</span><h3>Лампочки 3D</h3><p>Стеклянные лампы в патронах светятся и освещают комнату, а камни на больших полях выглядят как глыбы. Погаси все — и комнату заполнят светлячки. Те же уровни и рекорды, что в 2D.</p></div>
         <div class="slot game" data-game="3d-pamyat" data-tags="На память, Таблица лидеров"><a class="slot-link" href="pamyat/" aria-label="Играть: Цветная память 3D"></a><div class="art memory3d" aria-hidden="true"><span class="pct memoryp">Раунд 8</span></div>
           <span class="tag live">Играть</span><h3>Цветная память 3D</h3><p>Стеклянные кнопки на круглой сцене поднимаются и загораются по очереди, отбрасывая цветной свет. Каждые 5 раундов сцена прокручивается. Те же раунды и рекорды, что в 2D.</p></div>
+        <div class="slot game" data-game="3d-pyatnashki" data-tags="Головоломка, Логика, Таблица лидеров"><a class="slot-link" href="pyatnashki/" aria-label="Играть: Пятнашки 3D"></a><div class="art fifteen3d" aria-hidden="true"><span class="pct fifteenp">0:49</span></div>
+          <span class="tag live">Играть</span><h3>Пятнашки 3D</h3><p>Глянцевые объёмные плитки скользят в деревянном лотке, а после сборки по ним пробегает волна. Те же поля 3×3, 4×4 и 5×5 и общие с 2D рекорды.</p></div>
+        <div class="slot game" data-game="3d-zvezdopad" data-tags="Аркада, На реакцию, Таблица лидеров"><a class="slot-link" href="zvezdopad/" aria-label="Играть: Звездопад 3D"></a><div class="art starfall3d" aria-hidden="true"><span class="pct starfallp">×3</span></div>
+          <span class="tag live">Играть</span><h3>Звездопад 3D</h3><p>Объёмный лисёнок с плетёной корзинкой ловит вращающиеся светящиеся звёзды под луной, а бомбы искрят фитилём. Те же множители, бонусы и рекорды, что в 2D.</p></div>
       </div>
     </section>
 

@@ -116,7 +116,8 @@
   }
   function run() { if (!raf) { last = performance.now(); raf = requestAnimationFrame(frame); } }
   function frame(now) {
-    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    // the frame time can be a little earlier than the moment the loop started: never step back in time
+    const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = Math.max(last, now);
     c2.setTransform(1, 0, 0, 1, 0, 0); c2.clearRect(0, 0, cv.width, cv.height);
     c2.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (flashA > 0) { c2.globalAlpha = flashA; c2.fillStyle = flashC; c2.fillRect(0, 0, innerWidth, innerHeight); flashA = Math.max(0, flashA - dt * 2.6); }
@@ -124,7 +125,7 @@
       const r = rings[i]; r.t += dt; const k = r.t / r.life;
       if (k >= 1) { rings.splice(i, 1); continue; }
       c2.globalAlpha = 1 - k; c2.strokeStyle = r.color; c2.lineWidth = 4 * (1 - k) + 1;
-      c2.beginPath(); c2.arc(r.x, r.y, r.r0 + (r.r1 - r.r0) * (1 - (1 - k) * (1 - k)), 0, Math.PI * 2); c2.stroke();
+      c2.beginPath(); c2.arc(r.x, r.y, Math.max(0, r.r0 + (r.r1 - r.r0) * (1 - (1 - k) * (1 - k))), 0, Math.PI * 2); c2.stroke();
     }
     for (let i = parts.length - 1; i >= 0; i--) {
       const p = parts[i]; p.t += dt;

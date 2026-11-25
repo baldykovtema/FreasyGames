@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/i18n.js?v=3" data-game="3d-zvezdopad"></script>
+<script src="../../shared/fx.js" data-mute="zvezdopad-muted"></script>
+<script src="../../shared/clips.js?v=1"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0d0f1c">
+<title>Звездопад 3D — FreasyGames 3D</title>
+<meta name="description" content="Звездопад 3D на FreasyGames: объёмный лисёнок с плетёной корзинкой ловит вращающиеся звёзды под луной. Те же множители, бонусы, бомбы и рекорды, что в обычном Звездопаде.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>#ov { pointer-events: none; }</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="ov"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames 3D</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ 3D</div>
+    <h1>Звездопад <span>3D</span></h1>
+    <p>Води лисёнка с корзинкой и лови падающие звёзды. Каждые пять поимок подряд поднимают множитель до ×5, пропущенная звезда сбрасывает его.</p>
+    <p>Золотая звезда — +5, сердечко — жизнь, часы замедляют время, магнит притягивает звёзды. Бомба отнимает жизнь — пропусти её.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · лучший множитель: <b id="comboStart">—</b></p>
+    <button class="play" id="go" type="button">Ловить ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Веди пальцем или мышью · стрелки или A и D · рекорды общие с обычным Звездопадом</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow" id="overWhy">Жизни кончились</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">очков</p>
+    <p>Звёзд поймано: <b id="caughtOver">0</b> · лучшая серия: <b id="streakOver">0</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · лучший множитель: <b id="bestComboOver">—</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<script src="../../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), ov = $('ov'), g = ov.getContext('2d');
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const pointsWord = (n) => plural(n, 'очко', 'очка', 'очков');
+
+  // The sky is 480 units wide on every screen; its height is 760, scaled to fit.
+  const FW = 480, FH = 760, GROUND = 690, BASKET = 66, BASKET_Y = 118, LIVES = 3;
+  let W = 0, H = 0, dpr = 1, scale = 1, ox = 0, oy = 0;
+  let state = 'start', fox, items, score, caught, streak, bestStreakRun, mult, bestMultRun, lives, playTime, spawnT, slowT, magnetT, parts, popups, shake = 0, flash = 0, time = 0, demoing = false, overTimer = 0;
+  let best = +store.get('zvezdopad-best', 0) || 0, bestMult = +store.get('zvezdopad-best-mult', 0) || 0;
+  let runs = {}; try { runs = JSON.parse(store.get('zvezdopad-runs', '{}')) || {}; } catch { runs = {}; }
+  let muted = store.get('zvezdopad-muted', '0') === '1';
+  FX.muted = () => muted || demoing;
+  const keys = new Set();
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'square', v = 0.06, slide = 1, delay = 0) {
+    if (muted || demoing || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  const SCALE = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21];
+  const sfx = {
+    star: (n) => { const f = 523 * Math.pow(2, SCALE[n % SCALE.length] / 12); tone(f, 0.1, 'triangle', 0.08); tone(f * 2, 0.06, 'sine', 0.03, 1, 0.03); },
+    gold: () => [0, 7, 12, 19].forEach((s, i) => tone(784 * Math.pow(2, s / 12), 0.1, 'square', 0.04, 1, i * 0.04)),
+    heart: () => [0, 4, 7].forEach((s, i) => tone(440 * Math.pow(2, s / 12), 0.16, 'sine', 0.08, 1, i * 0.07)),
+    power: () => { tone(300, 0.3, 'sawtooth', 0.04, 3); tone(600, 0.3, 'triangle', 0.05, 2, 0.05); },
+    mult: (m) => [0, 4, 7, 12].forEach((s, i) => tone(392 * Math.pow(2, (s + m * 2) / 12), 0.12, 'triangle', 0.07, 1, i * 0.05)),
+    miss: () => tone(200, 0.12, 'sine', 0.05, 0.6),
+    bomb: () => { tone(120, 0.6, 'sawtooth', 0.1, 0.3); tone(60, 0.5, 'sine', 0.2, 0.5); },
+  };
+
+  // ——— World ———
+  const KINDS = {
+    star: { r: 15, pts: 1 }, gold: { r: 17, pts: 5 }, heart: { r: 15 }, clock: { r: 16 }, magnet: { r: 16 }, bomb: { r: 17 },
+  };
+  function reset() {
+    fox = { x: FW / 2, tx: FW / 2, vx: 0, tilt: 0, hurt: 0, happy: 0 };
+    items = []; parts = []; popups = [];
+    score = 0; caught = 0; streak = 0; bestStreakRun = 0; mult = 1; bestMultRun = 1; lives = LIVES; playTime = 0; spawnT = 0.6; slowT = 0; magnetT = 0;
+  }
+  const hard = () => Math.min(1, playTime / 150);
+  function spawn() {
+    const k = hard(), roll = Math.random();
+    let kind = 'star';
+    if (roll < 0.12 + k * 0.16) kind = 'bomb';
+    else if (roll < 0.2 + k * 0.16) kind = 'gold';
+    else if (roll < 0.215 + k * 0.16 && lives < LIVES) kind = 'heart';
+    else if (roll < 0.235 + k * 0.16) kind = Math.random() < 0.5 ? 'clock' : 'magnet';
+    const r = KINDS[kind].r;
+    items.push({ kind, x: r + 10 + Math.random() * (FW - 2 * r - 20), y: -30, vy: 150 + k * 170 + Math.random() * 60, vx: (Math.random() - 0.5) * (20 + k * 60), rot: Math.random() * 6, r, t: 0 });
+  }
+  const scr = (x, y) => FX.g(x, y);
+
+  function catchItem(it) {
+    const [sx, sy] = scr(it.x, it.y);
+    if (it.kind === 'bomb') {
+      lives--; streak = 0; mult = 1; fox.hurt = 1; sfx.bomb(); shake = 0.5; flash = 1;
+      burst(it.x, it.y, '#ff7a3d', 24); burst(it.x, it.y, '#3a3550', 10);
+      if (!demoing) { FX.explode(sx, sy); FX.shake(10, 400); }
+      if (lives <= 0) return die();
+      return;
+    }
+    if (it.kind === 'heart') { lives = Math.min(LIVES, lives + 1); sfx.heart(); popup(it.x, it.y - 20, '+♥', '#ff7eb6'); if (!demoing) FX.ring(sx, sy, '#ff7eb6', 70); return; }
+    if (it.kind === 'clock') { slowT = 5; sfx.power(); popup(it.x, it.y - 20, 'Медленнее!', '#6fe3ff'); if (!demoing) FX.on('big', 0, sx, sy); return; }
+    if (it.kind === 'magnet') { magnetT = 6; sfx.power(); popup(it.x, it.y - 20, 'Магнит!', '#ff9a5c'); if (!demoing) FX.on('big', 0, sx, sy); return; }
+    // a star
+    caught++; streak++; bestStreakRun = Math.max(bestStreakRun, streak); fox.happy = 0.4;
+    const pts = KINDS[it.kind].pts * mult; score += pts;
+    if (it.kind === 'gold') sfx.gold(); else sfx.star(streak);
+    popup(it.x, it.y - 20, `+${pts}`, it.kind === 'gold' ? '#ffd23f' : '#fff');
+    burst(it.x, it.y, it.kind === 'gold' ? '#ffd23f' : '#fff3a0', 10, 150);
+    if (!demoing) FX.sparkle(sx, sy, it.kind === 'gold' ? '#ffd23f' : '#fff6c0');
+    const m = Math.min(5, 1 + Math.floor(streak / 5));
+    if (m > mult) { mult = m; bestMultRun = Math.max(bestMultRun, mult); sfx.mult(mult); popup(fox.x, GROUND - 120, `×${mult}!`, '#5df2a5', true); if (!demoing) { const [fx, fy] = scr(fox.x, GROUND - 120); FX.on('combo', mult * 2, fx, fy); } }
+  }
+  function die() {
+    if (demoing) { reset(); return; }
+    state = 'dying'; overTimer = setTimeout(() => gameOver('Жизни кончились'), 1000);
+    FX.over();
+  }
+
+  function burst(x, y, col, n = 14, sp = 200) { for (let i = 0; i < n; i++) { const a = Math.random() * 7, v = 40 + Math.random() * sp; parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, life: 1, col, r: 2 + Math.random() * 3 }); } }
+  function popup(x, y, text, col = '#f8f7ff', big = false) { popups.push({ x, y, text, col, life: 1, big }); }
+
+  function step(dt) {
+    if (state !== 'play' || lb.isOpen()) return;
+    playTime += dt; slowT = Math.max(0, slowT - dt); magnetT = Math.max(0, magnetT - dt);
+    const tdt = dt * (slowT > 0 ? 0.5 : 1);
+    // the fox follows the finger or the keys
+    const dir = (keys.has('L') ? -1 : 0) + (keys.has('R') ? 1 : 0);
+    if (dir) fox.tx = Math.max(BASKET / 2, Math.min(FW - BASKET / 2, fox.tx + dir * 520 * dt));
+    const before = fox.x;
+    fox.x += (fox.tx - fox.x) * Math.min(1, dt * 16);
+    fox.vx = (fox.x - before) / Math.max(dt, 0.001); fox.tilt += (Math.max(-0.35, Math.min(0.35, fox.vx / 1600)) - fox.tilt) * Math.min(1, dt * 10);
+    fox.hurt = Math.max(0, fox.hurt - dt * 1.5); fox.happy = Math.max(0, fox.happy - dt);
+    spawnT -= tdt;
+    if (spawnT <= 0) { spawn(); spawnT = Math.max(0.32, 0.85 - hard() * 0.5) * (0.7 + Math.random() * 0.6); }
+    const bx = fox.x, by = GROUND - BASKET_Y;
+    for (const it of items) {
+      it.t += tdt; it.rot += tdt * 2;
+      if (magnetT > 0 && it.kind !== 'bomb' && it.y > 100) { it.vx += Math.sign(bx - it.x) * 900 * dt; it.vx *= 0.96; }
+      it.x += it.vx * tdt; it.y += it.vy * tdt;
+      if (it.x < it.r) { it.x = it.r; it.vx = Math.abs(it.vx); } if (it.x > FW - it.r) { it.x = FW - it.r; it.vx = -Math.abs(it.vx); }
+      // into the basket: inside its mouth while falling through its rim
+      if (!it.done && it.y > by - 10 && it.y < by + 22 && Math.abs(it.x - bx) < BASKET / 2 + it.r * 0.4) { it.done = true; catchItem(it); if (state !== 'play') return; }
+      if (!it.done && it.y > GROUND + 10) {
+        it.done = true;
+        if (it.kind === 'star' || it.kind === 'gold') { if (streak > 0 || mult > 1) { sfx.miss(); popup(it.x, GROUND - 10, mult > 1 ? `×${mult} сгорел` : 'мимо', '#ff9aa8'); } streak = 0; mult = 1; burst(it.x, GROUND, '#8a7fb0', 6, 80); }
+      }
+    }
+    items = items.filter((it) => !it.done);
+  }
+
+  // ——— 3D ———
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); } catch (e) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="screen"><div class="box"><h1><span>3D</span> не запускается</h1><p>Браузер не поддерживает WebGL. Сыграй в обычный Звездопад.</p><a class="play" style="text-decoration:none;display:block" href="../../zvezdopad/">Обычный Звездопад ↗</a></div></div>');
+    throw e;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const scene = new THREE.Scene();
+  {
+    const c = document.createElement('canvas'); c.width = 4; c.height = 256; const x = c.getContext('2d');
+    const gr = x.createLinearGradient(0, 0, 0, 256); gr.addColorStop(0, '#0b0a24'); gr.addColorStop(0.7, '#2b1f5c'); gr.addColorStop(1, '#5a3a7e');
+    x.fillStyle = gr; x.fillRect(0, 0, 4, 256); scene.background = new THREE.CanvasTexture(c);
+  }
+  scene.fog = new THREE.Fog('#2b1f5c', 30, 70);
+  const camera = new THREE.PerspectiveCamera(42, 1, 0.3, 200);
+  FX.bind3(camera, cv);
+  scene.add(new THREE.HemisphereLight('#c9bfff', '#2a1d4a', 0.7));
+  const moonLight = new THREE.DirectionalLight('#fff1c8', 0.8); moonLight.position.set(6, 14, 10); moonLight.castShadow = true;
+  moonLight.shadow.mapSize.set(1024, 1024); Object.assign(moonLight.shadow.camera, { left: -9, right: 9, top: 12, bottom: -4, near: 1, far: 40 }); scene.add(moonLight);
+  const U = 40, X = (x) => (x - FW / 2) / U, Y = (y) => (FH - y) / U;
+  // sky: far stars, the moon and rows of hills
+  { const gm = new THREE.BufferGeometry(), p = []; for (let i = 0; i < 500; i++) p.push((Math.random() - 0.5) * 120, 4 + Math.random() * 50, -40 - Math.random() * 20); gm.setAttribute('position', new THREE.Float32BufferAttribute(p, 3)); scene.add(new THREE.Points(gm, new THREE.PointsMaterial({ color: '#efe6ff', size: 0.3, fog: false }))); }
+  const moon = new THREE.Mesh(new THREE.SphereGeometry(2.4, 32, 20), new THREE.MeshBasicMaterial({ color: '#fff1c8', fog: false })); moon.position.set(12, 17, -45); scene.add(moon);
+  for (const [col, z, h] of [['#1d1538', -16, 4], ['#2a1d4a', -8, 2.4]]) for (let i = 0; i < 12; i++) {
+    const r = 3 + Math.random() * 3, m = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 10), new THREE.MeshStandardMaterial({ color: col, roughness: 1 }));
+    m.scale.y = h / r * (0.7 + Math.random() * 0.6); m.position.set(-30 + i * 5.5 + Math.random() * 2, Y(GROUND), z - Math.random() * 3); scene.add(m);
+  }
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(120, 40), new THREE.MeshStandardMaterial({ color: '#2a1d4a', roughness: 1 }));
+  ground.rotation.x = -Math.PI / 2; ground.position.set(0, Y(GROUND), -10); ground.receiveShadow = true; scene.add(ground);
+  // the play area edges: two faint posts
+  for (const x of [0, FW]) { const post = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 17, 6), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.08 })); post.position.set(X(x), Y(GROUND) + 8.5, 0); scene.add(post); }
+
+  // the fox: primitives in orange and white, holding a woven basket over its head
+  const fox3 = new THREE.Group(); scene.add(fox3);
+  const orange = new THREE.MeshStandardMaterial({ color: '#ff8a3d', roughness: 0.6 }), cream = new THREE.MeshStandardMaterial({ color: '#fff3e6', roughness: 0.7 }), dark = new THREE.MeshStandardMaterial({ color: '#2a1d1d', roughness: 0.5 });
+  const foxBody = new THREE.Mesh(new THREE.SphereGeometry(0.5, 20, 14), orange); foxBody.scale.set(0.9, 1.05, 0.8); foxBody.position.y = 0.55; foxBody.castShadow = true; fox3.add(foxBody);
+  const belly = new THREE.Mesh(new THREE.SphereGeometry(0.33, 16, 12), cream); belly.scale.set(0.9, 1.1, 0.6); belly.position.set(0, 0.5, 0.3); fox3.add(belly);
+  const head = new THREE.Group(); head.position.y = 1.35; fox3.add(head);
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.46, 20, 14), orange); skull.scale.set(1.05, 0.92, 0.95); skull.castShadow = true; head.add(skull);
+  const snout = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.42, 14), cream); snout.rotation.x = Math.PI / 2; snout.position.set(0, -0.1, 0.5); head.add(snout);
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), dark); nose.position.set(0, -0.1, 0.72); head.add(nose);
+  const eyes = [-1, 1].map((sx) => { const e = new THREE.Mesh(new THREE.SphereGeometry(0.065, 10, 8), dark); e.position.set(sx * 0.18, 0.06, 0.4); head.add(e); return e; });
+  for (const sx of [-1, 1]) { const ear = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.36, 10), orange); ear.position.set(sx * 0.27, 0.42, 0); ear.rotation.z = -sx * 0.25; head.add(ear); }
+  const tail = new THREE.Group(); tail.position.set(-0.4, 0.45, -0.2); fox3.add(tail);
+  const tailM = new THREE.Mesh(new THREE.SphereGeometry(0.3, 14, 10), orange); tailM.scale.set(1.8, 0.7, 0.7); tailM.position.x = -0.4; tail.add(tailM);
+  const tip = new THREE.Mesh(new THREE.SphereGeometry(0.17, 12, 8), cream); tip.position.x = -0.85; tail.add(tip);
+  const legs = [-1, 1].map((sx) => { const l = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.3, 8), dark); l.position.set(sx * 0.22, 0.12, 0.05); fox3.add(l); return l; });
+  const arms = [-1, 1].map((sx) => { const a = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 1.3, 8), orange); a.position.set(sx * 0.6, 1.6, 0); a.rotation.z = sx * 0.35; fox3.add(a); return a; });
+  void arms; void legs;
+  const basket = new THREE.Group(); basket.position.y = BASKET_Y / U + 0.3 - 0.3; fox3.add(basket);
+  const wicker = new THREE.MeshStandardMaterial({ color: '#a8683a', roughness: 0.85 });
+  const bowl = new THREE.Mesh(new THREE.CylinderGeometry(BASKET / U / 2 + 0.05, BASKET / U / 2 - 0.15, 0.7, 24, 1, true), wicker); bowl.material.side = THREE.DoubleSide; bowl.castShadow = true; basket.add(bowl);
+  const bottom = new THREE.Mesh(new THREE.CircleGeometry(BASKET / U / 2 - 0.15, 24), wicker); bottom.rotation.x = -Math.PI / 2; bottom.position.y = -0.35; basket.add(bottom);
+  const rimB = new THREE.Mesh(new THREE.TorusGeometry(BASKET / U / 2 + 0.05, 0.07, 8, 32), new THREE.MeshStandardMaterial({ color: '#c98a52', roughness: 0.7 })); rimB.rotation.x = Math.PI / 2; rimB.position.y = 0.35; basket.add(rimB);
+  for (let k = 0; k < 3; k++) { const band = new THREE.Mesh(new THREE.TorusGeometry(BASKET / U / 2 - 0.02 - k * 0.06, 0.025, 6, 32), new THREE.MeshStandardMaterial({ color: '#7a4a26' })); band.rotation.x = Math.PI / 2; band.position.y = 0.15 - k * 0.22; basket.add(band); }
+  const magnetRing = new THREE.Mesh(new THREE.TorusGeometry(1.35, 0.04, 8, 48), new THREE.MeshBasicMaterial({ color: '#ff9a5c', transparent: true, opacity: 0 })); magnetRing.position.y = 0.2; basket.add(magnetRing);
+
+  // falling things: one mesh per item, made when it appears
+  function starShape(r) { const s = new THREE.Shape(); for (let i = 0; i < 10; i++) { const a = i * Math.PI / 5 - Math.PI / 2, rr = i % 2 ? r * 0.45 : r; i ? s.lineTo(Math.cos(a) * rr, Math.sin(a) * rr) : s.moveTo(Math.cos(a) * rr, Math.sin(a) * rr); } return s; }
+  function heartShape(r) { const s = new THREE.Shape(); s.moveTo(0, -r * 0.8); s.bezierCurveTo(-r * 1.4, r * 0.2, -r * 0.6, r * 1.2, 0, r * 0.4); s.bezierCurveTo(r * 0.6, r * 1.2, r * 1.4, r * 0.2, 0, -r * 0.8); return s; }
+  const ext = { depth: 0.16, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.04, bevelSegments: 2 };
+  const GEO = {
+    star: new THREE.ExtrudeGeometry(starShape(15 / U), ext), gold: new THREE.ExtrudeGeometry(starShape(17 / U), ext), heart: new THREE.ExtrudeGeometry(heartShape(15 / U), ext),
+    bomb: new THREE.SphereGeometry(17 / U, 18, 14), clock: new THREE.CylinderGeometry(16 / U, 16 / U, 0.16, 24), magnet: new THREE.TorusGeometry(11 / U, 4 / U, 8, 20, Math.PI),
+  };
+  for (const k of ['star', 'gold', 'heart']) GEO[k].center();
+  const MAT = {
+    star: new THREE.MeshStandardMaterial({ color: '#fff6c0', emissive: '#fff0a0', emissiveIntensity: 0.6, roughness: 0.3 }),
+    gold: new THREE.MeshStandardMaterial({ color: '#ffd23f', emissive: '#ffb000', emissiveIntensity: 0.7, roughness: 0.25, metalness: 0.4 }),
+    heart: new THREE.MeshStandardMaterial({ color: '#ff7eb6', emissive: '#ff2a80', emissiveIntensity: 0.35, roughness: 0.3 }),
+    bomb: new THREE.MeshStandardMaterial({ color: '#1c1a2a', roughness: 0.3, metalness: 0.5 }),
+    clock: new THREE.MeshStandardMaterial({ color: '#6fe3ff', emissive: '#2fb3d6', emissiveIntensity: 0.4, roughness: 0.3 }),
+    magnet: new THREE.MeshStandardMaterial({ color: '#ff5f7a', roughness: 0.4, metalness: 0.3 }),
+  };
+  const fuseMat = new THREE.MeshBasicMaterial({ color: '#ffd23f' }), faceMat = new THREE.MeshBasicMaterial({ color: '#e8fbff' });
+  const haloTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'); const gr = x.createRadialGradient(32, 32, 2, 32, 32, 32); gr.addColorStop(0, 'rgba(255,240,170,.8)'); gr.addColorStop(1, 'rgba(255,240,170,0)'); x.fillStyle = gr; x.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
+  const live = new Set();
+  function itemMesh(it) {
+    if (it.mesh) return it.mesh;
+    const grp = new THREE.Group(), m = new THREE.Mesh(GEO[it.kind], MAT[it.kind]); m.castShadow = true; grp.add(m);
+    if (it.kind === 'star' || it.kind === 'gold') { const h = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, color: it.kind === 'gold' ? '#ffd23f' : '#fff6c0' })); h.scale.set(1.6, 1.6, 1); grp.add(h); }
+    if (it.kind === 'bomb') { const f = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), fuseMat); f.position.set(0.15, 0.55, 0); grp.add(f); grp.userData.spark = f; const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.14, 10), new THREE.MeshStandardMaterial({ color: '#4c4666' })); cap.position.y = 0.45; grp.add(cap); }
+    if (it.kind === 'clock') { m.rotation.x = Math.PI / 2; const face = new THREE.Mesh(new THREE.CircleGeometry(12 / U, 20), faceMat); face.position.z = 0.09; grp.add(face); const hand = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.22, 0.02), dark); hand.position.set(0, 0.1, 0.1); grp.add(hand); grp.userData.hand = hand; }
+    scene.add(grp); it.mesh = grp; return grp;
+  }
+
+  function fit() {
+    const a = W / Math.max(1, H); camera.aspect = a; camera.updateProjectionMatrix();
+    const tanH = Math.tan(camera.fov * Math.PI / 360);
+    camDist = Math.max((FH / U) / 2 / tanH, (FW / U + 1) / 2 / (tanH * a));
+  }
+  let camDist = 25;
+  function screenOf(x, y, z = 0) { const v = new THREE.Vector3(X(x), Y(y), z).project(camera); return [(v.x + 1) / 2 * W, (1 - v.y) / 2 * H]; }
+
+  function draw() {
+    const sh = shake > 0 ? (Math.random() - 0.5) * 0.3 * shake : 0;
+    camera.position.set(sh + X(fox.x) * 0.08, Y(FH / 2) - 1.2, camDist); camera.lookAt(X(fox.x) * 0.08, Y(FH / 2) - 0.3, 0);
+    // the fox
+    fox3.position.set(X(fox.x), Y(GROUND), 0); fox3.rotation.z = -fox.tilt * 0.6; fox3.rotation.y = Math.max(-0.5, Math.min(0.5, fox.vx / 900));
+    const bob = Math.abs(Math.sin(time * 10)) * Math.min(1, Math.abs(fox.vx) / 300) * 0.12;
+    foxBody.position.y = 0.55 + bob; head.position.y = 1.35 + bob;
+    tail.rotation.z = Math.sin(time * 6) * 0.35; tail.rotation.y = 0.4;
+    for (const e of eyes) e.scale.y = fox.hurt > 0.3 ? 0.2 : fox.happy > 0 ? 0.45 : 1;
+    basket.position.y = BASKET_Y / U + bob;
+    magnetRing.material.opacity = magnetT > 0 ? 0.35 + 0.3 * Math.sin(time * 10) : 0; magnetRing.scale.setScalar(1 + Math.sin(time * 8) * 0.06);
+    // items
+    const seen = new Set();
+    for (const it of items) {
+      const m = itemMesh(it); seen.add(m);
+      m.position.set(X(it.x), Y(it.y), 0);
+      if (it.kind === 'star' || it.kind === 'gold' || it.kind === 'heart') { m.rotation.y = it.rot * 1.3; m.rotation.z = it.kind === 'heart' ? 0 : it.rot * 0.5; }
+      if (it.kind === 'magnet') m.rotation.z = Math.PI + Math.sin(time * 3) * 0.2;
+      if (it.kind === 'bomb') { m.userData.spark.material.color.set(Math.sin(time * 30) > 0 ? '#ffd23f' : '#ff5f3d'); m.rotation.z = Math.sin(time * 4) * 0.2; }
+      if (it.kind === 'clock') m.userData.hand.rotation.z = -time * 3;
+    }
+    for (const m of live) if (!seen.has(m)) scene.remove(m);
+    live.clear(); for (const m of seen) live.add(m);
+    scene.background.offset.y = 0; scene.fog.color.set(slowT > 0 ? '#1f5a7a' : '#2b1f5c');
+    renderer.render(scene, camera);
+    // particles, pop-up texts and HUD on the 2D layer
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    for (const p of parts) { const [sx, sy] = screenOf(p.x, p.y); g.globalAlpha = Math.max(0, p.life); g.fillStyle = p.col; g.beginPath(); g.arc(sx, sy, p.r * camScale(), 0, 7); g.fill(); } g.globalAlpha = 1;
+    for (const p of popups) { const [sx, sy] = screenOf(p.x, p.y); g.globalAlpha = Math.min(1, p.life * 2); g.fillStyle = p.col; g.font = `800 ${p.big ? 28 : 18}px Manrope, system-ui`; g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillText(p.text, sx, sy - (1 - p.life) * 40); } g.globalAlpha = 1;
+    if (state !== 'start') {
+      g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.shadowColor = '#000a'; g.shadowBlur = 10;
+      g.fillStyle = '#fff'; g.font = '800 48px Manrope, system-ui'; g.fillText(score, W / 2, 104);
+      g.font = '800 15px Manrope, system-ui'; g.fillStyle = mult > 1 ? '#5df2a5' : '#c9c2f0';
+      g.fillText(`×${mult}` + (streak ? ` · серия ${streak}` : ''), W / 2, 128);
+      g.font = '22px system-ui'; g.fillStyle = '#ff7eb6'; g.fillText('♥'.repeat(Math.max(0, lives)).padEnd(LIVES, '♡').split('').join(' '), W / 2, 156);
+      const tags = []; if (slowT > 0) tags.push(`⏱ ${Math.ceil(slowT)}`); if (magnetT > 0) tags.push(`🧲 ${Math.ceil(magnetT)}`);
+      if (tags.length) { g.font = '800 14px Manrope, system-ui'; g.fillStyle = '#6fe3ff'; g.fillText(tags.join('   '), W / 2, 180); }
+      g.shadowBlur = 0;
+      if (state === 'play' && playTime < 3) { g.globalAlpha = 0.6 + 0.4 * Math.sin(time * 5); g.font = '800 18px Manrope, system-ui'; g.fillStyle = '#fff'; g.fillText('Веди лисёнка пальцем — лови звёзды', W / 2, H * 0.36); g.globalAlpha = 1; }
+    }
+    if (flash > 0) { g.fillStyle = `rgba(255,90,60,${flash * 0.22})`; g.fillRect(0, 0, W, H); }
+  }
+  const camScale = () => H / (FH * 0.95) ;
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.033, (now - last) / 1000)); last = now; time += dt;
+    if (state === 'start') demo(dt); else step(dt);
+    for (const p of parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 400 * dt; p.life -= dt * 1.5; } parts = parts.filter((p) => p.life > 0);
+    for (const p of popups) p.life -= dt * 1.1; popups = popups.filter((p) => p.life > 0);
+    shake = Math.max(0, shake - dt); flash = Math.max(0, flash - dt * 2);
+    draw();
+    requestAnimationFrame(frame);
+  }
+  // Behind the start card the fox catches by itself and steps away from bombs.
+  function demo(dt) {
+    state = 'play'; demoing = true;
+    const target = items.filter((it) => it.kind !== 'bomb').sort((a, b) => b.y - a.y)[0];
+    const bomb = items.find((it) => it.kind === 'bomb' && it.y > GROUND - 260 && Math.abs(it.x - fox.x) < 70);
+    if (bomb) fox.tx = bomb.x > fox.x ? Math.max(40, bomb.x - 120) : Math.min(FW - 40, bomb.x + 120); else if (target) fox.tx = target.x;
+    step(dt);
+    if (playTime > 60) reset();
+    state = 'start'; demoing = false;
+  }
+
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight; ov.width = Math.round(W * dpr); ov.height = Math.round(H * dpr);
+    renderer.setSize(W, H, false); fit();
+  }
+  // FX.g maps game points to the screen through the 3D camera.
+  FX.g = (x, y) => screenOf(x, y);
+
+  function showBests() {
+    $('bestStart').textContent = $('bestOver').textContent = best;
+    $('comboStart').textContent = $('bestComboOver').textContent = bestMult > 1 ? '×' + bestMult : '—';
+  }
+  function start() { clearTimeout(overTimer); unlockAudio(); reset(); state = 'play'; chanceUsed = false; chance.hide(); $('start').hidden = true; $('over').hidden = true; }
+  // Once a game, an ad gives one life back and clears the sky of bombs.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'zvezdopad3d-continue', label: '🎬 Ещё одна жизнь за рекламу', onReward: () => {
+    chanceUsed = true; lives = 1; items = items.filter((it) => it.kind !== 'bomb'); fox.hurt = 0; state = 'play'; $('over').hidden = true;
+  } });
+  function gameOver(why) {
+    if (state !== 'dying') return;
+    state = 'over';
+    const run = { new_score: score, new_mult: bestMultRun, new_caught: caught, new_time: Math.floor(playTime) }, record = score > best;
+    if (record && score) setTimeout(() => FX.record(), 400);
+    if (record) { best = score; store.set('zvezdopad-best', best); runs.score = run; }
+    if (bestMultRun > bestMult) { bestMult = bestMultRun; store.set('zvezdopad-best-mult', bestMult); runs.mult = run; }
+    store.set('zvezdopad-runs', JSON.stringify(runs));
+    lb.submit(run);
+    $('overWhy').textContent = why;
+    $('final').textContent = score;
+    $('overText').innerHTML = (record && score > 0 ? '<span class="new">Новый рекорд!</span> ' : '') + pointsWord(score);
+    $('caughtOver').textContent = caught; $('streakOver').textContent = bestStreakRun;
+    showBests(); $('over').hidden = false;
+    if (!chanceUsed) chance.show();
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'zvezdopad',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за одну игру. Общая с обычным Звездопадом.', format: (v) => `${v} ${pointsWord(v)}` },
+      { id: 'caught', title: 'Звёзды', column: 'best_caught', order: 'desc', note: 'Больше всего пойманных звёзд за одну игру.', format: (v) => `★ ${v}` },
+    ],
+    bests: () => [runs.score, runs.mult].filter(Boolean),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  const ray = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), hitP = new THREE.Vector3();
+  const toWorldX = (cx, cy = H * 0.7) => { ray.setFromCamera({ x: cx / W * 2 - 1, y: -(cy / H * 2 - 1) }, camera); return ray.ray.intersectPlane(plane, hitP) ? hitP.x * U + FW / 2 : fox.x; };
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); unlockAudio(); fox.tx = Math.max(BASKET / 2, Math.min(FW - BASKET / 2, toWorldX(e.clientX, e.clientY))); });
+  cv.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse' || e.buttons) fox.tx = Math.max(BASKET / 2, Math.min(FW - BASKET / 2, toWorldX(e.clientX, e.clientY))); });
+  const KEYS = { ArrowLeft: 'L', KeyA: 'L', ArrowRight: 'R', KeyD: 'R' };
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && e.target.closest && e.target.closest('.screen button')) return;
+    if (KEYS[e.code]) { e.preventDefault(); keys.add(KEYS[e.code]); }
+    else if ((e.code === 'Space' || e.code === 'Enter') && state !== 'play' && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); }
+  });
+  addEventListener('keyup', (e) => { if (KEYS[e.code]) keys.delete(KEYS[e.code]); });
+  addEventListener('blur', () => keys.clear());
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('zvezdopad-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  addEventListener('resize', resize);
+  resize(); reset(); showBests();
+  // #preview: a game in progress, for the site's screenshot.
+  if (location.hash === '#preview') {
+    $('start').hidden = true; state = 'play'; score = 386; caught = 71; streak = 13; mult = 3; lives = 2; playTime = 70; magnetT = 4.2; fox.x = fox.tx = 250;
+    items = [
+      { kind: 'star', x: 120, y: 240, vx: 10, vy: 200, rot: 0.3, r: 15, t: 0 }, { kind: 'gold', x: 300, y: 380, vx: -10, vy: 200, rot: 1, r: 17, t: 0 },
+      { kind: 'bomb', x: 400, y: 300, vx: 0, vy: 200, rot: 0, r: 17, t: 0 }, { kind: 'star', x: 230, y: 520, vx: 0, vy: 200, rot: 2, r: 15, t: 0 },
+      { kind: 'heart', x: 80, y: 470, vx: 0, vy: 200, rot: 0, r: 15, t: 0 }, { kind: 'clock', x: 360, y: 140, vx: 0, vy: 200, rot: 0, r: 16, t: 0 },
+    ];
+    popup(250, 560, '+3', '#fff');
+    step = () => {};
+  }
+  // On a local server tests can look inside.
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__zvezdopad3d = { get fox() { return fox; }, get items() { return items; }, get state() { return state; }, get score() { return score; }, get lives() { return lives; }, get caught() { return caught; }, get mult() { return mult; } };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../shared/chat-boot.js?v=5"></script>
+</body>
+</html>
