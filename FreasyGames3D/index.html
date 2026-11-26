@@ -39,10 +39,9 @@
     .nav { display: flex; gap: 8px; align-items: center; flex-wrap: nowrap; min-width: 0; }
     .brand { flex: none; white-space: nowrap; }
     .nav-link { white-space: nowrap; }
-    @media (max-width: 450px) { .nav .nav-link:not(.nav-clips) { display: none; } .nav-clips span { display: none; } .topbar { gap: 8px; } .nav { gap: 6px; } .brand { font-size: 16px; gap: 8px; } .brand-icon { width: 32px; height: 32px; } .nav .nav-link { padding: 9px 11px; font-size: 12px; } }
+    @media (max-width: 450px) { .nav .nav-link:not(:last-child) { display: none; } .topbar { gap: 8px; } .nav { gap: 6px; } .brand { font-size: 16px; gap: 8px; } .brand-icon { width: 32px; height: 32px; } .nav .nav-link { padding: 9px 11px; font-size: 12px; } }
     .nav-link { color: var(--soft); font-size: 13px; font-weight: 700; padding: 10px 15px; border: 1px solid var(--line); border-radius: 100px;
       background: var(--label-bg); backdrop-filter: blur(8px); transition: background .2s; }
-    .nav-link.nav-clips { color: #fff; border-color: transparent; background: linear-gradient(120deg, #ff2d55, #ff7a45); }
     .nav-link:hover { background: var(--hover); }
 
     .hero { min-height: calc(100vh - 84px); display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -352,7 +351,7 @@
 
     @media (max-width: 820px) {
       .soon, .features { grid-template-columns: 1fr; }
-      .nav .nav-link:not(.nav-clips):not(:last-child) { display: none; }
+      .nav .nav-link:not(:last-child) { display: none; }
     }
     @media (prefers-reduced-motion: reduce) { .cube { animation: none; } }
   </style>
@@ -364,7 +363,6 @@
   <header class="wrap topbar">
     <a class="brand" href="#"><span class="brand-icon">3D</span><span>Freasy<b>Games</b> 3D</span></a>
     <nav class="nav">
-      <a class="nav-link nav-clips" href="../clips/" aria-label="Клипы">🎬<span> Клипы</span></a>
       <a class="nav-link" href="#games">Игры</a>
       <a class="nav-link" href="#about">О сайте</a>
       <a class="nav-link" href="../">FreasyGames 2D ↗</a>

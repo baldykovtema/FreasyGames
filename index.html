@@ -31,17 +31,13 @@
     .top-nav { display: flex; gap: 8px; flex-wrap: nowrap; justify-content: flex-end; align-items: center; min-width: 0; }
     .brand { flex: none; white-space: nowrap; }
     .nav-link { white-space: nowrap; }
-    .nav-clips { color: #fff; border-color: transparent; background: linear-gradient(120deg, #ff2d55, #ff7a45); }
-    .nav-clips:hover { background: linear-gradient(120deg, #ff4d6d, #ff9160); }
     .nav-3d { color: var(--accent2-hi); border-color: var(--accent2-line); background: var(--accent2-soft); }
     .hero-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
-    .hero-action.hero-clips { background: linear-gradient(120deg, #ff2d55, #ff7a45); color: #fff; }
-    .hero-action.hero-clips:hover { background: linear-gradient(120deg, #ff4d6d, #ff9160); }
     .hero-action.hero-3d { background: linear-gradient(120deg, var(--accent), var(--accent-2)); }
     .hero-action.hero-3d:hover { background: linear-gradient(120deg, var(--accent-hi), var(--accent2-hi)); }
     @media (max-width: 900px) { .nav-games { display: none; } }
     @media (max-width: 620px) { .nav-3d { display: none; } }
-    @media (max-width: 450px) { .nav-clips span { display: none; } .top-nav { gap: 6px; } .hero-actions { flex-direction: column; align-items: stretch; gap: 10px; margin-top: 26px; } .hero-actions .hero-action { justify-content: center; margin-top: 0; } }
+    @media (max-width: 450px) { .top-nav { gap: 6px; } .hero-actions { flex-direction: column; align-items: stretch; gap: 10px; margin-top: 26px; } .hero-actions .hero-action { justify-content: center; margin-top: 0; } }
     .badge-3d { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 7px; background: var(--on-accent); color: var(--accent-2); font-size: 11px; font-weight: 800; }
     .hero { text-align: center; padding: 84px 0 86px; }
     .eyebrow { display: inline-flex; gap: 9px; align-items: center; border: 1px solid var(--accent-line); background: var(--accent-soft); color: var(--accent-hi); border-radius: 100px; padding: 8px 15px; font-size: 12px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
@@ -91,7 +87,6 @@
   <header class="topbar wrap">
     <a class="brand" href="#top" aria-label="FreasyGames — наверх"><span class="brand-icon" aria-hidden="true">✦</span> FreasyGames</a>
     <nav class="top-nav">
-      <a class="nav-link nav-clips" href="clips/" aria-label="Клипы">🎬<span> Клипы</span></a>
       <a class="nav-link nav-3d" href="FreasyGames3D/">FreasyGames 3D ↗</a>
       <a class="nav-link nav-games" href="#games">Смотреть игры ↓</a>
     </nav>
@@ -128,7 +123,6 @@
       <p>Бесплатные лёгкие веб-игры здесь. Выбирай игру, открывай её в браузере и наслаждайся!</p>
       <div class="hero-actions">
         <a class="hero-action" href="#games">Выбрать игру <span aria-hidden="true">↗</span></a>
-        <a class="hero-action hero-clips" href="clips/">🎬 Клипы игроков</a>
         <a class="hero-action hero-3d" href="FreasyGames3D/"><span class="badge-3d" aria-hidden="true">3D</span>FreasyGames 3D</a>
       </div>
     </section>

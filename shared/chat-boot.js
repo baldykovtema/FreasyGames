@@ -13,9 +13,6 @@
     await load(base + 'turn.js?v=1'); // данные ретранслятора для голоса (если вписаны)
     if (!window.FreasyChat) await load(base + 'chat.js?v=8');
     if (window.FreasyChat) window.FreasyChat({ inGame });
-    // над кнопкой чата — погода и время
-    if (!window.FreasyWeather) await load(base + 'weather.js?v=2');
-    if (window.FreasyWeather) window.FreasyWeather({ inGame });
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 })();
