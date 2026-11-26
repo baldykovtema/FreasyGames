@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/i18n.js?v=3" data-game="3d-sudoku"></script>
+<script src="../../shared/fx.js" data-mute="sudoku-muted"></script>
+<script src="../../shared/clips.js?v=1"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0d0f1c">
+<title>Судоку 3D — FreasyGames 3D</title>
+<meta name="description" content="Судоку 3D на FreasyGames: поле 9×9 из объёмных плиток в деревянной раме. Данные цифры — высокие плитки, выбранная клетка поднимается, собранная строка пробегает волной. Рекорды общие с обычным Судоку.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>#ov { pointer-events: none; }</style>
+<style>
+  .levels { display: flex; gap: 8px; margin: 14px 0 4px; }
+  .levels button { flex: 1; font: inherit; font-weight: 800; font-size: 15px; padding: 12px 0; border-radius: 14px; border: 1px solid #ffffff24; background: #ffffff0d; color: #f8f7ff; cursor: pointer; }
+  .levels button[aria-pressed="true"] { background: #bca0ff; color: #171225; border-color: transparent; }
+  #pad { position: fixed; left: 50%; transform: translateX(-50%); bottom: max(12px, env(safe-area-inset-bottom)); z-index: 3; display: grid; gap: 8px; width: min(96vw, 520px); }
+  #pad[hidden] { display: none; }
+  #pad .row { display: grid; grid-template-columns: repeat(9, 1fr); gap: 6px; }
+  #pad .tools { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  #pad button { height: 46px; border-radius: 12px; border: 1px solid #ffffff22; background: #1d1e31e6; color: #f8f7ff; font: 800 20px Manrope, system-ui; cursor: pointer; padding: 0; backdrop-filter: blur(6px); }
+  #pad .tools button { font-size: 14px; height: 40px; }
+  #pad button.on { background: #ffd23f; color: #171225; }
+  #pad button.done { opacity: .3; }
+  #pad button small { display: block; font-size: 10px; opacity: .6; margin-top: -4px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="ov"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames 3D</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+<div id="pad" hidden>
+  <div class="row" id="digits"></div>
+  <div class="tools"><button type="button" id="undo">↶ Отменить</button><button type="button" id="erase">⌫ Стереть</button><button type="button" id="notes">✎ Заметки</button><button type="button" id="hint">💡 <span id="hintsLeft">3</span></button></div>
+</div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ 3D</div>
+    <h1>Судоку <span>3D</span></h1>
+    <p>Заполни поле цифрами от 1 до 9 так, чтобы в каждой строке, каждом столбце и каждом квадрате 3×3 они не повторялись.</p>
+    <p>У каждой головоломки ровно одно решение. Три ошибки — и игра окончена. Заметки помогают держать в голове варианты.</p>
+    <div class="levels" id="levels"><button type="button" data-l="0">Лёгкий</button><button type="button" data-l="1" aria-pressed="true">Средний</button><button type="button" data-l="2">Сложный</button></div>
+    <p>Лучшее время (средний): <b id="bestStart">—</b> · решено: <b id="solvedStart">0</b></p>
+    <button class="play" id="go" type="button">Играть ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Касание плитки, затем цифры · клавиши 1–9, стрелки, N — заметки · рекорды общие с обычным Судоку</div>
+  </div>
+</div>
+
+<div class="screen" id="done" hidden>
+  <div class="box">
+    <div class="eyebrow" id="doneWhy">Решено!</div>
+    <div class="big" id="doneTime">0:00</div>
+    <p id="doneText"></p>
+    <p>Лучшее время (средний): <b id="bestDone">—</b> · решено: <b id="solvedDone">0</b></p>
+    <button class="play" id="again" type="button">Новое судоку ↗</button>
+    <button class="ghost" type="button" id="toMenu">Выбрать сложность</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<script src="../../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), ov = $('ov'), g = ov.getContext('2d');
+  const clock = (s) => (s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : '—');
+  const LEVELS = [{ name: 'Лёгкий', clues: 40 }, { name: 'Средний', clues: 32 }, { name: 'Сложный', clues: 26 }];
+  const MISTAKES = 3, HINTS = 3;
+
+  let best = +store.get('sudoku-best', 0) || 0, solvedCount = +store.get('sudoku-solved', 0) || 0;
+  let bests = {}; try { bests = JSON.parse(store.get('sudoku-bests', '{}')) || {}; } catch { bests = {}; }
+  let level = Math.min(2, Math.max(0, +store.get('sudoku-level', 1) || 0));
+  let muted = store.get('sudoku-muted', '0') === '1';
+  FX.muted = () => muted;
+  let W = 0, H = 0, dpr = 1;
+  let state = 'start', puzzle, solution, grid, given, notes, sel = 40, notesMode = false, mistakes = 0, hints = HINTS, history = [], startedAt = 0, elapsed = 0, time = 0, flashes = [], wrongAt = -1, wrongT = 0, wonT = 0;
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'square', v = 0.06, slide = 1, delay = 0) {
+    if (muted || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  const NOTE = [0, 262, 294, 330, 349, 392, 440, 494, 523, 587];
+  const sfx = {
+    select: () => tone(1200, 0.02, 'sine', 0.025),
+    put: (d) => tone(NOTE[d] * 2, 0.09, 'triangle', 0.07),
+    note: () => tone(1500, 0.03, 'sine', 0.03),
+    wrong: () => { tone(180, 0.25, 'sawtooth', 0.07, 0.6); },
+    unit: () => [0, 4, 7].forEach((s, i) => tone(660 * Math.pow(2, s / 12), 0.12, 'triangle', 0.06, 1, i * 0.05)),
+    win: () => [0, 4, 7, 12, 16, 19].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.18, 'triangle', 0.08, 1, i * 0.08)),
+    lose: () => [7, 4, 0, -5].forEach((s, i) => tone(392 * Math.pow(2, s / 12), 0.22, 'sawtooth', 0.05, 1, i * 0.14)),
+  };
+
+  // ——— Generator (as in 2D) ———
+  const ROW = (i) => Math.floor(i / 9), COL = (i) => i % 9, BOX = (i) => Math.floor(ROW(i) / 3) * 3 + Math.floor(COL(i) / 3);
+  const PEERS = Array.from({ length: 81 }, (_, i) => { const s = new Set(); for (let j = 0; j < 81; j++) if (j !== i && (ROW(j) === ROW(i) || COL(j) === COL(i) || BOX(j) === BOX(i))) s.add(j); return [...s]; });
+  function candidates(b, i) { let m = 0x3fe; for (const j of PEERS[i]) if (b[j]) m &= ~(1 << b[j]); return m; }
+  function count(b, limit) {
+    let bestI = -1, bestM = 0, bestN = 10;
+    for (let i = 0; i < 81; i++) if (!b[i]) { const m = candidates(b, i); let n = 0; for (let x = m; x; x &= x - 1) n++; if (n < bestN) { bestN = n; bestI = i; bestM = m; if (!n) return 0; } }
+    if (bestI < 0) return 1;
+    let total = 0;
+    for (let d = 1; d <= 9; d++) if (bestM & (1 << d)) { b[bestI] = d; total += count(b, limit - total); b[bestI] = 0; if (total >= limit) break; }
+    return total;
+  }
+  function fill(b) {
+    const i = b.indexOf(0); if (i < 0) return true;
+    const ds = [1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5), m = candidates(b, i);
+    for (const d of ds) if (m & (1 << d)) { b[i] = d; if (fill(b)) return true; b[i] = 0; }
+    return false;
+  }
+  function generate(clues) {
+    const full = new Array(81).fill(0); fill(full);
+    const p = full.slice(), order = [...Array(81).keys()].sort(() => Math.random() - 0.5);
+    let left = 81;
+    for (const i of order) {
+      if (left <= clues) break;
+      const keep = p[i]; p[i] = 0;
+      if (count(p.slice(), 2) !== 1) p[i] = keep; else left--;
+    }
+    return { puzzle: p, solution: full };
+  }
+
+  // ——— Game (as in 2D) ———
+  function newGame() {
+    const g0 = generate(LEVELS[level].clues);
+    puzzle = g0.puzzle; solution = g0.solution; grid = puzzle.slice(); given = puzzle.map(Boolean);
+    notes = Array.from({ length: 81 }, () => new Set());
+    sel = grid.indexOf(0); mistakes = 0; hints = HINTS; history = []; startedAt = 0; elapsed = 0; notesMode = false; flashes = []; wonT = 0;
+    state = 'play'; $('start').hidden = true; $('done').hidden = true; $('pad').hidden = false;
+    $('notes').classList.remove('on'); updatePad(); resize();
+    for (const t of tiles) t.h = 0;
+  }
+  const unitsOf = (i) => [[...Array(9).keys()].map((k) => ROW(i) * 9 + k), [...Array(9).keys()].map((k) => k * 9 + COL(i)), [...Array(81).keys()].filter((j) => BOX(j) === BOX(i))];
+  function put(d) {
+    if (state !== 'play' || given[sel] || lb.isOpen()) return;
+    unlockAudio(); if (!startedAt) startedAt = performance.now();
+    if (notesMode && d) {
+      if (grid[sel]) return;
+      history.push({ i: sel, v: grid[sel], n: new Set(notes[sel]) });
+      notes[sel].has(d) ? notes[sel].delete(d) : notes[sel].add(d); sfx.note(); return;
+    }
+    if (grid[sel] === d) return;
+    history.push({ i: sel, v: grid[sel], n: new Set(notes[sel]) });
+    grid[sel] = d; notes[sel].clear();
+    if (!d) { sfx.note(); updatePad(); return; }
+    const [x, y] = cellCenter(sel);
+    tiles[sel].pop = 1;
+    if (d !== solution[sel]) {
+      mistakes++; wrongAt = sel; wrongT = 1; sfx.wrong(); FX.shake(5, 200); FX.burst(x, y, { n: 10, color: ['#ff5f7a', '#ffc0cc'], speed: 160 });
+      if (mistakes >= MISTAKES) return lose();
+      updatePad(); return;
+    }
+    sfx.put(d);
+    for (const j of PEERS[sel]) notes[j].delete(d);
+    FX.burst(x, y, { n: 6, speed: 120, size: 3, shape: 'star', color: ['#ffffff', '#bca0ff'], gravity: 120, life: 0.4 });
+    for (const u of unitsOf(sel)) if (u.every((j) => grid[j] === solution[j])) { flashes.push({ cells: u, t: 0, from: sel }); sfx.unit(); const [ux, uy] = cellCenter(u[4]); FX.sparkle(ux, uy, '#ffd23f'); }
+    updatePad();
+    if (grid.every((v, i) => v === solution[i])) win();
+  }
+  function undo() {
+    if (state !== 'play' || !history.length) return;
+    const h = history.pop(); grid[h.i] = h.v; notes[h.i] = h.n; sel = h.i; sfx.note(); updatePad();
+  }
+  function hint() {
+    if (state !== 'play' || hints <= 0) return;
+    let i = !given[sel] && grid[sel] !== solution[sel] ? sel : -1;
+    if (i < 0) { const empty = [...Array(81).keys()].filter((j) => grid[j] !== solution[j]); if (!empty.length) return; i = empty[Math.floor(Math.random() * empty.length)]; }
+    hints--; sel = i; $('hintsLeft').textContent = hints; if (!startedAt) startedAt = performance.now();
+    const keep = notesMode; notesMode = false; put(solution[i]); notesMode = keep;
+    const [x, y] = cellCenter(i); FX.ring(x, y, '#6fe3ff', 60);
+  }
+  function finishStats() { elapsed = Math.max(1, Math.round((performance.now() - (startedAt || performance.now())) / 1000)); }
+  function win() {
+    state = 'won'; finishStats(); solvedCount++; store.set('sudoku-solved', solvedCount); wonT = 0;
+    const prev = bests[level] || 0, record = !prev || elapsed < prev;
+    if (record) { bests[level] = elapsed; store.set('sudoku-bests', JSON.stringify(bests)); }
+    if (level === 1 && (!best || elapsed < best)) { best = elapsed; store.set('sudoku-best', best); }
+    lb.submit({ new_time: level === 1 ? elapsed : 0, new_solved: solvedCount });
+    sfx.win(); FX.win(); if (record && prev) setTimeout(() => FX.record(), 600);
+    $('pad').hidden = true; resize();
+    setTimeout(() => {
+      if (state !== 'won') return;
+      $('doneWhy').textContent = `${LEVELS[level].name} — решено!`;
+      $('doneTime').textContent = clock(elapsed);
+      $('doneText').innerHTML = (record && prev ? '<span class="new">Новый рекорд!</span> ' : '') + `Ошибок: ${mistakes} из ${MISTAKES} · подсказок: ${HINTS - hints} · лучшее: ${clock(bests[level])}`;
+      showBests(); $('done').hidden = false;
+    }, 1600);
+  }
+  function lose() {
+    state = 'lost'; finishStats(); sfx.lose(); FX.over(); $('pad').hidden = true; resize();
+    setTimeout(() => {
+      $('doneWhy').textContent = 'Три ошибки';
+      $('doneTime').textContent = '✗';
+      $('doneText').textContent = `${LEVELS[level].name} · заполнено ${grid.filter((v, i) => v && v === solution[i]).length} из 81`;
+      showBests(); $('done').hidden = false;
+      if (!chanceUsed) chance.show();
+    }, 900);
+  }
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#done .box', name: 'sudoku-mistake', label: '🎬 Простить ошибку за рекламу', onReward: () => {
+    chanceUsed = true; mistakes = MISTAKES - 1; if (wrongAt >= 0 && grid[wrongAt] !== solution[wrongAt]) grid[wrongAt] = 0;
+    state = 'play'; startedAt = performance.now() - elapsed * 1000; $('done').hidden = true; $('pad').hidden = false; updatePad(); resize();
+  } });
+  function showBests() {
+    $('bestStart').textContent = $('bestDone').textContent = clock(best);
+    $('solvedStart').textContent = $('solvedDone').textContent = solvedCount;
+  }
+  function updatePad() {
+    document.querySelectorAll('#digits button').forEach((b) => { const d = +b.dataset.d; const n = grid ? grid.filter((v, i) => v === d && v === solution[i]).length : 0; b.classList.toggle('done', n >= 9); b.querySelector('small').textContent = 9 - n; });
+    $('hintsLeft').textContent = hints;
+  }
+
+  // ——— 3D ———
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); } catch (e) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="screen"><div class="box"><h1><span>3D</span> не запускается</h1><p>Браузер не поддерживает WebGL. Сыграй в обычное Судоку.</p><a class="play" style="text-decoration:none;display:block" href="../../sudoku/">Обычное Судоку ↗</a></div></div>');
+    throw e;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const scene = new THREE.Scene(); scene.background = new THREE.Color('#15132a'); scene.fog = new THREE.Fog('#15132a', 24, 60);
+  const camera = new THREE.PerspectiveCamera(36, 1, 0.3, 100);
+  FX.bind3(camera, cv);
+  scene.add(new THREE.HemisphereLight('#eae4ff', '#1d1838', 0.6));
+  const sun = new THREE.DirectionalLight('#fff4e0', 0.8); sun.position.set(-5, 12, 7); sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024); Object.assign(sun.shadow.camera, { left: -7, right: 7, top: 7, bottom: -7, near: 1, far: 40 }); scene.add(sun);
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(40, 48), new THREE.MeshStandardMaterial({ color: '#1f1a38', roughness: 0.95 }));
+  floor.rotation.x = -Math.PI / 2; floor.position.y = -0.5; floor.receiveShadow = true; scene.add(floor);
+  // cells sit 1 apart with a wider gap between the 3×3 squares
+  const GAP = 0.16, SPAN = 9 + 2 * GAP;
+  const P3 = (k) => k + Math.floor(k / 3) * GAP - (SPAN - 1) / 2;
+  const woodMat = new THREE.MeshStandardMaterial({ color: '#7a4a24', roughness: 0.55 }), feltMat = new THREE.MeshStandardMaterial({ color: '#241f40', roughness: 1 });
+  { const base = new THREE.Mesh(new THREE.BoxGeometry(SPAN + 0.8, 0.3, SPAN + 0.8), woodMat); base.position.y = -0.3; base.receiveShadow = true; base.castShadow = true; scene.add(base);
+    const felt = new THREE.Mesh(new THREE.BoxGeometry(SPAN + 0.1, 0.06, SPAN + 0.1), feltMat); felt.position.y = -0.14; felt.receiveShadow = true; scene.add(felt);
+    for (const [w, d, x, z] of [[SPAN + 0.8, 0.35, 0, -(SPAN + 0.45) / 2], [SPAN + 0.8, 0.35, 0, (SPAN + 0.45) / 2], [0.35, SPAN + 0.1, -(SPAN + 0.45) / 2, 0], [0.35, SPAN + 0.1, (SPAN + 0.45) / 2, 0]]) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.5, d), woodMat); m.position.set(x, 0.0, z); m.castShadow = true; m.receiveShadow = true; scene.add(m);
+    }
+    // thin brass bars between the 3×3 squares
+    const brass = new THREE.MeshStandardMaterial({ color: '#d9b45a', roughness: 0.3, metalness: 0.7 });
+    for (const k of [3, 6]) { const p = P3(k) - 0.5 - GAP / 2; for (const vert of [0, 1]) { const m = new THREE.Mesh(new THREE.BoxGeometry(vert ? 0.06 : SPAN, 0.12, vert ? SPAN : 0.06), brass); m.position.set(vert ? p : 0, -0.06, vert ? 0 : p); scene.add(m); } } }
+  // a tile: rounded body, its colour shows the highlight; the face is a texture with the digit or the notes
+  function roundedTile() {
+    const s = 0.9, r = 0.12, sh = new THREE.Shape(), h = s / 2;
+    sh.moveTo(-h + r, -h); sh.lineTo(h - r, -h); sh.quadraticCurveTo(h, -h, h, -h + r); sh.lineTo(h, h - r); sh.quadraticCurveTo(h, h, h - r, h);
+    sh.lineTo(-h + r, h); sh.quadraticCurveTo(-h, h, -h, h - r); sh.lineTo(-h, -h + r); sh.quadraticCurveTo(-h, -h, -h + r, -h);
+    const geo = new THREE.ExtrudeGeometry(sh, { depth: 1, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.04, bevelSegments: 2, curveSegments: 5 });
+    geo.rotateX(-Math.PI / 2); return geo; // y from 0 to 1, scaled per tile
+  }
+  const tileGeo = roundedTile(), faceGeo = new THREE.PlaneGeometry(0.84, 0.84), texCache = new Map();
+  function faceTex(key, paint) {
+    if (texCache.has(key)) return texCache.get(key);
+    const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d'); paint(x);
+    const t = new THREE.CanvasTexture(c); t.anisotropy = 4; texCache.set(key, t); return t;
+  }
+  const digitTex = (d, col, weight) => faceTex(`d${d}${col}${weight}`, (x) => { x.fillStyle = col; x.font = `${weight} 88px Manrope, system-ui`; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(d, 64, 70); });
+  const notesTex = (set) => { const key = 'n' + [...set].sort().join(''); return faceTex(key, (x) => { x.fillStyle = '#d7d0f5'; x.font = '800 34px Manrope, system-ui'; x.textAlign = 'center'; x.textBaseline = 'middle'; for (const d of set) x.fillText(d, ((d - 1) % 3 + 0.5) * 128 / 3, (Math.floor((d - 1) / 3) + 0.5) * 128 / 3 + 2); }); };
+  const blankTex = faceTex('blank', () => {});
+  const tiles = [];
+  for (let i = 0; i < 81; i++) {
+    const grp = new THREE.Group();
+    const body = new THREE.Mesh(tileGeo, new THREE.MeshStandardMaterial({ color: '#2a2548', roughness: 0.45 })); body.castShadow = true; body.receiveShadow = true; grp.add(body);
+    const face = new THREE.Mesh(faceGeo, new THREE.MeshBasicMaterial({ map: blankTex, transparent: true })); face.rotation.x = -Math.PI / 2; grp.add(face);
+    grp.position.set(P3(COL(i)), 0, P3(ROW(i))); scene.add(grp);
+    tiles.push({ grp, body, face, h: 0, pop: 0 });
+  }
+  const C = { given: '#f1ecff', ok: '#c9bcff', wrong: '#ff8fa3', empty: '#2e2950', sel: '#bca0ff', peer: '#4a3f86', same: '#ffd98a' };
+  const col = new THREE.Color(), tmp = new THREE.Color();
+  let camDist = 14, viewY = 0;
+  function fitCamera() {
+    const a = W / Math.max(1, H); camera.aspect = a;
+    const padH = $('pad').hidden ? 0 : 128, topH = 140, avail = Math.max(200, H - padH - topH);
+    const tanH = Math.tan(camera.fov * Math.PI / 360), need = SPAN + 1.2;
+    camDist = Math.max(need * H / avail / 2 / tanH, need / 2 / (tanH * a) * W / Math.max(200, W - 16)) * 0.98;
+    // move the picture so the board sits between the timer and the digit pad
+    viewY = (padH - topH) / 2 - 6;
+    camera.setViewOffset(W, H, 0, viewY, W, H); camera.updateProjectionMatrix();
+  }
+  function placeCamera() {
+    const sway = state === 'start' ? Math.sin(time * 0.3) * 0.25 : 0;
+    camera.position.set(Math.sin(sway) * camDist * 0.35, camDist * 0.9, camDist * 0.42); camera.lookAt(0, 0, 0.5);
+  }
+  const ray = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.3), hit = new THREE.Vector3();
+  const nearest = (v) => { let bk = -1, bd = 0.55; for (let k = 0; k < 9; k++) { const d = Math.abs(P3(k) - v); if (d < bd) { bd = d; bk = k; } } return bk; };
+  function cellAt(px, py) {
+    ray.setFromCamera({ x: px / W * 2 - 1, y: -(py / H * 2 - 1) }, camera);
+    if (!ray.ray.intersectPlane(plane, hit)) return -1;
+    const c = nearest(hit.x), r = nearest(hit.z);
+    return c >= 0 && r >= 0 ? r * 9 + c : -1;
+  }
+  const cellCenter = (i) => FX.g3(new THREE.Vector3(P3(COL(i)), tiles[i].h + 0.1, P3(ROW(i))));
+  function draw(dt) {
+    if (!grid) return;
+    placeCamera();
+    const sv = state === 'play' ? grid[sel] : 0;
+    for (let i = 0; i < 81; i++) {
+      const t = tiles[i], v = grid[i];
+      let kind = given[i] ? 'given' : v ? (v === solution[i] ? 'ok' : 'wrong') : 'empty';
+      let target = given[i] ? 0.42 : v ? 0.3 : 0.12;
+      col.set(C[kind]);
+      if (state === 'play') {
+        if (i === sel) { col.set(C.sel); target += 0.2; }
+        else if (sv && v === sv) col.lerp(tmp.set(C.same), 0.7);
+        else if (ROW(i) === ROW(sel) || COL(i) === COL(sel) || BOX(i) === BOX(sel)) col.lerp(tmp.set(C.peer), kind === 'empty' ? 1 : 0.35);
+      }
+      // a finished row, column or square: a wave runs out from the cell that finished it
+      for (const f of flashes) if (f.cells.includes(i)) { const k = f.cells.indexOf(i), d = Math.abs(k - f.cells.indexOf(f.from)), w = Math.max(0, Math.sin(Math.min(Math.PI, f.t * 7 - d * 0.6))); target += w * 0.35; col.lerp(tmp.set('#ffd23f'), w * 0.7); }
+      if (state === 'won') { const w = Math.max(0, Math.sin(Math.min(Math.PI, wonT * 5 - (ROW(i) + COL(i)) * 0.25))); target += w * 0.6; }
+      if (i === wrongAt && wrongT > 0) col.lerp(tmp.set('#ff3b5c'), wrongT);
+      t.h += (target - t.h) * Math.min(1, dt * 14);
+      const pop = t.pop > 0 ? Math.sin(t.pop * Math.PI) * 0.15 : 0;
+      t.body.scale.y = Math.max(0.02, t.h); t.body.material.color.copy(col);
+      t.face.position.y = t.h + 0.045 + 0.001; t.grp.position.y = pop;
+      t.grp.position.x = P3(COL(i)) + (i === wrongAt && wrongT > 0.5 ? Math.sin(time * 60) * 0.04 : 0);
+      t.face.material.map = v ? digitTex(v, given[i] ? '#171225' : v === solution[i] ? '#4b2fc6' : '#a0102e', given[i] ? 800 : 700) : notes[i].size ? notesTex(notes[i]) : blankTex;
+    }
+    renderer.render(scene, camera);
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    if (state !== 'start') {
+      const secs = state === 'play' ? (startedAt ? Math.floor((performance.now() - startedAt) / 1000) : 0) : elapsed;
+      g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.shadowColor = '#000a'; g.shadowBlur = 10;
+      g.fillStyle = '#fff'; g.font = '800 30px Manrope, system-ui'; g.fillText(secs ? clock(secs) : '0:00', W / 2, 100);
+      g.font = '800 13px Manrope, system-ui'; g.fillStyle = '#c9c2f0';
+      g.fillText(`${LEVELS[level].name} · ошибки ${mistakes}/${MISTAKES}` + (notesMode ? ' · заметки' : ''), W / 2, 122); g.shadowBlur = 0;
+    }
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; time += dt; wonT += dt;
+    for (const f of flashes) f.t += dt * 0.9; flashes = flashes.filter((f) => f.t < 1);
+    for (const t of tiles) if (t.pop > 0) t.pop = Math.max(0, t.pop - dt * 5);
+    wrongT = Math.max(0, wrongT - dt * 0.8);
+    draw(dt);
+    requestAnimationFrame(frame);
+  }
+  function resize() { dpr = Math.min(2, window.devicePixelRatio || 1); W = innerWidth; H = innerHeight; ov.width = Math.round(W * dpr); ov.height = Math.round(H * dpr); renderer.setSize(W, H, false); fitCamera(); }
+
+  const lb = FreasyLeaderboard({
+    key: 'sudoku',
+    boards: [
+      { id: 'time', title: 'Время', column: 'best_time', order: 'asc', note: 'Быстрее всех решили судоку средней сложности.', format: clock },
+      { id: 'solved', title: 'Решено', column: 'solved', order: 'desc', note: 'Больше всего решённых судоку любой сложности.', format: (v) => `${v}` },
+    ],
+    bests: () => (solvedCount ? { new_time: best || 0, new_solved: solvedCount } : null),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  for (let d = 1; d <= 9; d++) { const b = document.createElement('button'); b.type = 'button'; b.dataset.d = d; b.innerHTML = `${d}<small>9</small>`; b.addEventListener('click', () => put(d)); $('digits').appendChild(b); }
+  $('undo').addEventListener('click', undo);
+  $('erase').addEventListener('click', () => put(0));
+  $('notes').addEventListener('click', () => { notesMode = !notesMode; $('notes').classList.toggle('on', notesMode); });
+  $('hint').addEventListener('click', hint);
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); const i = cellAt(e.clientX, e.clientY); if (i >= 0 && state === 'play') { sel = i; sfx.select(); unlockAudio(); } });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.target.closest && e.target.closest('.screen button')) return;
+    if (state === 'play') {
+      const m = e.code.match(/^(?:Digit|Numpad)([1-9])$/);
+      if (m) { e.preventDefault(); put(+m[1]); return; }
+      const mv = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -9, ArrowDown: 9 }[e.code];
+      if (mv) { e.preventDefault(); const c = COL(sel) + (mv === -1 ? -1 : mv === 1 ? 1 : 0), r = ROW(sel) + (mv === -9 ? -1 : mv === 9 ? 1 : 0); if (c >= 0 && c < 9 && r >= 0 && r < 9) { sel = r * 9 + c; sfx.select(); } return; }
+      if (e.code === 'Backspace' || e.code === 'Delete' || e.code === 'Digit0') { e.preventDefault(); put(0); return; }
+      if (e.code === 'KeyN') { $('notes').click(); return; }
+      if (e.code === 'KeyZ') { undo(); return; }
+    } else if ((e.code === 'Space' || e.code === 'Enter') && (!$('start').hidden || !$('done').hidden)) { e.preventDefault(); newGame(); }
+  });
+  function pickLevel(l) { level = l; store.set('sudoku-level', l); document.querySelectorAll('#levels button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.l === l))); }
+  document.querySelectorAll('#levels button').forEach((b) => b.addEventListener('click', () => pickLevel(+b.dataset.l)));
+  $('go').addEventListener('click', () => { chanceUsed = false; chance.hide(); newGame(); });
+  $('again').addEventListener('click', () => { chanceUsed = false; chance.hide(); newGame(); });
+  $('toMenu').addEventListener('click', () => { state = 'start'; chance.hide(); $('done').hidden = true; $('start').hidden = false; });
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('sudoku-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  addEventListener('resize', resize);
+  resize(); pickLevel(level); showBests();
+  { const g0 = generate(36); puzzle = g0.puzzle; solution = g0.solution; grid = puzzle.slice(); given = puzzle.map(Boolean); notes = Array.from({ length: 81 }, () => new Set()); }
+  // #preview: a game in progress, for the site's screenshot.
+  if (location.hash === '#preview') {
+    level = 1; newGame(); startedAt = performance.now() - 312000;
+    const empty = [...Array(81).keys()].filter((i) => !given[i]);
+    for (const i of empty.slice(0, 20)) grid[i] = solution[i];
+    for (const i of empty.slice(20, 26)) { const c = new Set(); c.add(solution[i]); c.add(1 + (solution[i] % 9)); notes[i] = c; }
+    sel = empty[30]; mistakes = 1; updatePad();
+  }
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__sudoku3d = { get grid() { return grid; }, get solution() { return solution; }, get state() { return state; }, get sel() { return sel; }, set sel(v) { sel = v; }, put, newGame, pickLevel, cellAt, tick: (ms = 16) => { const r = window.requestAnimationFrame; window.requestAnimationFrame = () => 0; frame(last + ms); window.requestAnimationFrame = r; } };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

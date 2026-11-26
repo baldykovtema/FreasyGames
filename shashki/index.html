@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../shared/session.js?v=2"></script>
+<script src="../shared/i18n.js?v=3" data-game="shashki"></script>
+<script src="../shared/fx.js" data-mute="shashki-muted"></script>
+<script src="../shared/clips.js?v=1"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Шашки — FreasyGames</title>
+<meta name="description" content="Шашки на FreasyGames: русские шашки против бота трёх уровней. Бить обязательно, дамки ходят на любое число клеток, серия побед попадает в таблицу лидеров.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>
+  .levels { display: flex; gap: 8px; margin: 14px 0 4px; }
+  .levels button { flex: 1; font: inherit; font-weight: 800; font-size: 15px; padding: 12px 0; border-radius: 14px; border: 1px solid #ffffff24; background: #ffffff0d; color: #f8f7ff; cursor: pointer; }
+  .levels button[aria-pressed="true"] { background: #bca0ff; color: #171225; border-color: transparent; }
+  .bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: max(16px, env(safe-area-inset-bottom)); z-index: 3; display: flex; gap: 10px; }
+  .bar[hidden] { display: none; }
+  .bar button { height: 46px; padding: 0 16px; border-radius: 14px; border: 1px solid #ffffff2a; background: #1d1e31dd; color: #f8f7ff; font: 800 15px Manrope, system-ui; backdrop-filter: blur(6px); cursor: pointer; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+<div class="bar" id="bar" hidden><button type="button" id="menu">☰ Меню</button><button type="button" id="resign">🏳 Сдаться</button></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">⛀ Новая игра</div>
+    <h1><span>Шашки</span></h1>
+    <p>Русские шашки против бота. Ты играешь белыми и ходишь первым. Шашки ходят по диагонали вперёд, а бьют и вперёд, и назад.</p>
+    <p>Бить обязательно, и за один ход можно срубить несколько шашек подряд. Дошёл до последнего ряда — шашка становится дамкой и ходит на любое число клеток.</p>
+    <div class="levels" id="levels"><button type="button" data-l="0">Лёгкий</button><button type="button" data-l="1" aria-pressed="true">Средний</button><button type="button" data-l="2">Сложный</button></div>
+    <p>Побед: <b id="winsStart">0</b> · очков: <b id="pointsStart">0</b> · лучшая серия: <b id="streakStart">0</b></p>
+    <button class="play" id="go" type="button">Играть ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Касание шашки, затем клетки · за победу 1, 2 или 3 очка по сложности</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow" id="overWhy">Партия окончена</div>
+    <div class="big" id="final">Победа!</div>
+    <p id="overText"></p>
+    <p>Побед: <b id="winsOver">0</b> · очков: <b id="pointsOver">0</b> · лучшая серия: <b id="streakOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё партию ↗</button>
+    <button class="ghost" type="button" id="toMenu">Выбрать сложность</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), g = cv.getContext('2d');
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const pointsWord = (n) => plural(n, 'очко', 'очка', 'очков');
+  const LEVELS = [{ name: 'Лёгкий', depth: 1, noise: 60, pts: 1 }, { name: 'Средний', depth: 4, noise: 8, pts: 2 }, { name: 'Сложный', depth: 6, noise: 0, pts: 3 }];
+
+  let wins = +store.get('shashki-wins', 0) || 0, points = +store.get('shashki-points', 0) || 0, bestStreak = +store.get('shashki-best-streak', 0) || 0, streak = +store.get('shashki-streak', 0) || 0;
+  let level = Math.min(2, Math.max(0, +store.get('shashki-level', 1) || 0));
+  let muted = store.get('shashki-muted', '0') === '1';
+  FX.muted = () => muted || state === 'start';
+  let W = 0, H = 0, dpr = 1, cell = 60, bx = 0, by = 0;
+  // board[i]: 0 empty, 1 white man, 2 white king, -1 black man, -2 black king; white (the player) starts at the bottom
+  let state = 'start', board, turn = 1, legal = [], sel = -1, prefix = [], lastMove = null, anim = null, ghosts = [], quiet = 0, plies = 0, time = 0, shakeT = 0, message = '', messageT = 0, history = [], mustFlash = 0, thinking = false;
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'square', v = 0.06, slide = 1, delay = 0) {
+    if (muted || state === 'start' || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  const sfx = {
+    pick: () => tone(900, 0.03, 'sine', 0.04),
+    move: () => { tone(220, 0.06, 'triangle', 0.08, 0.7); tone(1400, 0.02, 'square', 0.02); },
+    take: (n) => { tone(160, 0.08, 'square', 0.07, 0.5); tone(520 * Math.pow(2, Math.min(n, 6) * 2 / 12), 0.12, 'triangle', 0.06, 1, 0.05); },
+    king: () => [0, 7, 12].forEach((s, i) => tone(660 * Math.pow(2, s / 12), 0.14, 'triangle', 0.07, 1, i * 0.07)),
+    nope: () => tone(140, 0.1, 'square', 0.05),
+    win: () => [0, 4, 7, 12, 16, 19].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.18, 'triangle', 0.08, 1, i * 0.08)),
+    lose: () => [7, 4, 0, -5].forEach((s, i) => tone(392 * Math.pow(2, s / 12), 0.22, 'sawtooth', 0.05, 1, i * 0.14)),
+  };
+
+  // ——— Rules ———
+  const ROW = (i) => i >> 3, COL = (i) => i & 7, AT = (r, c) => (r >= 0 && r < 8 && c >= 0 && c < 8 ? r * 8 + c : -1);
+  const DIRS = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+  function initial() { const b = new Array(64).fill(0); for (let i = 0; i < 64; i++) if ((ROW(i) + COL(i)) % 2) { if (ROW(i) < 3) b[i] = -1; else if (ROW(i) > 4) b[i] = 1; } return b; }
+  const lastRow = (side) => (side === 1 ? 0 : 7);
+  // Every capture is played to the end: a piece is not jumped twice, and a man that reaches the last row
+  // during a capture becomes a king and goes on capturing as a king.
+  function captures(b, side, from, cur, king, path, taken, out) {
+    let found = false;
+    const free = (s) => s >= 0 && (b[s] === 0 || s === from);
+    const r = ROW(cur), c = COL(cur);
+    for (const [dr, dc] of DIRS) {
+      if (!king) {
+        const m = AT(r + dr, c + dc), t = AT(r + 2 * dr, c + 2 * dc);
+        if (m < 0 || t < 0 || b[m] * side >= 0 || taken.includes(m) || !free(t)) continue;
+        found = true;
+        captures(b, side, from, t, ROW(t) === lastRow(side), [...path, t], [...taken, m], out);
+      } else {
+        let rr = r + dr, cc = c + dc;
+        while (AT(rr, cc) >= 0 && free(AT(rr, cc))) { rr += dr; cc += dc; }
+        const m = AT(rr, cc);
+        if (m < 0 || b[m] * side >= 0 || taken.includes(m)) continue;
+        rr += dr; cc += dc;
+        while (AT(rr, cc) >= 0 && free(AT(rr, cc))) { const t = AT(rr, cc); found = true; captures(b, side, from, t, true, [...path, t], [...taken, m], out); rr += dr; cc += dc; }
+      }
+    }
+    if (!found && taken.length) out.push({ from, path, caps: taken, king });
+  }
+  function movesFor(b, side) {
+    const caps = [];
+    for (let i = 0; i < 64; i++) if (b[i] * side > 0) captures(b, side, i, i, Math.abs(b[i]) === 2, [], [], caps);
+    if (caps.length) return caps;
+    const out = [];
+    for (let i = 0; i < 64; i++) {
+      if (b[i] * side <= 0) continue;
+      const king = Math.abs(b[i]) === 2, r = ROW(i), c = COL(i);
+      for (const [dr, dc] of DIRS) {
+        if (!king) { if (dr !== -side) continue; const t = AT(r + dr, c + dc); if (t >= 0 && !b[t]) out.push({ from: i, path: [t], caps: [], king: ROW(t) === lastRow(side) }); }
+        else { let rr = r + dr, cc = c + dc; while (AT(rr, cc) >= 0 && !b[AT(rr, cc)]) { out.push({ from: i, path: [AT(rr, cc)], caps: [], king: true }); rr += dr; cc += dc; } }
+      }
+    }
+    return out;
+  }
+  function apply(b, m) {
+    const p = b[m.from], side = Math.sign(p); b[m.from] = 0;
+    for (const s of m.caps) b[s] = 0;
+    b[m.path[m.path.length - 1]] = m.king ? 2 * side : p;
+    return b;
+  }
+
+  // ——— Bot ———
+  // Alpha-beta search; captures at the horizon are searched a little further so the bot does not walk into a trade blindly.
+  function evaluate(b) {
+    let s = 0;
+    for (let i = 0; i < 64; i++) {
+      const p = b[i]; if (!p) continue;
+      const r = ROW(i), c = COL(i), centre = (c >= 2 && c <= 5 && r >= 2 && r <= 5) ? 6 : 0;
+      if (p === 1) s += 100 + (7 - r) * 4 + centre + (r === 7 ? 6 : 0);
+      else if (p === -1) s -= 100 + r * 4 + centre + (r === 0 ? 6 : 0);
+      else if (p === 2) s += 330; else s -= 330;
+    }
+    return s;
+  }
+  let nodes = 0;
+  function search(b, side, depth, alpha, beta, ext) {
+    nodes++;
+    const ms = movesFor(b, side);
+    if (!ms.length) return -100000 - depth;
+    if (depth <= 0 && (!ms[0].caps.length || ext >= 6 || nodes > 400000)) return side * evaluate(b);
+    if (depth <= 0) { depth = 1; ext++; }
+    ms.sort((a, c) => c.caps.length - a.caps.length);
+    let bestV = -Infinity;
+    for (const m of ms) {
+      const v = -search(apply(b.slice(), m), -side, depth - 1, -beta, -alpha, ext);
+      if (v > bestV) bestV = v; if (v > alpha) alpha = v; if (alpha >= beta) break;
+    }
+    return bestV;
+  }
+  function botMove(b, side, lv) {
+    const ms = movesFor(b, side); if (ms.length <= 1) return ms[0];
+    const L = LEVELS[lv]; nodes = 0;
+    let best = null, bestV = -Infinity;
+    for (const m of ms) {
+      const v = -search(apply(b.slice(), m), -side, L.depth - 1, -Infinity, Infinity, 0) + (Math.random() - 0.5) * 2 * L.noise;
+      if (v > bestV) { bestV = v; best = m; }
+    }
+    return best;
+  }
+
+  // ——— Game ———
+  function newGame() {
+    unlockAudio();
+    board = initial(); turn = 1; sel = -1; prefix = []; lastMove = null; anim = null; ghosts = []; quiet = 0; plies = 0; history = []; chanceUsed = false; chance.hide();
+    state = 'play'; $('start').hidden = true; $('over').hidden = true; $('bar').hidden = false;
+    beginTurn(); layout();
+  }
+  function beginTurn() {
+    legal = movesFor(board, turn); sel = -1; prefix = [];
+    if (!legal.length) return finish(turn === 1 ? 'lose' : 'win', turn === 1 ? 'Ходить некуда' : 'Боту некуда ходить');
+    if (quiet >= 30) return finish('draw', '15 ходов одними дамками без взятий');
+    if (turn === -1 && state === 'play') { thinking = true; setTimeout(() => { if (state !== 'play' || turn !== -1) return; play(botMove(board, -1, level)); thinking = false; }, 380); }
+  }
+  // the move slides along its path; taken pieces stay as fading ghosts until the mover passes them
+  function play(m) {
+    if (state === 'play' && turn === 1) history.push({ board: board.slice(), quiet, plies });
+    const piece = board[m.from];
+    ghosts = m.caps.map((s) => ({ s, v: board[s], at: segmentOf(m, s), fade: 0 }));
+    anim = { piece, pts: [m.from, ...m.path], t: 0, m };
+    apply(board, m); lastMove = [m.from, m.path[m.path.length - 1]];
+    quiet = m.caps.length || Math.abs(piece) === 1 ? 0 : quiet + 1; plies++;
+    sel = -1; prefix = [];
+    if (!m.caps.length) sfx.move();
+  }
+  // which step of the path jumps over square s
+  function segmentOf(m, s) {
+    const pts = [m.from, ...m.path];
+    for (let k = 0; k < pts.length - 1; k++) {
+      const a = pts[k], b = pts[k + 1], dr = Math.sign(ROW(b) - ROW(a)), dc = Math.sign(COL(b) - COL(a));
+      for (let r = ROW(a) + dr, c = COL(a) + dc; r !== ROW(b); r += dr, c += dc) if (AT(r, c) === s) return k;
+    }
+    return 0;
+  }
+  function animDone() {
+    const m = anim.m, side = Math.sign(anim.piece), to = m.path[m.path.length - 1], [x, y] = centre(to);
+    if (m.caps.length >= 2 && state === 'play') FX.on('combo', m.caps.length, x, y);
+    if (m.king && Math.abs(anim.piece) === 1) { sfx.king(); if (state === 'play') { FX.sparkle(x, y, '#ffd23f'); say(side === 1 ? 'Дамка!' : 'У бота дамка'); } }
+    anim = null; ghosts = [];
+    turn = -side;
+    if (state === 'play') beginTurn();
+  }
+  function tap(i) {
+    if (state !== 'play' || turn !== 1 || anim || lb.isOpen()) return;
+    unlockAudio();
+    if (i < 0) { sel = -1; prefix = []; return; }
+    if (board[i] > 0 && !prefix.length) {
+      if (legal.some((m) => m.from === i)) { sel = i; sfx.pick(); }
+      else if (legal[0] && legal[0].caps.length) { sfx.nope(); shakeT = 0.15; mustFlash = 1; say('Бить обязательно!'); }
+      else { sfx.nope(); shakeT = 0.12; }
+      return;
+    }
+    if (sel < 0) return;
+    const fit = legal.filter((m) => m.from === sel && prefix.every((s, k) => m.path[k] === s) && m.path[prefix.length] === i);
+    if (!fit.length) { if (!prefix.length) sel = -1; else sfx.nope(); return; }
+    prefix.push(i);
+    const done = fit.find((m) => m.path.length === prefix.length);
+    if (done) play(done); else sfx.pick();
+  }
+  function finish(result, why) {
+    state = 'over'; thinking = false; $('bar').hidden = true;
+    const L = LEVELS[level];
+    let record = false;
+    if (result === 'win') {
+      wins++; points += L.pts; streak++; if (streak > bestStreak) { bestStreak = streak; record = true; }
+      sfx.win(); FX.win(); if (record && bestStreak > 1) setTimeout(() => FX.record(), 600);
+    } else {
+      streak = 0;
+      if (result === 'lose') { sfx.lose(); FX.over(); } else sfx.move();
+    }
+    store.set('shashki-wins', wins); store.set('shashki-points', points); store.set('shashki-streak', streak); store.set('shashki-best-streak', bestStreak);
+    if (result === 'win') lb.submit({ new_points: points, new_streak: bestStreak });
+    setTimeout(() => {
+      $('overWhy').textContent = `${L.name} · ${why}`;
+      $('final').textContent = result === 'win' ? 'Победа!' : result === 'lose' ? 'Поражение' : 'Ничья';
+      $('overText').innerHTML = result === 'win' ? (record && bestStreak > 1 ? '<span class="new">Новая лучшая серия!</span> ' : '') + `+${L.pts} ${pointsWord(L.pts)} · серия ${streak}` : result === 'lose' ? 'Серия побед прервалась' : 'Серия побед прервалась — ничья не победа';
+      showBests(); $('over').hidden = false;
+      if (result === 'lose' && !chanceUsed && history.length >= 1) chance.show();
+    }, 1000);
+  }
+  // Once a game, an ad takes back your last move and the bot's answer.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'shashki-undo', label: '🎬 Вернуть ход за рекламу', onReward: () => {
+    const h = history.pop(); if (!h) return;
+    chanceUsed = true; board = h.board; quiet = h.quiet; plies = h.plies; turn = 1; lastMove = null; anim = null; ghosts = [];
+    streak = +store.get('shashki-streak-before', 0) || 0;
+    state = 'play'; $('over').hidden = true; $('bar').hidden = false; beginTurn();
+  } });
+  function say(t) { message = t; messageT = 1.6; }
+  function showBests() {
+    $('winsStart').textContent = $('winsOver').textContent = wins;
+    $('pointsStart').textContent = $('pointsOver').textContent = points;
+    $('streakStart').textContent = $('streakOver').textContent = bestStreak;
+  }
+
+  // ——— Drawing ———
+  const centre = (i) => [bx + (COL(i) + 0.5) * cell, by + (ROW(i) + 0.5) * cell];
+  function round(x, y, w, h, r) { g.beginPath(); if (g.roundRect) g.roundRect(x, y, w, h, r); else g.rect(x, y, w, h); }
+  function drawPiece(x, y, p, alpha = 1, lift = 0) {
+    const r = cell * 0.4, white = p > 0;
+    g.globalAlpha = alpha;
+    g.fillStyle = '#0007'; g.beginPath(); g.ellipse(x + 2, y + 4 + lift, r, r * 0.92, 0, 0, 7); g.fill();
+    y -= lift;
+    g.fillStyle = white ? '#b8ad98' : '#1a1424'; g.beginPath(); g.arc(x, y + r * 0.14, r, 0, 7); g.fill();
+    const gr = g.createRadialGradient(x - r * 0.35, y - r * 0.4, 1, x, y, r);
+    if (white) { gr.addColorStop(0, '#fffdf6'); gr.addColorStop(1, '#ddd2bc'); } else { gr.addColorStop(0, '#6a4b86'); gr.addColorStop(1, '#2a1f3a'); }
+    g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+    g.strokeStyle = white ? '#c4b79e' : '#140f1d'; g.lineWidth = Math.max(1, cell * 0.03);
+    g.beginPath(); g.arc(x, y, r * 0.68, 0, 7); g.stroke(); g.beginPath(); g.arc(x, y, r * 0.4, 0, 7); g.stroke();
+    if (Math.abs(p) === 2) { // a crown on kings
+      g.fillStyle = '#ffd23f'; const s = r * 0.5;
+      g.beginPath(); g.moveTo(x - s, y + s * 0.45); g.lineTo(x - s, y - s * 0.35); g.lineTo(x - s * 0.5, y + s * 0.05); g.lineTo(x, y - s * 0.6); g.lineTo(x + s * 0.5, y + s * 0.05); g.lineTo(x + s, y - s * 0.35); g.lineTo(x + s, y + s * 0.45); g.closePath(); g.fill();
+      g.strokeStyle = '#8a6a00'; g.lineWidth = 1.2; g.stroke();
+    }
+    g.globalAlpha = 1;
+  }
+  function draw() {
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const bg = g.createRadialGradient(W / 2, -H * 0.1, 0, W / 2, -H * 0.1, H * 1.1);
+    bg.addColorStop(0, '#3d326a'); bg.addColorStop(0.35, '#181a30'); bg.addColorStop(1, '#0e0f1c');
+    g.fillStyle = bg; g.fillRect(0, 0, W, H);
+    if (!board) return;
+    const S = cell * 8, sh = shakeT > 0 ? (Math.random() - 0.5) * 10 * shakeT : 0;
+    g.save(); g.translate(sh, 0);
+    g.fillStyle = '#00000066'; round(bx - 12, by - 6, S + 24, S + 24, 18); g.fill();
+    const wood = g.createLinearGradient(bx, by, bx + S, by + S); wood.addColorStop(0, '#7a4a24'); wood.addColorStop(0.5, '#93592c'); wood.addColorStop(1, '#6a3d1d');
+    g.fillStyle = wood; round(bx - 12, by - 12, S + 24, S + 24, 16); g.fill();
+    for (let i = 0; i < 64; i++) {
+      const x = bx + COL(i) * cell, y = by + ROW(i) * cell, dark = (ROW(i) + COL(i)) % 2;
+      g.fillStyle = dark ? '#5b3f7a' : '#efe6d4'; g.fillRect(x, y, cell, cell);
+      if (dark && lastMove && lastMove.includes(i)) { g.fillStyle = '#ffd23f33'; g.fillRect(x, y, cell, cell); }
+    }
+    // coordinates along the frame
+    g.fillStyle = '#f3e3c3aa'; g.font = `800 ${Math.max(8, cell * 0.16)}px Manrope, system-ui`; g.textAlign = 'center'; g.textBaseline = 'middle';
+    for (let k = 0; k < 8; k++) { g.fillText('abcdefgh'[k], bx + (k + 0.5) * cell, by + S + 6); g.fillText(8 - k, bx - 6, by + (k + 0.5) * cell); }
+    const moving = anim ? anim.pts[anim.pts.length - 1] : -1;
+    // pieces that can move (when the player is to move and nothing is chosen)
+    const movable = state === 'play' && turn === 1 && !anim ? new Set(legal.map((m) => m.from)) : new Set();
+    if (sel >= 0) { const [x, y] = centre(sel); g.fillStyle = '#bca0ff88'; g.fillRect(x - cell / 2, y - cell / 2, cell, cell); }
+    for (let i = 0; i < 64; i++) {
+      if (!board[i] || i === moving) continue;
+      const [x, y] = centre(i);
+      const lift = i === sel ? cell * 0.08 : 0;
+      if (movable.has(i) && sel < 0 && (legal[0].caps.length || mustFlash > 0)) { g.strokeStyle = `rgba(255,210,63,${0.5 + Math.sin(time * 6) * 0.3})`; g.lineWidth = 3; g.beginPath(); g.arc(x, y, cell * 0.46, 0, 7); g.stroke(); }
+      drawPiece(x, y, board[i], 1, lift);
+    }
+    for (const gh of ghosts) { const [x, y] = centre(gh.s); drawPiece(x, y, gh.v, 1 - gh.fade); }
+    if (anim) {
+      const k = Math.min(anim.pts.length - 2, Math.floor(anim.t)), f = anim.t - k, [x0, y0] = centre(anim.pts[k]), [x1, y1] = centre(anim.pts[k + 1]);
+      drawPiece(x0 + (x1 - x0) * f, y0 + (y1 - y0) * f, anim.piece, 1, Math.sin(f * Math.PI) * cell * (anim.m.caps.length ? 0.25 : 0.08));
+    }
+    // where the chosen piece can go next
+    if (sel >= 0 && !anim) {
+      const targets = new Set(legal.filter((m) => m.from === sel && prefix.every((s, k) => m.path[k] === s)).map((m) => m.path[prefix.length]).filter((s) => s !== undefined));
+      for (const t of targets) { const [x, y] = centre(t); g.fillStyle = `rgba(93,242,165,${0.6 + Math.sin(time * 5) * 0.2})`; g.beginPath(); g.arc(x, y, cell * 0.15, 0, 7); g.fill(); }
+      for (const s of prefix) { const [x, y] = centre(s); g.strokeStyle = '#5df2a5'; g.lineWidth = 3; g.beginPath(); g.arc(x, y, cell * 0.3, 0, 7); g.stroke(); }
+    }
+    g.restore();
+    // HUD
+    if (state !== 'start') {
+      const white = board.filter((p) => p > 0).length, black = board.filter((p) => p < 0).length;
+      g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillStyle = '#fff'; g.font = '800 24px Manrope, system-ui';
+      g.fillText(state !== 'play' ? '' : turn === 1 ? (anim ? '…' : 'Твой ход') : 'Бот думает' + '.'.repeat(1 + Math.floor(time * 3) % 3), W / 2, by - 44);
+      g.font = '800 13px Manrope, system-ui'; g.fillStyle = '#c9c2f0';
+      g.fillText(`${LEVELS[level].name} · ⚪ ${white} : ${black} ⚫ · серия ${streak}`, W / 2, by - 22);
+      if (messageT > 0) {
+        g.globalAlpha = Math.min(1, messageT * 2); g.font = '800 20px Manrope, system-ui';
+        const w = g.measureText(message).width + 36; g.fillStyle = '#1d1e31ee'; round(W / 2 - w / 2, by + S / 2 - 24, w, 44, 14); g.fill();
+        g.fillStyle = '#ffd23f'; g.fillText(message, W / 2, by + S / 2 + 5); g.globalAlpha = 1;
+      }
+    }
+  }
+
+  let last = performance.now(), demoWait = 0.8;
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; time += dt;
+    if (anim) {
+      anim.t += dt * (anim.m.caps.length ? 5 : 7);
+      for (const gh of ghosts) if (anim.t > gh.at + 0.5) { if (!gh.hit) { gh.hit = true; const [x, y] = centre(gh.s); sfx.take(anim.m.caps.indexOf(gh.s) + 1); if (state === 'play') FX.burst(x, y, { n: 12, speed: 200, color: gh.v > 0 ? ['#fffdf6', '#ddd2bc'] : ['#6a4b86', '#bca0ff'] }); } gh.fade = Math.min(1, gh.fade + dt * 5); }
+      if (anim.t >= anim.pts.length - 1) animDone();
+    }
+    // behind the start card two bots play a quick game
+    if (state === 'start' && !anim && (demoWait -= dt) <= 0) {
+      demoWait = 0.7; const ms = movesFor(board, turn);
+      if (!ms.length || plies > 120) { board = initial(); turn = 1; plies = 0; quiet = 0; lastMove = null; }
+      else play(botMove(board, turn, 0));
+    }
+    messageT = Math.max(0, messageT - dt); shakeT = Math.max(0, shakeT - dt); mustFlash = Math.max(0, mustFlash - dt * 0.5);
+    draw();
+    requestAnimationFrame(frame);
+  }
+  function layout() {
+    const barH = $('bar').hidden ? 20 : 80;
+    cell = Math.floor(Math.min((W - 40) / 8, (H - 150 - barH) / 8, 76));
+    bx = Math.round((W - cell * 8) / 2); by = Math.round(Math.max(120, 110 + (H - 110 - barH - cell * 8) / 2));
+  }
+  function resize() { dpr = Math.min(2, window.devicePixelRatio || 1); W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr; layout(); }
+  const cellAt = (x, y) => { const c = Math.floor((x - bx) / cell), r = Math.floor((y - by) / cell); return AT(r, c); };
+
+  const lb = FreasyLeaderboard({
+    key: 'shashki',
+    boards: [
+      { id: 'points', title: 'Очки', column: 'points', order: 'desc', note: 'Очки за все победы: лёгкий бот — 1, средний — 2, сложный — 3.', format: (v) => `${v} ${pointsWord(v)}` },
+      { id: 'streak', title: 'Серия', column: 'best_streak', order: 'desc', note: 'Больше всего побед подряд без поражений и ничьих.', format: (v) => `${v}` },
+    ],
+    bests: () => (wins ? { new_points: points, new_streak: bestStreak } : null),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); tap(cellAt(e.clientX, e.clientY)); });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.target.closest && e.target.closest('.screen button, .bar button')) return;
+    if (e.key === 'Escape') { sel = -1; prefix = []; return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); newGame(); }
+  });
+  function pickLevel(l) { level = l; store.set('shashki-level', l); document.querySelectorAll('#levels button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.l === l))); }
+  document.querySelectorAll('#levels button').forEach((b) => b.addEventListener('click', () => pickLevel(+b.dataset.l)));
+  function toMenu() { state = 'start'; chance.hide(); thinking = false; $('over').hidden = true; $('bar').hidden = true; $('start').hidden = false; board = initial(); turn = 1; plies = 0; quiet = 0; anim = null; ghosts = []; lastMove = null; layout(); }
+  // the streak before this game, so an ad that takes back the losing move also gives the streak back
+  const begin = () => { store.set('shashki-streak-before', streak); newGame(); };
+  $('go').addEventListener('click', begin);
+  $('again').addEventListener('click', begin);
+  $('toMenu').addEventListener('click', toMenu);
+  $('menu').addEventListener('click', toMenu);
+  $('resign').addEventListener('click', () => { if (state === 'play') { state = 'resigning'; finish('lose', 'Ты сдался'); } });
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('shashki-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  addEventListener('resize', resize);
+  resize(); pickLevel(level); showBests(); board = initial();
+  // #preview: a game in progress with a double capture to make, for the site's screenshot.
+  if (location.hash === '#preview') {
+    store.set('shashki-streak-before', streak); newGame();
+    board = new Array(64).fill(0);
+    for (const [r, c, p] of [[0, 1, -1], [0, 5, -1], [1, 2, -1], [1, 6, -1], [2, 1, -1], [2, 5, -1], [3, 2, -1], [3, 4, -1], [4, 7, -2], [4, 3, 0], [5, 4, 1], [5, 0, 1], [6, 3, 1], [6, 5, 1], [6, 7, 1], [7, 2, 1], [7, 6, 1], [1, 0, 2]]) board[r * 8 + c] = p;
+    lastMove = [AT(4, 5), AT(3, 4)]; beginTurn(); sel = AT(5, 4); plies = 22;
+  }
+  // On a local server tests can look inside.
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__shashki = { get board() { return board; }, set board(b) { board = b; }, get state() { return state; }, get turn() { return turn; }, get legal() { return legal; }, movesFor, botMove, tap, beginTurn, newGame, pickLevel, AT, tick: (ms = 16) => { const r = window.requestAnimationFrame; window.requestAnimationFrame = () => 0; frame(last + ms); window.requestAnimationFrame = r; } };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

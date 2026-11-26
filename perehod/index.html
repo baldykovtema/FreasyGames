@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../shared/session.js?v=2"></script>
+<script src="../shared/i18n.js?v=3" data-game="perehod"></script>
+<script src="../shared/fx.js" data-mute="perehod-muted"></script>
+<script src="../shared/clips.js?v=1"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Переход — FreasyGames</title>
+<meta name="description" content="Переход на FreasyGames: ёжик прыгает вперёд через дороги с машинами, реки с брёвнами и железную дорогу. Собирай яблоки и не отставай — дорога сама уходит вперёд.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">🦔 Новая игра</div>
+    <h1><span>Переход</span></h1>
+    <p>Помоги ёжику уйти как можно дальше. Перепрыгивай дороги между машинами, переплывай реки по брёвнам и не стой на рельсах, когда мигает огонёк.</p>
+    <p>Деревья не пускают, вода топит, а край экрана сам ползёт вперёд — не задерживайся. Яблоки — для таблицы лидеров.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · яблок за игру: <b id="applesStart">0</b></p>
+    <button class="play" id="go" type="button">Вперёд ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Касание — прыжок вперёд, смахивание — в сторону · стрелки или WASD</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow" id="overWhy">Ой!</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">шагов</p>
+    <p>Рекорд: <b id="bestOver">0</b> · яблок за игру: <b id="applesOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), g = cv.getContext('2d');
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const stepsWord = (n) => plural(n, 'шаг', 'шага', 'шагов');
+  const applesWord = (n) => plural(n, 'яблоко', 'яблока', 'яблок');
+  const COLS = 9, EDGE = 3, HOP = 0.13;
+  const rnd = (a, b) => a + Math.random() * (b - a), pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+  let best = +store.get('perehod-best', 0) || 0, bestApples = +store.get('perehod-best-apples', 0) || 0;
+  let runs = {}; try { runs = JSON.parse(store.get('perehod-runs', '{}')) || {}; } catch { runs = {}; }
+  let muted = store.get('perehod-muted', '0') === '1';
+  FX.muted = () => muted || state === 'start';
+  let W = 0, H = 0, dpr = 1, cell = 48, ox = 0;
+  // lanes[row]: {type: 'grass'|'road'|'river'|'rail', dir, speed, items, span, trees, apple, train…}; row 0 is the start
+  let state = 'start', lanes, p, camY = 0, score = 0, apples = 0, moved = false, time = 0, deadT = 0, why = '', queued = null, top = 0;
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'square', v = 0.06, slide = 1, delay = 0) {
+    if (muted || state === 'start' || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  const sfx = {
+    hop: () => tone(520 + Math.random() * 80, 0.06, 'triangle', 0.05, 1.5),
+    bump: () => tone(120, 0.08, 'square', 0.05),
+    apple: () => { tone(880, 0.06, 'triangle', 0.06); tone(1320, 0.08, 'triangle', 0.05, 1, 0.05); },
+    honk: () => { tone(330, 0.12, 'square', 0.03); tone(415, 0.12, 'square', 0.03); },
+    bell: () => tone(1500, 0.05, 'square', 0.025),
+    squash: () => { tone(200, 0.2, 'sawtooth', 0.08, 0.4); },
+    splash: () => { tone(400, 0.25, 'sine', 0.07, 0.3); },
+    ten: () => [0, 7].forEach((s, i) => tone(784 * Math.pow(2, s / 12), 0.1, 'triangle', 0.05, 1, i * 0.06)),
+  };
+
+  // ——— World ———
+  const CAR_COLORS = ['#ff5f5f', '#3a6bff', '#ffd23f', '#a45cff', '#2fbf74', '#ff9a3d', '#6fe3ff'];
+  // difficulty grows with the row: faster traffic, more rivers and railways
+  const level = (r) => Math.min(1, r / 260);
+  function fillItems(lane, lens, gaps) {
+    lane.items = []; let x = -EDGE + rnd(0, 2);
+    while (x < COLS + EDGE) { const len = pick(lens); lane.items.push({ x, len, c: pick(CAR_COLORS) }); x += len + rnd(gaps[0], gaps[1]); }
+    lane.span = x + EDGE;
+  }
+  function makeLane(r) {
+    const lv = level(r);
+    let type = 'grass';
+    if (r >= 4) {
+      const prev = lanes[r - 1], run = prev ? prev.run : 0;
+      if (prev && prev.type !== 'grass' && run < prev.max) type = prev.type;
+      else if (prev && prev.type !== 'grass') type = 'grass';
+      else { const x = Math.random(); type = x < 0.25 - lv * 0.1 ? 'grass' : x < 0.62 - lv * 0.05 ? 'road' : x < 0.88 ? 'river' : 'rail'; }
+    }
+    const prev = lanes[r - 1];
+    const lane = { type, run: prev && prev.type === type ? prev.run + 1 : 1, max: type === 'road' ? Math.floor(rnd(1, 3 + lv * 2.5)) : type === 'river' ? Math.floor(rnd(1, 3 + lv)) : 1, dir: prev && prev.type === type ? -prev.dir : Math.random() < 0.5 ? 1 : -1, items: [], trees: new Set(), apple: -1 };
+    if (type === 'grass') {
+      if (r === 0) { for (const c of [0, COLS - 1]) lane.trees.add(c); }
+      else if (r > 2) { const n = Math.floor(rnd(0, 3.4)); for (let k = 0; k < n; k++) lane.trees.add(Math.floor(Math.random() * COLS)); lane.trees.delete(Math.floor(COLS / 2) + (r % 3) - 1); }
+      if (r > 3 && Math.random() < 0.3) { const c = Math.floor(Math.random() * COLS); if (!lane.trees.has(c)) lane.apple = c; }
+    } else if (type === 'road') {
+      lane.speed = rnd(1.4, 2.6) + lv * rnd(1, 3.2);
+      fillItems(lane, lane.speed > 3.4 ? [1.3] : [1.3, 1.3, 2.4], [2.6 - lv * 0.6, 5.5 - lv * 1.5]);
+    } else if (type === 'river') {
+      lane.speed = rnd(0.9, 1.8) + lv * 1.2;
+      fillItems(lane, [2, 3, 3, 4].map((l) => Math.max(2, l - Math.round(lv))), [1.4, 2.8 + lv]);
+    } else {
+      lane.trainT = rnd(1.5, 6); lane.train = null; lane.speed = 22;
+    }
+    return lane;
+  }
+  function ensureLanes() { const need = Math.ceil(camY + H / cell + 3); while (top <= need) { lanes[top] = makeLane(top); top++; } for (const k in lanes) if (+k < camY - 3) delete lanes[k]; }
+
+  function newGame() {
+    unlockAudio(); lanes = {}; top = 0; camY = -1;
+    p = { x: Math.floor(COLS / 2), row: 0, fx: 0, fr: 0, t: 1, face: 1, squash: 0 };
+    score = 0; apples = 0; moved = false; deadT = 0; queued = null; chanceUsed = false; chance.hide();
+    state = 'play'; $('start').hidden = true; $('over').hidden = true; ensureLanes();
+  }
+  // a hop is one cell; on a log it keeps the fractional x, elsewhere it lands on a whole cell
+  function hop(dx, dr) {
+    if (state !== 'play' || lb.isOpen()) return;
+    if (p.t < 1) { queued = [dx, dr]; return; }
+    const tr = p.row + dr;
+    if (tr < 0 || tr < Math.floor(camY)) { sfx.bump(); return; }
+    let tx = p.x + dx;
+    const target = lanes[tr];
+    if (target.type !== 'river') tx = Math.round(tx);
+    if (tx < -0.2 || tx > COLS - 0.8) { sfx.bump(); return; }
+    if (target.type === 'grass' && target.trees.has(Math.round(tx))) { sfx.bump(); p.squash = 0.4; return; }
+    p.fx = p.x; p.fr = p.row; p.x = tx; p.row = tr; p.t = 0; moved = true;
+    if (dx) p.face = dx; sfx.hop();
+  }
+  function landed() {
+    const lane = lanes[p.row];
+    if (p.row > score) { score = p.row; if (score % 25 === 0) { sfx.ten(); const [sx, sy] = screen(p.x + 0.5, p.row); FX.text(sx, sy - 30, score, '#ffd23f'); } }
+    if (lane.type === 'grass' && lane.apple === Math.round(p.x)) { lane.apple = -1; apples++; sfx.apple(); const [sx, sy] = screen(p.x + 0.5, p.row); FX.on('coin', 1, sx, sy); }
+    if (queued) { const q = queued; queued = null; hop(...q); }
+  }
+  function die(kind, text) {
+    if (state !== 'play') return;
+    state = 'dead'; why = text; deadT = 0; p.dead = kind;
+    const [sx, sy] = screen(p.x + 0.5, p.row);
+    if (kind === 'water') { sfx.splash(); FX.on('splash', 1, sx, sy); } else { sfx.squash(); FX.bad(sx, sy); }
+    setTimeout(over, 900);
+  }
+  function over() {
+    state = 'over'; FX.over();
+    const record = score > best, run = { new_score: score, new_apples: apples };
+    if (record) { best = score; store.set('perehod-best', best); runs.score = run; if (score) setTimeout(() => FX.record(), 500); }
+    if (apples > bestApples) { bestApples = apples; store.set('perehod-best-apples', bestApples); runs.apples = run; }
+    store.set('perehod-runs', JSON.stringify(runs));
+    if (score) lb.submit(run);
+    $('overWhy').textContent = why;
+    $('final').textContent = score;
+    $('overText').innerHTML = (record && score ? '<span class="new">Новый рекорд!</span> ' : '') + `${stepsWord(score)} · ${apples} ${applesWord(apples)}`;
+    showBests(); $('over').hidden = false;
+    if (!chanceUsed && score >= 10) chance.show();
+  }
+  // Once a game, an ad puts the hedgehog back on the nearest safe grass and keeps the run going.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'perehod-continue', label: '🎬 Продолжить за рекламу', onReward: () => {
+    chanceUsed = true;
+    let r = p.row; while (r > 0 && lanes[r] && lanes[r].type !== 'grass') r--;
+    if (!lanes[r]) r = p.row;
+    const lane = lanes[r]; let x = Math.round(Math.max(0, Math.min(COLS - 1, p.x)));
+    if (lane.trees.has(x)) x = [...Array(COLS).keys()].find((c) => !lane.trees.has(c)) ?? x;
+    Object.assign(p, { x, row: r, t: 1, dead: null, squash: 0 }); camY = Math.min(camY, r - 2);
+    state = 'play'; $('over').hidden = true; queued = null;
+  } });
+
+  function update(dt) {
+    const lv = level(score);
+    for (const k in lanes) {
+      const lane = lanes[k];
+      for (const it of lane.items) { it.x += lane.dir * lane.speed * dt; if (lane.dir > 0 && it.x > lane.span - EDGE) it.x -= lane.span; if (lane.dir < 0 && it.x + it.len < -EDGE) it.x += lane.span; }
+      if (lane.type === 'rail') {
+        if (lane.train) { lane.train.x += lane.dir * lane.speed * dt; if (lane.train.x > COLS + 14 || lane.train.x < -26) { lane.train = null; lane.trainT = rnd(3, 7) - lv * 1.5; } }
+        else { const was = lane.trainT; lane.trainT -= dt; if (state === 'play' && was > 1.1 && lane.trainT <= 1.1 && Math.abs(+k - p.row) < 6) sfx.bell(); if (lane.trainT <= 0) lane.train = { x: lane.dir > 0 ? -14 : COLS + 2, len: 12 }; }
+      }
+    }
+    if (state !== 'play') return;
+    if (p.t < 1) { p.t = Math.min(1, p.t + dt / HOP); if (p.t >= 1) landed(); }
+    const lane = lanes[p.row], c = p.x + 0.5;
+    if (p.t >= 1 && lane.type === 'river') {
+      const log = lane.items.find((it) => c >= it.x - 0.1 && c <= it.x + it.len + 0.1);
+      if (!log) return die('water', 'Ёжик упал в воду');
+      p.x += lane.dir * lane.speed * dt;
+      if (p.x < -0.6 || p.x > COLS - 0.4) return die('water', 'Бревно унесло ёжика');
+    }
+    if (p.t > 0.5 || p.t >= 1) {
+      const hits = (a, len) => c + 0.32 > a && c - 0.32 < a + len;
+      if (lane.type === 'road' && lane.items.some((it) => hits(it.x, it.len))) return die('car', 'Ёжика сбила машина');
+      if (lane.type === 'rail' && lane.train && hits(lane.train.x, lane.train.len)) return die('car', 'Ёжика сбил поезд');
+    }
+    // the bottom edge creeps forward once the hedgehog has moved; falling behind ends the run
+    if (moved) camY += dt * Math.min(0.95, 0.32 + score * 0.004);
+    camY = Math.max(camY, p.row - Math.floor(H / cell * 0.38));
+    if (p.row < camY - 0.3) die('owl', 'Ёжик отстал');
+    ensureLanes();
+  }
+
+  // ——— Drawing ———
+  const screen = (x, row) => [ox + x * cell, H - (row - camY + 0.5) * cell];
+  function round(x, y, w, h, r) { g.beginPath(); if (g.roundRect) g.roundRect(x, y, w, h, r); else g.rect(x, y, w, h); }
+  function drawCar(x, y, len, col, dir) {
+    const w = len * cell, h = cell * 0.7, top = y - h / 2;
+    g.fillStyle = '#0005'; round(x + 3, top + 5, w, h, cell * 0.16); g.fill();
+    g.fillStyle = col; round(x, top, w, h, cell * 0.16); g.fill();
+    g.fillStyle = '#ffffff33'; round(x + 3, top + 3, w - 6, h * 0.25, 6); g.fill();
+    // windows: the front one faces the way it drives
+    g.fillStyle = '#1c2340cc'; const fw = Math.min(w * 0.22, cell * 0.3);
+    const fx = dir > 0 ? x + w - fw - cell * 0.18 : x + cell * 0.18;
+    round(fx, top + h * 0.16, fw, h * 0.68, 4); g.fill();
+    if (len > 2) { g.fillStyle = '#00000022'; g.fillRect(dir > 0 ? x + 4 : x + w * 0.3, top + 4, w * 0.66, h - 8); }
+    g.fillStyle = '#fff6b0'; const hx = dir > 0 ? x + w - 3 : x + 1; g.fillRect(hx, top + 4, 2, 6); g.fillRect(hx, top + h - 10, 2, 6);
+  }
+  function drawTree(x, y) {
+    g.fillStyle = '#0004'; g.beginPath(); g.ellipse(x + 4, y + 6, cell * 0.38, cell * 0.3, 0, 0, 7); g.fill();
+    g.fillStyle = '#1f7a3c'; g.beginPath(); g.arc(x, y, cell * 0.4, 0, 7); g.fill();
+    g.fillStyle = '#2fa857'; g.beginPath(); g.arc(x - cell * 0.08, y - cell * 0.1, cell * 0.28, 0, 7); g.fill();
+    g.fillStyle = '#5dd47e'; g.beginPath(); g.arc(x - cell * 0.14, y - cell * 0.16, cell * 0.1, 0, 7); g.fill();
+  }
+  function drawHedgehog(x, y) {
+    const s = cell * 0.36, hopUp = p.t < 1 ? Math.sin(p.t * Math.PI) * cell * 0.25 : 0, sq = p.squash > 0 ? p.squash : 0;
+    if (p.dead === 'water') { g.strokeStyle = '#ffffffaa'; g.lineWidth = 2; for (let k = 0; k < 3; k++) { g.beginPath(); g.arc(x, y, s * (0.4 + k * 0.4) + deadT * 30, 0, 7); g.stroke(); } return; }
+    const flat = p.dead ? 0.35 : 1;
+    g.fillStyle = '#0005'; g.beginPath(); g.ellipse(x, y + s * 0.6, s, s * 0.35, 0, 0, 7); g.fill();
+    g.save(); g.translate(x, y - hopUp); g.scale(p.face * (1 + sq * 0.2 + (1 - flat) * 0.4), flat * (1 - sq * 0.2));
+    // spikes
+    g.fillStyle = '#4a2e1c';
+    for (let k = 0; k < 9; k++) { const a = Math.PI * (0.55 + k * 0.14); g.beginPath(); g.moveTo(Math.cos(a) * s * 0.6 - s * 0.15, Math.sin(a) * s * 0.6 * -1 + s * 0.1); g.lineTo(Math.cos(a) * s * 1.25 - s * 0.15, -Math.sin(a) * s * 1.2); g.lineTo(Math.cos(a + 0.12) * s * 0.6 - s * 0.15, -Math.sin(a + 0.12) * s * 0.6 + s * 0.1); g.fill(); }
+    g.fillStyle = '#6b4329'; g.beginPath(); g.ellipse(-s * 0.15, 0, s * 0.85, s * 0.7, 0, 0, 7); g.fill();
+    g.fillStyle = '#e8c39a'; g.beginPath(); g.ellipse(s * 0.45, s * 0.12, s * 0.5, s * 0.42, 0, 0, 7); g.fill();
+    g.fillStyle = '#1a1020'; g.beginPath(); g.arc(s * 0.95, s * 0.12, s * 0.12, 0, 7); g.fill();
+    g.beginPath(); g.arc(s * 0.5, -s * 0.06, s * 0.08, 0, 7); g.fill();
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(s * 0.53, -s * 0.09, s * 0.03, 0, 7); g.fill();
+    g.fillStyle = '#ff9aa8'; g.beginPath(); g.arc(s * 0.4, s * 0.26, s * 0.08, 0, 7); g.fill();
+    g.restore();
+  }
+  function draw() {
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.fillStyle = '#16301f'; g.fillRect(0, 0, W, H);
+    if (!lanes) return;
+    const first = Math.floor(camY) - 1, last = Math.ceil(camY + H / cell) + 1;
+    for (let r = first; r <= last; r++) {
+      const lane = lanes[r], [, y] = screen(0, r), yt = y - cell / 2;
+      if (!lane) { if (r < 0) { g.fillStyle = r % 2 ? '#5cc46a' : '#52b860'; g.fillRect(0, yt, W, cell); } continue; }
+      if (lane.type === 'grass') { g.fillStyle = r % 2 ? '#5cc46a' : '#52b860'; g.fillRect(0, yt, W, cell); g.fillStyle = '#ffffff10'; for (let c = 0; c < COLS; c += 2) g.fillRect(ox + (c + (r % 2)) * cell, yt, cell, cell); }
+      else if (lane.type === 'road') {
+        g.fillStyle = '#3b3d4f'; g.fillRect(0, yt, W, cell);
+        const pr = lanes[r - 1]; if (pr && pr.type === 'road') { g.fillStyle = '#ffffff66'; for (let x = ox - cell; x < W; x += cell) g.fillRect(x + cell * 0.2, yt + cell - 2, cell * 0.5, 3); }
+      } else if (lane.type === 'river') {
+        g.fillStyle = '#2f7fd0'; g.fillRect(0, yt, W, cell);
+        g.fillStyle = '#ffffff22'; for (let k = 0; k < 5; k++) { const wx = ((k * 97 + r * 41 + time * 18 * lane.dir) % (W + 60) + W + 60) % (W + 60) - 30; g.fillRect(wx, yt + cell * (0.25 + (k % 3) * 0.22), cell * 0.5, 2); }
+      } else {
+        g.fillStyle = '#6b5a4a'; g.fillRect(0, yt, W, cell);
+        g.fillStyle = '#4a3b2e'; for (let x = ox - cell; x < W + cell; x += cell * 0.5) g.fillRect(x, yt + cell * 0.12, cell * 0.18, cell * 0.76);
+        g.fillStyle = '#c9ccd8'; g.fillRect(0, yt + cell * 0.26, W, 3); g.fillRect(0, yt + cell * 0.7, W, 3);
+        const warn = lane.train || lane.trainT < 1.1, on = warn && Math.floor(time * 6) % 2 === 0;
+        g.fillStyle = '#222'; g.fillRect(ox - cell * 0.35, yt + cell * 0.1, 6, cell * 0.8);
+        g.fillStyle = on ? '#ff3b3b' : '#552222'; g.beginPath(); g.arc(ox - cell * 0.32, yt + cell * 0.2, cell * 0.13, 0, 7); g.fill();
+        if (on) { g.fillStyle = '#ff3b3b22'; g.fillRect(0, yt, W, cell); }
+      }
+      if (lane.type === 'river') for (const it of lane.items) {
+        const x = ox + it.x * cell, w = it.len * cell;
+        g.fillStyle = '#0003'; round(x + 3, yt + cell * 0.2, w, cell * 0.66, cell * 0.2); g.fill();
+        g.fillStyle = '#8a5a2e'; round(x, yt + cell * 0.14, w, cell * 0.66, cell * 0.2); g.fill();
+        g.fillStyle = '#a8743f'; g.fillRect(x + 6, yt + cell * 0.24, w - 12, 3); g.fillRect(x + 10, yt + cell * 0.6, w - 20, 3);
+        g.fillStyle = '#d6a66d'; g.beginPath(); g.ellipse(x + w - 4, yt + cell * 0.47, cell * 0.1, cell * 0.28, 0, 0, 7); g.fill();
+      }
+    }
+    // things that stick up are drawn after every lane so they overlap the lane above
+    for (let r = last; r >= first; r--) {
+      const lane = lanes[r]; if (!lane) continue;
+      const [, y] = screen(0, r);
+      if (lane.type === 'grass') {
+        for (const c of lane.trees) drawTree(ox + (c + 0.5) * cell, y - cell * 0.08);
+        if (lane.apple >= 0) { const ax = ox + (lane.apple + 0.5) * cell, ay = y + Math.sin(time * 3 + r) * 2; g.fillStyle = '#d8283e'; g.beginPath(); g.arc(ax, ay, cell * 0.16, 0, 7); g.fill(); g.fillStyle = '#ffffff88'; g.beginPath(); g.arc(ax - cell * 0.05, ay - cell * 0.05, cell * 0.04, 0, 7); g.fill(); g.fillStyle = '#2fbf74'; g.beginPath(); g.ellipse(ax + cell * 0.06, ay - cell * 0.17, cell * 0.07, cell * 0.035, -0.5, 0, 7); g.fill(); }
+      }
+      if (lane.type === 'road') for (const it of lane.items) drawCar(ox + it.x * cell, y, it.len, it.c, lane.dir);
+      if (r === p.row || (p.t < 1 && r === p.fr)) {
+        if (r === p.row) { const fx = p.t < 1 ? p.fx + (p.x - p.fx) * p.t : p.x, fr = p.t < 1 ? p.fr + (p.row - p.fr) * p.t : p.row, [hx, hy] = screen(fx + 0.5, fr); drawHedgehog(hx, hy); }
+      }
+      if (lane.type === 'rail' && lane.train) {
+        const x = ox + lane.train.x * cell, w = lane.train.len * cell, h = cell * 0.8, t = y - h / 2;
+        g.fillStyle = '#0005'; round(x + 4, t + 6, w, h, 8); g.fill();
+        g.fillStyle = '#c33b4a'; round(x, t, w, h, 8); g.fill();
+        g.fillStyle = '#e9e4f5'; for (let k = 0; k < lane.train.len; k += 3) { g.fillRect(x + (k + 0.4) * cell, t + h * 0.2, cell * 1.4, h * 0.3); g.fillStyle = '#7a1d29'; g.fillRect(x + (k + 2.85) * cell, t, cell * 0.15, h); g.fillStyle = '#e9e4f5'; }
+        g.fillStyle = '#ffd23f'; g.fillRect(lane.dir > 0 ? x + w - 6 : x, t + 6, 6, h - 12);
+      }
+    }
+    // the edge of the world fades at the sides of wide screens
+    if (ox > 0) { g.fillStyle = '#0e0f1caa'; g.fillRect(0, 0, ox, H); g.fillRect(ox + COLS * cell, 0, W - ox - COLS * cell, H); }
+    if (state !== 'start') {
+      g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.shadowColor = '#000a'; g.shadowBlur = 8;
+      g.fillStyle = '#fff'; g.font = '800 34px Manrope, system-ui'; g.fillText(score, W / 2, 104);
+      g.font = '800 14px Manrope, system-ui'; g.fillStyle = '#ffe7a8'; g.fillText(`🍎 ${apples} · рекорд ${Math.max(best, score)}`, W / 2, 126);
+      g.shadowBlur = 0;
+    }
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; time += dt;
+    if (lanes) update(dt);
+    if (state === 'dead') deadT += dt;
+    p && (p.squash = Math.max(0, p.squash - dt * 2));
+    draw();
+    requestAnimationFrame(frame);
+  }
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1); W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr;
+    cell = Math.max(30, Math.min(W / COLS, 64, H / 11)); ox = (W - COLS * cell) / 2;
+    if (lanes) ensureLanes();
+  }
+  function showBests() { $('bestStart').textContent = $('bestOver').textContent = best; $('applesStart').textContent = $('applesOver').textContent = bestApples; }
+
+  const lb = FreasyLeaderboard({
+    key: 'perehod',
+    boards: [
+      { id: 'score', title: 'Шаги', column: 'best_score', order: 'desc', note: 'Дальше всех ушли за одну игру.', format: (v) => `${v} ${stepsWord(v)}` },
+      { id: 'apples', title: 'Яблоки', column: 'best_apples', order: 'desc', note: 'Больше всего яблок за одну игру.', format: (v) => `${v} 🍎` },
+    ],
+    bests: () => [runs.score, runs.apples].filter(Boolean),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  let down = null;
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); unlockAudio(); down = { x: e.clientX, y: e.clientY }; });
+  cv.addEventListener('pointerup', (e) => {
+    if (!down) return; const dx = e.clientX - down.x, dy = e.clientY - down.y; down = null;
+    if (Math.hypot(dx, dy) < 24) return hop(0, 1);
+    if (Math.abs(dx) > Math.abs(dy)) hop(Math.sign(dx), 0); else hop(0, dy < 0 ? 1 : -1);
+  });
+  cv.addEventListener('pointercancel', () => { down = null; });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.target.closest && e.target.closest('.screen button')) return;
+    const k = { ArrowUp: [0, 1], KeyW: [0, 1], ArrowDown: [0, -1], KeyS: [0, -1], ArrowLeft: [-1, 0], KeyA: [-1, 0], ArrowRight: [1, 0], KeyD: [1, 0] }[e.code];
+    if (k && state === 'play') { e.preventDefault(); if (!e.repeat) hop(...k); return; }
+    if (e.code === 'Space' && state === 'play') { e.preventDefault(); hop(0, 1); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); newGame(); }
+  });
+  $('go').addEventListener('click', newGame);
+  $('again').addEventListener('click', newGame);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('perehod-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  addEventListener('resize', resize);
+  resize(); showBests();
+  // behind the start card: the road ahead, a few rows in
+  lanes = {}; top = 0; camY = -1; p = { x: 4, row: 0, fx: 0, fr: 0, t: 1, face: 1, squash: 0 }; ensureLanes();
+  // #preview: a run in progress, for the site's screenshot.
+  if (location.hash === '#preview') {
+    newGame();
+    for (let r = 1; r <= 7; r++) lanes[r] = makeLane(r);
+    lanes[2] = Object.assign(makeLane(2), { type: 'road', dir: 1, speed: 2 }); fillItems(lanes[2], [1.3, 2.4], [2.5, 4]);
+    lanes[3] = Object.assign(makeLane(3), { type: 'road', dir: -1, speed: 2.5 }); fillItems(lanes[3], [1.3], [2.5, 4]);
+    lanes[4] = Object.assign(makeLane(4), { type: 'grass', trees: new Set([1, 6]), apple: 3 });
+    lanes[5] = Object.assign(makeLane(5), { type: 'river', dir: 1, speed: 1 }); fillItems(lanes[5], [3], [1.6, 2]);
+    lanes[6] = Object.assign(makeLane(6), { type: 'river', dir: -1, speed: 1.3 }); fillItems(lanes[6], [2, 3], [1.6, 2]);
+    lanes[7] = Object.assign(makeLane(7), { type: 'rail', trainT: 0.8, train: null, items: [] });
+    p.row = 4; p.x = 4; score = 38; apples = 5;
+  }
+  // On a local server tests can look inside.
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__perehod = { get p() { return p; }, get lanes() { return lanes; }, get state() { return state; }, get score() { return score; }, get camY() { return camY; }, hop, newGame, tick: (ms = 16) => { const r = window.requestAnimationFrame; window.requestAnimationFrame = () => 0; frame(last + ms); window.requestAnimationFrame = r; } };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../shared/chat-boot.js?v=5"></script>
+</body>
+</html>
