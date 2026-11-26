@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/i18n.js?v=3" data-game="3d-asteroidy"></script>
+<script src="../../shared/fx.js" data-mute="asteroidy-muted"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0d0f1c">
+<title>Астероиды 3D — FreasyGames 3D</title>
+<meta name="description" content="Астероиды 3D на FreasyGames: объёмные угловатые камни кувыркаются над фиолетовой планетой, а кораблик с огненным хвостом разбивает их на осколки. Те же правила и рекорды, что в обычных Астероидах.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>#c { touch-action: none; cursor: crosshair; } #ov { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="ov"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames 3D</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ 3D</div>
+    <h1>Астероиды <span>3D</span></h1>
+    <p>Кораблик застрял в поясе астероидов. Стреляй по камням — большие раскалываются на средние, средние на мелкие. Расчисти небо, и прилетит новая волна.</p>
+    <p>Края экрана замкнуты: улетел вправо — вылетишь слева. Из камней выпадают щит, тройной выстрел и запасная жизнь. Иногда прилетает тарелка — она стреляет в ответ.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · лучшая волна: <b id="waveStart">0</b></p>
+    <button class="play" id="go" type="button">Взлёт ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Держи палец или мышь — кораблик повернётся и будет стрелять, далеко от него — полетит · стрелки или WASD и пробел · рекорды общие с обычными Астероидами</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow" id="overWhy">Корабль разбит</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">очков</p>
+    <p>Волна: <b id="waveOver">1</b> · камней разбито: <b id="rocksOver">0</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · лучшая волна: <b id="bestWaveOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<script src="../../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), ov = $('ov'), g = ov.getContext('2d');
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const pointsWord = (n) => plural(n, 'очко', 'очка', 'очков');
+  // The field is 900 units on its longer side; everything is measured in field units.
+  const SIZES = [0, 14, 26, 44], POINTS = [0, 100, 50, 20], LIVES = 3;
+
+  let best = +store.get('asteroidy-best', 0) || 0, bestWave = +store.get('asteroidy-best-wave', 0) || 0;
+  let runs = {}; try { runs = JSON.parse(store.get('asteroidy-runs', '{}')) || {}; } catch { runs = {}; }
+  let muted = store.get('asteroidy-muted', '0') === '1';
+  FX.muted = () => muted || state !== 'play';
+  let W = 0, H = 0, dpr = 1, FW = 900, FH = 600, k = 1;
+  let state = 'start', ship, rocks = [], shots = [], enemyShots = [], drops = [], parts = [], stars = [], ufo = null, score = 0, wave = 0, lives = LIVES, rocksHit = 0, time = 0, waveT = 0, ufoT = 0, shake = 0, nextLife = 10000;
+  const keys = new Set(); let pointer = null;
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'square', v = 0.06, slide = 1, delay = 0) {
+    if (muted || state !== 'play' || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  const sfx = {
+    shot: () => tone(880, 0.07, 'square', 0.025, 0.4),
+    crack: (s) => { tone([0, 300, 180, 90][s], 0.18, 'sawtooth', 0.06, 0.4); },
+    power: () => [0, 4, 7, 12].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.1, 'triangle', 0.06, 1, i * 0.05)),
+    boom: () => { tone(90, 0.6, 'sawtooth', 0.12, 0.3); tone(50, 0.5, 'sine', 0.2, 0.5); },
+    wave: () => [0, 7, 12].forEach((s, i) => tone(392 * Math.pow(2, s / 12), 0.16, 'triangle', 0.06, 1, i * 0.1)),
+    ufo: () => tone(600 + Math.sin(time * 20) * 100, 0.05, 'sine', 0.02),
+  };
+
+  // ——— World ———
+  const wrap = (o) => { if (o.x < -30) o.x += FW + 60; if (o.x > FW + 30) o.x -= FW + 60; if (o.y < -30) o.y += FH + 60; if (o.y > FH + 30) o.y -= FH + 60; };
+  // shortest distance across the wrapped edges
+  const dist = (a, b) => { let dx = Math.abs(a.x - b.x), dy = Math.abs(a.y - b.y); dx = Math.min(dx, FW + 60 - dx); dy = Math.min(dy, FH + 60 - dy); return Math.hypot(dx, dy); };
+  function makeRock(size, x, y, speed) {
+    const a = Math.random() * Math.PI * 2, v = (speed || 40) * (1 + (3 - size) * 0.45) * (0.7 + Math.random() * 0.6), n = 9 + size * 2;
+    const shape = Array.from({ length: n }, (_, i) => 0.72 + Math.random() * 0.32);
+    return { size, x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, r: SIZES[size], rot: Math.random() * 6, spin: (Math.random() - 0.5) * 1.6, shape, hp: 1, tint: Math.random() };
+  }
+  function newWave() {
+    wave++; waveT = 2.2; sfx.wave();
+    const n = Math.min(3 + wave, 11), speed = 36 + wave * 6;
+    for (let i = 0; i < n; i++) {
+      let x, y; do { x = Math.random() * FW; y = Math.random() * FH; } while (Math.hypot(x - ship.x, y - ship.y) < 220);
+      rocks.push(makeRock(3, x, y, speed));
+    }
+    ufoT = Math.max(8, 22 - wave * 2) + Math.random() * 6;
+  }
+  function reset() {
+    ship = { x: FW / 2, y: FH / 2, vx: 0, vy: 0, a: -Math.PI / 2, cool: 0, inv: 2.5, shield: 0, triple: 0, thrust: 0, dead: 0 };
+    rocks = []; shots = []; enemyShots = []; drops = []; parts = []; ufo = null; score = 0; wave = 0; lives = LIVES; rocksHit = 0; nextLife = 10000;
+    newWave();
+  }
+  function burst(x, y, color, n, speed = 160) { for (let i = 0; i < n; i++) { const a = Math.random() * 6.28, v = speed * (0.3 + Math.random()); parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 0, life: 0.4 + Math.random() * 0.5, color }); } }
+  function hitRock(i, by) {
+    const r = rocks[i]; rocks.splice(i, 1); rocksHit++;
+    score += POINTS[r.size]; sfx.crack(r.size); burst(r.x, r.y, '#c7b7a3', 8 + r.size * 5); burst(r.x, r.y, '#ffd27a', 4);
+    const [sx, sy] = scr(r.x, r.y);
+    if (r.size === 3) FX.on('hit', 0, sx, sy); else FX.on('soft', 0, sx, sy);
+    if (r.size > 1) for (let j = 0; j < 2; j++) { const c = makeRock(r.size - 1, r.x, r.y, 50 + wave * 6); c.vx += r.vx * 0.4; c.vy += r.vy * 0.4; rocks.push(c); }
+    if (Math.random() < (r.size === 1 ? 0.07 : 0.04)) drops.push({ x: r.x, y: r.y, kind: lives < LIVES && Math.random() < 0.25 ? 'life' : Math.random() < 0.5 ? 'shield' : 'triple', t: 9 });
+    if (score >= nextLife) { nextLife += 10000; lives++; FX.text(W / 2, H * 0.3, '+1 жизнь', '#ff7eb6', 26); sfx.power(); }
+    if (!rocks.length) setTimeout(() => { if (state === 'play' && !rocks.length) newWave(); }, 900);
+  }
+  function fire() {
+    const s = ship, spread = s.triple > 0 ? [-0.22, 0, 0.22] : [0];
+    for (const d of spread) { const a = s.a + d; shots.push({ x: s.x + Math.cos(a) * 16, y: s.y + Math.sin(a) * 16, vx: Math.cos(a) * 560 + s.vx, vy: Math.sin(a) * 560 + s.vy, t: 0.85 }); }
+    s.cool = 0.17; sfx.shot();
+  }
+  function crash() {
+    if (ship.inv > 0 || ship.dead) return;
+    if (ship.shield > 0) { ship.shield = 0; ship.inv = 1; burst(ship.x, ship.y, '#6fe3ff', 20); FX.on('hit'); return; }
+    lives--; ship.dead = 1.6; sfx.boom(); shake = 0.6; burst(ship.x, ship.y, '#ffb347', 40, 240); burst(ship.x, ship.y, '#ffffff', 16, 120);
+    const [sx, sy] = scr(ship.x, ship.y); FX.explode(sx, sy); FX.shake(12, 400);
+    if (lives <= 0) { state = 'dying'; setTimeout(over, 1400); }
+  }
+  function update(dt) {
+    time += dt; shake = Math.max(0, shake - dt);
+    for (const p of parts) { p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.97; p.vy *= 0.97; } parts = parts.filter((p) => p.t < p.life);
+    for (const r of rocks) { r.x += r.vx * dt; r.y += r.vy * dt; r.rot += r.spin * dt; wrap(r); }
+    if (state === 'start') return;
+    waveT = Math.max(0, waveT - dt);
+    const s = ship;
+    if (s.dead) {
+      s.dead -= dt;
+      if (s.dead <= 0 && state === 'play') Object.assign(s, { dead: 0, x: FW / 2, y: FH / 2, vx: 0, vy: 0, inv: 2.5, a: -Math.PI / 2 });
+    } else if (state === 'play') {
+      let turn = 0, thrust = false, shoot = keys.has('fire');
+      if (keys.has('L')) turn -= 1; if (keys.has('R')) turn += 1; if (keys.has('U')) thrust = true;
+      if (pointer) {
+        const [px, py] = toField(pointer.x, pointer.y), want = Math.atan2(py - s.y, px - s.x);
+        let d = want - s.a; d = Math.atan2(Math.sin(d), Math.cos(d));
+        s.a += Math.sign(d) * Math.min(Math.abs(d), 7 * dt);
+        if (Math.hypot(px - s.x, py - s.y) > 130) thrust = true;
+        if (pointer.down) shoot = true;
+      }
+      s.a += turn * 4.4 * dt;
+      s.thrust = thrust ? Math.min(1, s.thrust + dt * 6) : Math.max(0, s.thrust - dt * 4);
+      if (thrust) { s.vx += Math.cos(s.a) * 340 * dt; s.vy += Math.sin(s.a) * 340 * dt; if (Math.random() < 0.6) parts.push({ x: s.x - Math.cos(s.a) * 12, y: s.y - Math.sin(s.a) * 12, vx: -Math.cos(s.a + (Math.random() - 0.5) * 0.5) * 140, vy: -Math.sin(s.a + (Math.random() - 0.5) * 0.5) * 140, t: 0, life: 0.3, color: Math.random() < 0.5 ? '#ffb347' : '#ffe46b' }); }
+      const sp = Math.hypot(s.vx, s.vy), max = 330; if (sp > max) { s.vx *= max / sp; s.vy *= max / sp; }
+      s.vx *= Math.pow(0.55, dt); s.vy *= Math.pow(0.55, dt);
+      s.x += s.vx * dt; s.y += s.vy * dt; wrap(s);
+      s.cool -= dt; if (shoot && s.cool <= 0) fire();
+      s.inv = Math.max(0, s.inv - dt); s.shield = Math.max(0, s.shield - dt); s.triple = Math.max(0, s.triple - dt);
+      for (const r of rocks) if (dist(r, s) < r.r * 0.85 + 10) { crash(); break; }
+      for (const d of drops) if (dist(d, s) < 24) {
+        d.t = 0; sfx.power(); const [sx, sy] = scr(d.x, d.y); FX.on('coin', 1, sx, sy);
+        if (d.kind === 'shield') { s.shield = 8; FX.text(sx, sy - 20, 'Щит!', '#6fe3ff'); } else if (d.kind === 'triple') { s.triple = 10; FX.text(sx, sy - 20, 'Тройной!', '#ffd23f'); } else { lives++; FX.text(sx, sy - 20, '+1 жизнь', '#ff7eb6'); }
+      }
+    }
+    for (const sh of shots) { sh.x += sh.vx * dt; sh.y += sh.vy * dt; sh.t -= dt; wrap(sh); }
+    for (let i = shots.length - 1; i >= 0; i--) {
+      const sh = shots[i]; let hit = false;
+      for (let j = rocks.length - 1; j >= 0; j--) if (dist(rocks[j], sh) < rocks[j].r) { hitRock(j); hit = true; break; }
+      if (!hit && ufo && dist(ufo, sh) < 22) { hit = true; score += 500; sfx.boom(); burst(ufo.x, ufo.y, '#8dff7a', 30, 220); const [sx, sy] = scr(ufo.x, ufo.y); FX.on('big', 0, sx, sy); FX.text(sx, sy - 20, '+500', '#8dff7a'); drops.push({ x: ufo.x, y: ufo.y, kind: Math.random() < 0.5 ? 'shield' : 'triple', t: 9 }); ufo = null; }
+      if (hit || sh.t <= 0) shots.splice(i, 1);
+    }
+    for (const d of drops) { d.t -= dt; } drops = drops.filter((d) => d.t > 0);
+    // the saucer crosses the screen and shoots at the ship now and then
+    if (state === 'play') { ufoT -= dt; if (ufoT <= 0 && !ufo) { const left = Math.random() < 0.5; ufo = { x: left ? -20 : FW + 20, y: 60 + Math.random() * (FH - 120), vx: (left ? 1 : -1) * (90 + wave * 6), t: 0, cool: 1.2 }; ufoT = 18 + Math.random() * 10; } }
+    if (ufo) {
+      ufo.t += dt; ufo.x += ufo.vx * dt; ufo.y += Math.sin(ufo.t * 2) * 50 * dt; ufo.cool -= dt;
+      if (Math.floor(ufo.t * 8) % 2 === 0) sfx.ufo();
+      if (ufo.cool <= 0 && !ship.dead && state === 'play') { const a = Math.atan2(ship.y - ufo.y, ship.x - ufo.x) + (Math.random() - 0.5) * 0.5; enemyShots.push({ x: ufo.x, y: ufo.y, vx: Math.cos(a) * 240, vy: Math.sin(a) * 240, t: 2.4 }); ufo.cool = Math.max(0.8, 2 - wave * 0.1); }
+      if (ufo.x < -40 || ufo.x > FW + 40) ufo = null;
+      else if (!ship.dead && dist(ufo, ship) < 26) crash();
+    }
+    for (const e of enemyShots) { e.x += e.vx * dt; e.y += e.vy * dt; e.t -= dt; if (!ship.dead && state === 'play' && dist(e, ship) < 12) { e.t = 0; crash(); } }
+    enemyShots = enemyShots.filter((e) => e.t > 0);
+  }
+  function over() {
+    state = 'over';
+    const run = { new_score: score, new_wave: wave }, record = score > best;
+    if (record) { best = score; store.set('asteroidy-best', best); runs.score = run; if (score) setTimeout(() => FX.record(), 400); }
+    if (wave > bestWave) { bestWave = wave; store.set('asteroidy-best-wave', bestWave); runs.wave = run; }
+    store.set('asteroidy-runs', JSON.stringify(runs));
+    if (score) lb.submit(run);
+    FX.over();
+    $('final').textContent = score;
+    $('overText').innerHTML = (record && score ? '<span class="new">Новый рекорд!</span> ' : '') + pointsWord(score);
+    $('waveOver').textContent = wave; $('rocksOver').textContent = rocksHit;
+    showBests(); $('over').hidden = false;
+    if (!chanceUsed && score >= 500) chance.show();
+  }
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'asteroidy3d-continue', label: '🎬 Ещё жизнь за рекламу', onReward: () => {
+    chanceUsed = true; lives = 1; state = 'play'; $('over').hidden = true;
+    Object.assign(ship, { dead: 0, x: FW / 2, y: FH / 2, vx: 0, vy: 0, inv: 3, a: -Math.PI / 2 });
+    rocks = rocks.filter((r) => Math.hypot(r.x - FW / 2, r.y - FH / 2) > 160); enemyShots = []; ufo = null;
+  } });
+  function start() { unlockAudio(); reset(); state = 'play'; chanceUsed = false; chance.hide(); $('start').hidden = true; $('over').hidden = true; }
+
+  // ——— 3D ———
+  // Field point (x, y) sits at world (x - FW/2, 0, y - FH/2); the camera hangs above with a slight tilt.
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); } catch (e) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="screen"><div class="box"><h1><span>3D</span> не запускается</h1><p>Браузер не поддерживает WebGL. Сыграй в обычные Астероиды.</p><a class="play" style="text-decoration:none;display:block" href="../../asteroidy/">Обычные Астероиды ↗</a></div></div>');
+    return;
+  }
+  const scene = new THREE.Scene(); scene.background = new THREE.Color('#05061a');
+  const camera = new THREE.PerspectiveCamera(45, 1, 10, 6000);
+  scene.add(new THREE.AmbientLight('#6a6aa0', 0.55));
+  const sunL = new THREE.DirectionalLight('#fff0dc', 1.0); sunL.position.set(-400, 700, 300); scene.add(sunL);
+  const rim = new THREE.DirectionalLight('#7a5cff', 0.5); rim.position.set(500, 200, -400); scene.add(rim);
+  // far stars and a big planet below the field
+  { const n = 900, pos = new Float32Array(n * 3); for (let i = 0; i < n; i++) { pos[i * 3] = (Math.random() - 0.5) * 5000; pos[i * 3 + 1] = -600 - Math.random() * 1500; pos[i * 3 + 2] = (Math.random() - 0.5) * 5000; }
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    scene.add(new THREE.Points(geo, new THREE.PointsMaterial({ color: '#ffffff', size: 3, sizeAttenuation: false }))); }
+  const planet = new THREE.Mesh(new THREE.SphereGeometry(520, 40, 30), new THREE.MeshLambertMaterial({ color: '#5a3fa8', emissive: '#1a0f40' })); planet.position.set(-1300, -2800, -1600); scene.add(planet);
+  const ringP = new THREE.Mesh(new THREE.RingGeometry(640, 820, 64), new THREE.MeshBasicMaterial({ color: '#bca0ff', transparent: true, opacity: 0.14, side: THREE.DoubleSide })); ringP.position.copy(planet.position); ringP.rotation.x = -1.2; scene.add(ringP);
+  const rockMats = [new THREE.MeshLambertMaterial({ color: '#7a6a5e', flatShading: true }), new THREE.MeshLambertMaterial({ color: '#6a6478', flatShading: true })];
+  const rockMeshes = new Map();
+  function rockMesh(r) {
+    let m = rockMeshes.get(r);
+    if (m) return m;
+    const geo = new THREE.IcosahedronGeometry(r.r, 1), p = geo.attributes.position;
+    // corners shared by several faces must move together, or the rock cracks open
+    const bumps = new Map();
+    for (let i = 0; i < p.count; i++) {
+      const key = `${Math.round(p.getX(i) * 100)},${Math.round(p.getY(i) * 100)},${Math.round(p.getZ(i) * 100)}`;
+      if (!bumps.has(key)) bumps.set(key, r.shape[bumps.size % r.shape.length] * (0.9 + Math.random() * 0.2));
+      const k = bumps.get(key); p.setXYZ(i, p.getX(i) * k, p.getY(i) * k * 0.8, p.getZ(i) * k);
+    }
+    geo.computeVertexNormals();
+    m = new THREE.Mesh(geo, rockMats[r.tint < 0.5 ? 0 : 1]); scene.add(m); rockMeshes.set(r, m); return m;
+  }
+  const W3 = (x, y) => [x - FW / 2, y - FH / 2];
+  // the ship: a sharp nose, swept wings, a glowing cockpit and a flame
+  const shipG = new THREE.Group(); scene.add(shipG);
+  { const body = new THREE.Mesh(new THREE.ConeGeometry(7, 30, 4), new THREE.MeshLambertMaterial({ color: '#e9e6f5', flatShading: true })); body.rotation.z = -Math.PI / 2; body.scale.set(1, 1, 0.5);
+    const wing = new THREE.Mesh(new THREE.BoxGeometry(12, 3, 26), new THREE.MeshLambertMaterial({ color: '#6d4bd1' })); wing.position.x = -6;
+    const pit = new THREE.Mesh(new THREE.SphereGeometry(4.5, 12, 8), new THREE.MeshBasicMaterial({ color: '#6fe3ff' })); pit.position.set(3, 3, 0); pit.scale.set(1.3, 0.7, 0.8);
+    shipG.add(body, wing, pit); }
+  const flame = new THREE.Mesh(new THREE.ConeGeometry(4, 16, 8), new THREE.MeshBasicMaterial({ color: '#ffb347' })); flame.rotation.z = Math.PI / 2; flame.position.x = -20; shipG.add(flame);
+  const shieldM = new THREE.Mesh(new THREE.SphereGeometry(24, 20, 14), new THREE.MeshBasicMaterial({ color: '#6fe3ff', transparent: true, opacity: 0.25 })); shipG.add(shieldM);
+  const ufoG = new THREE.Group(); scene.add(ufoG);
+  { const disc = new THREE.Mesh(new THREE.CylinderGeometry(22, 26, 7, 24), new THREE.MeshLambertMaterial({ color: '#7d8aa8' })); const dome = new THREE.Mesh(new THREE.SphereGeometry(11, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#8dff7a', transparent: true, opacity: 0.75 })); dome.position.y = 3; ufoG.add(disc, dome);
+    for (let k = 0; k < 6; k++) { const l = new THREE.Mesh(new THREE.SphereGeometry(2.2, 8, 6), new THREE.MeshBasicMaterial({ color: k % 2 ? '#ffd23f' : '#ff5d5d' })); const a = k / 6 * Math.PI * 2; l.position.set(Math.cos(a) * 22, 0, Math.sin(a) * 22); ufoG.add(l); } }
+  const shotG = new THREE.SphereGeometry(3.2, 8, 6), shotM = new THREE.MeshBasicMaterial({ color: '#fff6b0' }), enemyM = new THREE.MeshBasicMaterial({ color: '#8dff7a' });
+  const shotPool = [], enemyPool = [], dropPool = [];
+  const pool = (arr, make) => (k) => { while (arr.length <= k) { const m = make(); scene.add(m); arr.push(m); } return arr[k]; };
+  const shotAt = pool(shotPool, () => new THREE.Mesh(shotG, shotM)), enemyAt = pool(enemyPool, () => new THREE.Mesh(shotG, enemyM));
+  const dropAt = pool(dropPool, () => new THREE.Mesh(new THREE.OctahedronGeometry(11), new THREE.MeshLambertMaterial({ color: '#ffffff', emissive: '#333333' })));
+  const DROP_COLORS = { shield: '#6fe3ff', triple: '#ffd23f', life: '#ff7eb6' };
+  const v3 = new THREE.Vector3();
+  const scr = (x, y) => { const [a, b] = W3(x, y); v3.set(a, 0, b).project(camera); return [(v3.x + 1) / 2 * W, (1 - v3.y) / 2 * H]; };
+  const ray = new THREE.Raycaster(), floor = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hitP = new THREE.Vector3();
+  const toField = (px, py) => { ray.setFromCamera({ x: px / W * 2 - 1, y: -(py / H * 2 - 1) }, camera); return ray.ray.intersectPlane(floor, hitP) ? [hitP.x + FW / 2, hitP.z + FH / 2] : [FW / 2, FH / 2]; };
+  function draw() {
+    const sk = shake > 0 ? (Math.random() - 0.5) * 18 * shake : 0;
+    camera.position.set(sk, camH, camZ); camera.lookAt(sk * 0.5, 0, 30);
+    planet.rotation.y = time * 0.03;
+    const alive = new Set(rocks);
+    for (const [r, m] of rockMeshes) if (!alive.has(r)) { scene.remove(m); m.geometry.dispose(); rockMeshes.delete(r); }
+    for (const r of rocks) { const m = rockMesh(r), [x, z] = W3(r.x, r.y); m.position.set(x, 0, z); m.rotation.set(r.rot * 0.7, r.rot, r.rot * 0.4); }
+    if (ship) {
+      const blink = ship.inv > 0 && Math.floor(time * 12) % 2 === 0 && state === 'play';
+      shipG.visible = !ship.dead && !blink;
+      const [x, z] = W3(ship.x, ship.y); shipG.position.set(x, 0, z); shipG.rotation.set(0, -ship.a, Math.sin(time * 3) * 0.08);
+      flame.visible = ship.thrust > 0.05; flame.scale.set(1, ship.thrust * (0.8 + Math.random() * 0.4), 1);
+      shieldM.visible = ship.shield > 0; shieldM.material.opacity = 0.18 + Math.sin(time * 8) * 0.08;
+    }
+    ufoG.visible = !!ufo; if (ufo) { const [x, z] = W3(ufo.x, ufo.y); ufoG.position.set(x, 4, z); ufoG.rotation.y = time * 3; }
+    let i = 0; for (const s of shots) { const m = shotAt(i++), [x, z] = W3(s.x, s.y); m.visible = true; m.position.set(x, 0, z); } for (; i < shotPool.length; i++) shotPool[i].visible = false;
+    i = 0; for (const s of enemyShots) { const m = enemyAt(i++), [x, z] = W3(s.x, s.y); m.visible = true; m.position.set(x, 0, z); } for (; i < enemyPool.length; i++) enemyPool[i].visible = false;
+    i = 0; for (const d of drops) { const m = dropAt(i++), [x, z] = W3(d.x, d.y); m.visible = !(d.t < 2 && Math.floor(time * 8) % 2); m.position.set(x, 6 + Math.sin(time * 4 + i) * 3, z); m.rotation.y = time * 2; m.material.color.set(DROP_COLORS[d.kind]); m.material.emissive.set(DROP_COLORS[d.kind]).multiplyScalar(0.35); } for (; i < dropPool.length; i++) dropPool[i].visible = false;
+    renderer.render(scene, camera);
+    // sparks and the HUD on the flat overlay
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    for (const p of parts) { const [x, y] = scr(p.x, p.y); g.globalAlpha = 1 - p.t / p.life; g.fillStyle = p.color; g.fillRect(x - 2, y - 2, 4, 4); }
+    g.globalAlpha = 1;
+    if (state !== 'start' && ship) {
+      g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.shadowColor = '#000a'; g.shadowBlur = 8;
+      g.fillStyle = '#fff'; g.font = '800 30px Manrope, system-ui'; g.fillText(score, W / 2, 96);
+      g.font = '800 14px Manrope, system-ui'; g.fillStyle = '#ffe7a8';
+      const buffs = (ship.shield > 0 ? ' · ◎ ' + Math.ceil(ship.shield) : '') + (ship.triple > 0 ? ' · ⁂ ' + Math.ceil(ship.triple) : '');
+      g.fillText(`волна ${wave} · ${'♥'.repeat(Math.max(0, Math.min(lives, 6)))}${buffs}`, W / 2, 118);
+      if (waveT > 0 && state === 'play') { g.globalAlpha = Math.min(1, waveT); g.font = '800 34px Manrope, system-ui'; g.fillStyle = '#bca0ff'; g.fillText(`Волна ${wave}`, W / 2, H * 0.42); g.globalAlpha = 1; }
+      g.shadowBlur = 0;
+    }
+  }
+  let last = performance.now(), camH = 900, camZ = 300;
+  function frame(now) { const dt = Math.max(0, Math.min(0.04, (now - last) / 1000)); last = now; update(dt); draw(); requestAnimationFrame(frame); }
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1); W = innerWidth; H = innerHeight;
+    renderer.setPixelRatio(dpr); renderer.setSize(W, H, false); ov.width = W * dpr; ov.height = H * dpr;
+    camera.aspect = W / H; camera.updateProjectionMatrix();
+    if (W >= H) { FW = 900; FH = Math.round(900 * H / W); } else { FH = 900; FW = Math.round(900 * W / H); }
+    FW = Math.max(FW, 420); FH = Math.max(FH, 420);
+    // high enough that the whole field shows, tilted a little for depth
+    const vh = Math.tan(camera.fov * Math.PI / 360), d = Math.max(FH / 2 / vh, FW / 2 / (vh * camera.aspect)) * 1.08;
+    camH = d * 0.95; camZ = d * 0.3;
+    if (ship) { ship.x = Math.min(ship.x, FW); ship.y = Math.min(ship.y, FH); }
+  }
+  function showBests() { $('bestStart').textContent = $('bestOver').textContent = best; $('waveStart').textContent = $('bestWaveOver').textContent = bestWave; }
+
+  const lb = FreasyLeaderboard({
+    key: 'asteroidy',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за один полёт. Общая с обычными Астероидами.', format: (v) => `${v} ${pointsWord(v)}` },
+      { id: 'wave', title: 'Волна', column: 'best_wave', order: 'desc', note: 'Самая дальняя волна астероидов.', format: (v) => `☄️ ${v}` },
+    ],
+    bests: () => [runs.score, runs.wave].filter(Boolean),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); unlockAudio(); pointer = { x: e.clientX, y: e.clientY, down: true, mouse: e.pointerType === 'mouse' }; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointermove', (e) => { if (pointer) { pointer.x = e.clientX; pointer.y = e.clientY; } });
+  const up = () => { pointer = null; };
+  cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+  const KEYS = { ArrowLeft: 'L', KeyA: 'L', ArrowRight: 'R', KeyD: 'R', ArrowUp: 'U', KeyW: 'U', Space: 'fire', KeyJ: 'fire' };
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.target.closest && e.target.closest('.screen button')) return;
+    if (state === 'play' && KEYS[e.code]) { e.preventDefault(); keys.add(KEYS[e.code]); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); }
+  });
+  addEventListener('keyup', (e) => { if (KEYS[e.code]) keys.delete(KEYS[e.code]); });
+  addEventListener('blur', () => { keys.clear(); pointer = null; });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('asteroidy-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  for (let i = 0; i < 140; i++) stars.push({ x: Math.random(), y: Math.random(), s: Math.random() < 0.2 ? 2 : 1, tw: 1 + Math.random() * 3, p: Math.random() * 6 });
+  addEventListener('resize', resize);
+  resize(); showBests();
+  // behind the start card rocks drift by
+  for (let i = 0; i < 7; i++) rocks.push(makeRock(1 + (i % 3), Math.random() * FW, Math.random() * FH, 30));
+  // #preview: a game in progress, for the site's screenshot.
+  if (location.hash === '#preview') {
+    start(); rocks = []; wave = 4; score = 3870; lives = 2; waveT = 0; ship.inv = 0; ship.a = -0.5; ship.thrust = 1; ship.triple = 6; ship.x = FW * 0.45; ship.y = FH * 0.58; ufoT = 1e9;
+    const add = (size, x, y) => { const r = makeRock(size, FW * x, FH * y, 0); r.vx = r.vy = 0; r.spin = 0; rocks.push(r); };
+    add(3, 0.2, 0.25); add(3, 0.78, 0.7); add(2, 0.7, 0.22); add(2, 0.3, 0.8); add(1, 0.62, 0.38); add(1, 0.86, 0.35); add(1, 0.12, 0.6);
+    for (const d of [-0.22, 0, 0.22]) for (let j = 1; j <= 3; j++) shots.push({ x: ship.x + Math.cos(ship.a + d) * (24 + j * 40), y: ship.y + Math.sin(ship.a + d) * (24 + j * 40), vx: 0, vy: 0, t: 1e9 });
+    burst(FW * 0.62, FH * 0.38, '#c7b7a3', 18, 80); parts.forEach((p) => { p.life = 1e9; p.vx *= 0.4; p.vy *= 0.4; });
+    drops.push({ x: FW * 0.5, y: FH * 0.3, kind: 'shield', t: 1e9 });
+    ufo = { x: FW * 0.82, y: FH * 0.16, vx: 0, t: 0, cool: 1e9 };
+    update = (dt) => { time += dt; };
+  }
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__asteroidy3d = { get ship() { return ship; }, get rocks() { return rocks; }, get state() { return state; }, get score() { return score; }, get wave() { return wave; }, get lives() { return lives; }, start, hitRock, crash, keys };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

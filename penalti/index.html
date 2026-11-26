@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../shared/session.js?v=2"></script>
+<script src="../shared/i18n.js?v=3" data-game="penalti"></script>
+<script src="../shared/fx.js" data-mute="penalti-muted"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Пенальти — FreasyGames</title>
+<meta name="description" content="Пенальти на FreasyGames: смахни мяч в ворота — направление, сила и подкрутка зависят от твоего жеста. Вратарь учится угадывать, а в углах и мишенях больше очков.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>#c { touch-action: none; }</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">⚽ Новая игра</div>
+    <h1><span>Пенальти</span></h1>
+    <p>Смахни мяч в ворота. Куда ведёшь пальцем — туда и полетит, быстрее смахнул — выше удар, дугой — мяч закрутится. Слишком сильно — над перекладиной.</p>
+    <p>Гол в угол — 2 очка, в девятку — 3, в мишень — вдвое больше. Вратарь с каждым ударом угадывает всё чаще, а потом поднимается ветер. Три промаха — и серия окончена.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · голов за серию: <b id="goalsStart">0</b></p>
+    <button class="play" id="go" type="button">На поле ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Смахни мяч пальцем или мышью · или стрелки — прицел, пробел — удар</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow" id="overWhy">Три промаха</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">очков</p>
+    <p>Голов: <b id="goalsOver">0</b> · ударов: <b id="shotsOver">0</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · голов за серию: <b id="bestGoalsOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё серия ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), g = cv.getContext('2d');
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const pointsWord = (n) => plural(n, 'очко', 'очка', 'очков');
+  const MISSES = 3;
+  // Goal units: x from -1 (left post) to 1 (right post), y from 0 (grass) to 1 (crossbar).
+
+  let best = +store.get('penalti-best', 0) || 0, bestGoals = +store.get('penalti-best-goals', 0) || 0;
+  let runs = {}; try { runs = JSON.parse(store.get('penalti-runs', '{}')) || {}; } catch { runs = {}; }
+  let muted = store.get('penalti-muted', '0') === '1';
+  FX.muted = () => muted || state !== 'play';
+  let W = 0, H = 0, dpr = 1, GW = 400, GH = 140, gx = 0, gy = 0, ballX = 0, ballY = 0, BR = 18;
+  // shot: {tx, ty, curve, t, dur, result}; keeper: {x, y, tx, ty, t, delay, dive}
+  let state = 'start', score = 0, goals = 0, shots = 0, misses = 0, streak = 0, time = 0, shot = null, keeper, wind = 0, bonus = null, swipe = null, aim = { x: 0, y: 0.5, on: false }, msg = null, crowd = [], netWave = 0;
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'square', v = 0.06, slide = 1, delay = 0) {
+    if (muted || state !== 'play' || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  function roar(d, v) { if (muted || !ac || state !== 'play') return; const b = ac.createBuffer(1, ac.sampleRate * d, ac.sampleRate), a = b.getChannelData(0); for (let i = 0; i < a.length; i++) a[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * i / a.length); const s = ac.createBufferSource(), gn = ac.createGain(), f = ac.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 0.6; gn.gain.value = v; s.buffer = b; s.connect(f).connect(gn).connect(ac.destination); s.start(); }
+  const sfx = {
+    kick: () => { tone(90, 0.12, 'sine', 0.2, 0.5); tone(400, 0.04, 'square', 0.03); },
+    goal: () => { roar(1.6, 0.5); [0, 4, 7, 12].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.16, 'triangle', 0.06, 1, i * 0.08)); },
+    save: () => { tone(160, 0.15, 'square', 0.07, 0.6); roar(0.7, 0.2); },
+    post: () => { tone(1200, 0.4, 'triangle', 0.06, 0.98); tone(1810, 0.3, 'sine', 0.03); },
+    miss: () => { tone(300, 0.3, 'sawtooth', 0.04, 0.5); roar(0.5, 0.15); },
+    whistle: () => { tone(2400, 0.25, 'sine', 0.04); tone(2500, 0.25, 'sine', 0.03); },
+  };
+
+  // ——— Game ———
+  const sx = (x) => gx + x * GW / 2, sy = (y) => gy - y * GH;
+  function newKeeper() { keeper = { x: 0, y: 0, tx: 0, ty: 0, t: 0, delay: 0, dive: 0, side: 0 }; }
+  function setup() {
+    shot = null; newKeeper(); msg = null;
+    wind = shots >= 8 ? (Math.random() - 0.5) * Math.min(0.5, 0.1 + (shots - 8) * 0.03) : 0;
+    bonus = shots >= 2 && Math.random() < 0.55 ? { x: (Math.random() < 0.5 ? -1 : 1) * (0.35 + Math.random() * 0.5), y: 0.2 + Math.random() * 0.65, r: 0.16 } : null;
+  }
+  function reset() { score = 0; goals = 0; shots = 0; misses = 0; streak = 0; setup(); }
+  function kick(tx, ty, curve, power) {
+    if (state !== 'play' || shot) return;
+    tx += wind * 0.8 + curve * 0.35;
+    const dur = Math.max(0.42, 0.85 - power * 0.25);
+    shot = { tx, ty, curve, t: 0, dur, sx0: 0, result: null, power };
+    shots++; sfx.kick(); FX.on('hit', 0, ballX, ballY);
+    // the keeper reads the shot more often as the series goes on
+    const read = Math.min(0.72, 0.22 + shots * 0.035), guess = Math.random() < read;
+    keeper.tx = guess ? tx + (Math.random() - 0.5) * 0.3 : (Math.random() * 2 - 1) * 0.9;
+    keeper.ty = guess ? ty + (Math.random() - 0.5) * 0.3 : 0.15 + Math.random() * 0.7;
+    keeper.tx = Math.max(-0.95, Math.min(0.95, keeper.tx)); keeper.ty = Math.max(0, Math.min(0.95, keeper.ty));
+    keeper.delay = Math.max(0.05, 0.22 - shots * 0.006); keeper.t = 0;
+  }
+  function resolve() {
+    const { tx, ty } = shot;
+    // how far the keeper's gloves are from the ball when it arrives; corners are out of reach
+    const kx = keeper.x, ky = keeper.y, reach = 0.3 - Math.max(0, Math.abs(tx) - 0.7) * 0.4 - Math.max(0, ty - 0.7) * 0.25;
+    const saved = Math.abs(tx - kx) < reach && Math.abs(ty - ky) < 0.42 && ty <= 1.05 && Math.abs(tx) <= 1.02;
+    let result;
+    if (Math.abs(tx) > 0.97 && Math.abs(tx) < 1.06 && ty < 1.06) result = 'post';
+    else if (ty > 0.96 && ty < 1.06 && Math.abs(tx) < 1) result = 'post';
+    else if (Math.abs(tx) > 1 || ty > 1) result = 'wide';
+    else if (saved) result = 'save';
+    else result = 'goal';
+    shot.result = result;
+    const bx = sx(tx), by = sy(ty);
+    if (result === 'goal') {
+      let pts = Math.abs(tx) > 0.6 && ty > 0.6 ? 3 : Math.abs(tx) > 0.55 ? 2 : 1;
+      const inTarget = bonus && Math.hypot(tx - bonus.x, (ty - bonus.y) * 0.7) < bonus.r + 0.05;
+      if (inTarget) pts *= 2;
+      streak++; goals++; if (streak >= 3) pts += Math.min(3, streak - 2);
+      score += pts; netWave = 1;
+      sfx.goal(); FX.on(pts >= 4 ? 'big' : 'combo', Math.max(2, pts), bx, by);
+      say(pts >= 6 ? 'Невероятно!' : inTarget ? 'В мишень!' : pts >= 3 ? 'В девятку!' : 'Гол!', `+${pts}`, '#5df2a5');
+    } else {
+      streak = 0; misses++;
+      if (result === 'save') { sfx.save(); FX.on('hit', 0, bx, by); say('Вратарь взял!', '', '#ff9a9a'); }
+      else if (result === 'post') { sfx.post(); FX.on('hit', 0, bx, by); say('Штанга!', '', '#ffd23f'); }
+      else { sfx.miss(); say(ty > 1 ? 'Выше ворот' : 'Мимо', '', '#ff9a9a'); }
+      if (misses >= MISSES) { setTimeout(over, 1300); return; }
+    }
+    setTimeout(() => { if (state === 'play') { setup(); sfx.whistle(); } }, 1300);
+  }
+  function say(text, sub, color) { msg = { text, sub, color, t: 0 }; }
+  function over() {
+    if (state !== 'play') return;
+    state = 'over'; FX.over();
+    const run = { new_score: score, new_goals: goals }, record = score > best;
+    if (record) { best = score; store.set('penalti-best', best); runs.score = run; if (score) setTimeout(() => FX.record(), 400); }
+    if (goals > bestGoals) { bestGoals = goals; store.set('penalti-best-goals', bestGoals); runs.goals = run; }
+    store.set('penalti-runs', JSON.stringify(runs));
+    if (score) lb.submit(run);
+    $('final').textContent = score;
+    $('overText').innerHTML = (record && score ? '<span class="new">Новый рекорд!</span> ' : '') + pointsWord(score);
+    $('goalsOver').textContent = goals; $('shotsOver').textContent = shots;
+    showBests(); $('over').hidden = false;
+    if (!chanceUsed && goals >= 5) chance.show();
+  }
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'penalti-continue', label: '🎬 Ещё попытка за рекламу', onReward: () => {
+    chanceUsed = true; misses = MISSES - 1; state = 'play'; $('over').hidden = true; setup();
+  } });
+  function start() { unlockAudio(); reset(); state = 'play'; chanceUsed = false; chance.hide(); $('start').hidden = true; $('over').hidden = true; sfx.whistle(); }
+
+  function update(dt) {
+    time += dt; netWave = Math.max(0, netWave - dt * 1.5);
+    if (msg) msg.t += dt;
+    for (const c of crowd) c.j = state === 'play' && shot && shot.result === 'goal' ? Math.abs(Math.sin(time * 14 + c.p)) * 5 : Math.max(0, Math.sin(time * 2 + c.p)) * 1.2;
+    if (!shot) { keeper.x = Math.sin(time * 1.6) * 0.12; keeper.y = 0; keeper.dive = 0; return; }
+    shot.t += dt;
+    if (shot.t > keeper.delay) {
+      keeper.t = Math.min(1, keeper.t + dt / (shot.dur * 0.75));
+      const e = 1 - Math.pow(1 - keeper.t, 2);
+      keeper.x = keeper.tx * e; keeper.y = keeper.ty * e; keeper.dive = e;
+    }
+    if (shot.t >= shot.dur && !shot.result) resolve();
+  }
+
+  // ——— Drawing ———
+  function ballPos() {
+    if (!shot) return [ballX, ballY, 1];
+    const t = Math.min(1, shot.t / shot.dur);
+    // after a save or the post the ball bounces back out
+    if (shot.result && shot.result !== 'goal' && shot.result !== 'wide') {
+      const k = Math.min(1, (shot.t - shot.dur) / 0.6), x = sx(shot.tx) + (ballX - sx(shot.tx)) * k * 0.5 + shot.curve * 40 * k, y = sy(shot.ty) + k * 160 - Math.sin(k * Math.PI) * 60;
+      return [x, y, 0.45 + k * 0.3];
+    }
+    const bend = Math.sin(t * Math.PI) * -shot.curve * GW * 0.18;
+    let x = ballX + (sx(shot.tx) - ballX) * t + bend, y = ballY + (sy(shot.ty) - ballY) * t - Math.sin(t * Math.PI) * 30 * shot.power;
+    if (shot.result === 'goal' && shot.t > shot.dur) { const k = Math.min(1, (shot.t - shot.dur) / 0.3); y -= k * 10; }
+    if (shot.result === 'wide' && shot.t > shot.dur) { const k = (shot.t - shot.dur); x += (sx(shot.tx) - ballX) * k * 0.6; y -= k * 60; }
+    return [x, y, 1 - t * 0.55];
+  }
+  function drawBall(x, y, s) {
+    const r = BR * s;
+    g.fillStyle = '#0004'; g.beginPath(); g.ellipse(x + 2, y + r * 0.9, r * 0.9, r * 0.3, 0, 0, 7); g.fill();
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+    g.save(); g.beginPath(); g.arc(x, y, r, 0, 7); g.clip();
+    g.fillStyle = '#1c1a2b'; const rot = shot ? shot.t * 18 : 0;
+    for (let k = 0; k < 6; k++) { const a = rot + k * 1.256, px = x + Math.cos(a) * r * 0.62, py = y + Math.sin(a) * r * 0.62; g.beginPath(); g.arc(px, py, r * 0.26, 0, 7); g.fill(); }
+    g.beginPath(); g.arc(x + Math.cos(rot) * r * 0.1, y, r * 0.24, 0, 7); g.fill();
+    g.restore();
+    g.strokeStyle = '#0003'; g.lineWidth = 1; g.beginPath(); g.arc(x, y, r, 0, 7); g.stroke();
+  }
+  function drawKeeper() {
+    const x = sx(keeper.x), base = sy(keeper.y * 0.75), h = GH * 0.78, lean = keeper.tx * keeper.dive * 1.1;
+    g.save(); g.translate(x, base); g.rotate(lean);
+    g.fillStyle = '#0003'; g.beginPath(); g.ellipse(0, 2, h * 0.25, h * 0.06, 0, 0, 7); g.fill();
+    // legs, body in a bright kit, head and big gloves
+    g.fillStyle = '#1c2340'; g.fillRect(-h * 0.13, -h * 0.36, h * 0.1, h * 0.36); g.fillRect(h * 0.03, -h * 0.36, h * 0.1, h * 0.36);
+    g.fillStyle = '#ffd23f'; g.beginPath(); g.roundRect ? g.roundRect(-h * 0.18, -h * 0.78, h * 0.36, h * 0.44, 8) : g.rect(-h * 0.18, -h * 0.78, h * 0.36, h * 0.44); g.fill();
+    g.fillStyle = '#1c1a2b'; g.font = `800 ${Math.round(h * 0.18)}px Manrope, system-ui`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('1', 0, -h * 0.56);
+    g.fillStyle = '#e8b48a'; g.beginPath(); g.arc(0, -h * 0.88, h * 0.11, 0, 7); g.fill();
+    g.fillStyle = '#4a2e1c'; g.beginPath(); g.arc(0, -h * 0.92, h * 0.11, Math.PI, 0); g.fill();
+    const arm = 0.6 + keeper.dive * 0.9;
+    for (const s of [-1, 1]) {
+      g.strokeStyle = '#ffd23f'; g.lineWidth = h * 0.08; g.lineCap = 'round';
+      const ex = s * h * 0.32 * (1 + keeper.dive * 0.3), ey = -h * (0.7 + arm * 0.25);
+      g.beginPath(); g.moveTo(s * h * 0.15, -h * 0.72); g.lineTo(ex, ey); g.stroke();
+      g.fillStyle = '#5df2a5'; g.beginPath(); g.arc(ex, ey, h * 0.08, 0, 7); g.fill();
+    }
+    g.restore();
+  }
+  function draw() {
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // stands with the crowd
+    const sky = g.createLinearGradient(0, 0, 0, gy); sky.addColorStop(0, '#0f1226'); sky.addColorStop(1, '#252a4a');
+    g.fillStyle = sky; g.fillRect(0, 0, W, gy);
+    for (const c of crowd) { g.fillStyle = c.c; g.beginPath(); g.arc(c.x * W, gy - GH * 1.25 + c.y * GH * 0.9 - c.j, c.r, 0, 7); g.fill(); }
+    g.fillStyle = '#ffffff10'; for (let k = 0; k < 4; k++) { g.beginPath(); g.moveTo(W * (0.1 + k * 0.27), 0); g.lineTo(W * (0.05 + k * 0.27), gy * 0.6); g.lineTo(W * (0.18 + k * 0.27), gy * 0.6); g.fill(); }
+    g.fillStyle = '#1b2a4a'; g.fillRect(0, gy - GH * 0.28, W, GH * 0.28);
+    g.fillStyle = '#ffd23f'; g.font = `800 ${Math.round(GH * 0.15)}px Manrope, system-ui`; g.textAlign = 'center'; g.textBaseline = 'middle';
+    for (let k = -2; k <= 2; k++) g.fillText('FREASYGAMES', W / 2 + k * GW * 0.75 + ((time * 30) % (GW * 0.75)), gy - GH * 0.14);
+    // the pitch in stripes, narrowing towards the goal
+    const grass = (y0, y1, c) => { g.fillStyle = c; g.fillRect(0, y0, W, y1 - y0); };
+    const rows = 8; for (let k = 0; k < rows; k++) { const a = gy + (H - gy) * Math.pow(k / rows, 1.6), b = gy + (H - gy) * Math.pow((k + 1) / rows, 1.6); grass(a, b, k % 2 ? '#2f9a4a' : '#35a852'); }
+    g.strokeStyle = '#ffffffcc'; g.lineWidth = 3;
+    g.beginPath(); g.moveTo(0, gy + 2); g.lineTo(W, gy + 2); g.stroke();
+    g.beginPath(); g.moveTo(gx - GW * 0.85, gy + 2); g.lineTo(gx - GW * 1.1, gy + (H - gy) * 0.35); g.lineTo(gx + GW * 1.1, gy + (H - gy) * 0.35); g.lineTo(gx + GW * 0.85, gy + 2); g.stroke();
+    g.fillStyle = '#ffffff'; g.beginPath(); g.ellipse(ballX, ballY + BR * 0.4, 5, 2.5, 0, 0, 7); g.fill();
+    // the net with a ripple after a goal
+    g.fillStyle = '#ffffff10'; g.fillRect(sx(-1), sy(1), GW, GH);
+    g.strokeStyle = '#ffffff40'; g.lineWidth = 1;
+    const wave = (x, y) => netWave * Math.sin(x * 0.08 + time * 20) * 4 * Math.exp(-Math.hypot(x - (shot ? sx(shot.tx) : 0), y - (shot ? sy(shot.ty) : 0)) / 80);
+    for (let x = sx(-1); x <= sx(1) + 1; x += 12) { g.beginPath(); for (let y = sy(1); y <= sy(0); y += 6) g.lineTo(x + wave(x, y), y); g.stroke(); }
+    for (let y = sy(1); y <= sy(0) + 1; y += 12) { g.beginPath(); for (let x = sx(-1); x <= sx(1); x += 6) g.lineTo(x, y + wave(x, y)); g.stroke(); }
+    if (bonus && (!shot || !shot.result)) {
+      const bx = sx(bonus.x), by = sy(bonus.y), r = bonus.r * GW / 2, p = 1 + Math.sin(time * 5) * 0.06;
+      for (let k = 3; k >= 1; k--) { g.fillStyle = k % 2 ? '#ff5d5d' : '#ffffff'; g.beginPath(); g.arc(bx, by, r * k / 3 * p, 0, 7); g.fill(); }
+      g.fillStyle = '#1c1a2b'; g.font = `800 ${Math.round(r * 0.6)}px Manrope, system-ui`; g.fillText('×2', bx, by + 1);
+    }
+    if (!shot || !shot.result || shot.result !== 'goal' || true) drawKeeper();
+    // posts and crossbar
+    g.fillStyle = '#f4f4f8'; g.fillRect(sx(-1) - 5, sy(1) - 5, 6, GH + 5); g.fillRect(sx(1) - 1, sy(1) - 5, 6, GH + 5); g.fillRect(sx(-1) - 5, sy(1) - 5, GW + 10, 6);
+    if (wind) {
+      g.fillStyle = '#fff'; g.font = '800 13px Manrope, system-ui'; g.textAlign = 'center';
+      g.fillText(`ветер ${wind > 0 ? '→' : '←'} ${Math.round(Math.abs(wind) * 40)}`, W / 2, sy(1) - 22);
+    }
+    // aim line from the keyboard
+    if (aim.on && !shot && state === 'play') { g.strokeStyle = '#ffd23f'; g.setLineDash([6, 6]); g.lineWidth = 2; g.beginPath(); g.moveTo(ballX, ballY); g.lineTo(sx(aim.x), sy(aim.y)); g.stroke(); g.setLineDash([]); g.beginPath(); g.arc(sx(aim.x), sy(aim.y), 10, 0, 7); g.stroke(); }
+    if (swipe && swipe.pts.length > 1) { g.strokeStyle = '#ffffff88'; g.lineWidth = 4; g.lineCap = 'round'; g.beginPath(); swipe.pts.forEach((p, i) => (i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]))); g.stroke(); }
+    const [bx, by, bs] = ballPos();
+    drawBall(bx, by, bs);
+    if (state !== 'start') {
+      g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.shadowColor = '#000a'; g.shadowBlur = 8;
+      g.fillStyle = '#fff'; g.font = '800 32px Manrope, system-ui'; g.fillText(score, W / 2, 96);
+      g.font = '800 14px Manrope, system-ui'; g.fillStyle = '#ffe7a8';
+      g.fillText(`голов ${goals} · ${'✕'.repeat(misses)}${'○'.repeat(Math.max(0, MISSES - misses))}${streak >= 2 ? ' · серия ' + streak : ''}`, W / 2, 118);
+      if (msg && msg.t < 1.3) {
+        const a = Math.min(1, (1.3 - msg.t) * 3), s = 1 + Math.max(0, 0.3 - msg.t) * 1.5;
+        g.globalAlpha = a; g.fillStyle = msg.color; g.font = `800 ${Math.round(38 * s)}px Manrope, system-ui`; g.fillText(msg.text, W / 2, gy + (H - gy) * 0.3);
+        if (msg.sub) { g.font = '800 24px Manrope, system-ui'; g.fillStyle = '#fff'; g.fillText(msg.sub, W / 2, gy + (H - gy) * 0.3 + 30); }
+        g.globalAlpha = 1;
+      }
+      g.shadowBlur = 0;
+    }
+  }
+  let last = performance.now();
+  function frame(now) { const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; update(dt); draw(); requestAnimationFrame(frame); }
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1); W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr;
+    GW = Math.min(W * 0.86, 560); GH = GW * 0.36; gx = W / 2; gy = Math.max(170 + GH, H * 0.42);
+    ballX = W / 2; ballY = H - Math.max(110, H * 0.16); BR = Math.max(16, Math.min(24, W * 0.045));
+    crowd = []; for (let i = 0; i < 160; i++) crowd.push({ x: Math.random(), y: Math.random(), r: 3 + Math.random() * 3, c: ['#ff5d5d', '#ffd23f', '#6fe3ff', '#ffffff', '#bca0ff', '#5df2a5'][i % 6], p: Math.random() * 6, j: 0 });
+  }
+  function showBests() { $('bestStart').textContent = $('bestOver').textContent = best; $('goalsStart').textContent = $('bestGoalsOver').textContent = bestGoals; }
+
+  const lb = FreasyLeaderboard({
+    key: 'penalti',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за одну серию.', format: (v) => `${v} ${pointsWord(v)}` },
+      { id: 'goals', title: 'Голы', column: 'best_goals', order: 'desc', note: 'Больше всего голов за одну серию.', format: (v) => `⚽ ${v}` },
+    ],
+    bests: () => [runs.score, runs.goals].filter(Boolean),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  // ——— Input ———
+  // A swipe that starts near the ball: its direction aims, its speed lifts the ball, its bend curls it.
+  cv.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); unlockAudio();
+    if (state !== 'play' || shot || lb.isOpen()) return;
+    if (Math.hypot(e.clientX - ballX, e.clientY - ballY) > Math.max(110, BR * 5) && e.clientY < gy + 10) return;
+    swipe = { pts: [[e.clientX, e.clientY]], t0: performance.now() }; aim.on = false;
+    cv.setPointerCapture(e.pointerId);
+  });
+  cv.addEventListener('pointermove', (e) => { if (swipe) swipe.pts.push([e.clientX, e.clientY]); });
+  const release = () => {
+    if (!swipe) return; const s = swipe; swipe = null;
+    const [x0, y0] = s.pts[0], [x1, y1] = s.pts[s.pts.length - 1], dx = x1 - x0, dy = y1 - y0, len = Math.hypot(dx, dy);
+    if (dy > -30 || len < 40) return;
+    const ms = Math.max(40, performance.now() - s.t0), speed = len / ms;
+    // where the swipe's direction crosses the goal line
+    const reachY = ballY - gy, tx = (dx / -dy) * reachY / (GW / 2);
+    const ty = Math.max(0.02, Math.min(1.6, (speed - 0.35) * 0.85 + len / (H * 2.2)));
+    // bend: how far the middle of the path strays from the straight line
+    const mid = s.pts[Math.floor(s.pts.length / 2)], cross = ((mid[0] - x0) * dy - (mid[1] - y0) * dx) / len;
+    const curve = Math.max(-1, Math.min(1, cross / 60));
+    kick(tx, ty, curve, Math.min(1.5, speed));
+  };
+  cv.addEventListener('pointerup', release); cv.addEventListener('pointercancel', () => { swipe = null; });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.target.closest && e.target.closest('.screen button')) return;
+    if (state === 'play' && !shot) {
+      const step = { ArrowLeft: [-0.08, 0], KeyA: [-0.08, 0], ArrowRight: [0.08, 0], KeyD: [0.08, 0], ArrowUp: [0, 0.08], KeyW: [0, 0.08], ArrowDown: [0, -0.08], KeyS: [0, -0.08] }[e.code];
+      if (step) { e.preventDefault(); aim.on = true; aim.x = Math.max(-1.2, Math.min(1.2, aim.x + step[0])); aim.y = Math.max(0, Math.min(1.2, aim.y + step[1])); return; }
+      if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); kick(aim.x + (Math.random() - 0.5) * 0.08, aim.y + (Math.random() - 0.5) * 0.08, 0, 1); return; }
+    }
+    if ((e.code === 'Space' || e.code === 'Enter') && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); }
+  });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('penalti-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  addEventListener('resize', resize);
+  resize(); showBests(); newKeeper();
+  // #preview: a curling shot on its way to the top corner, for the site's screenshot.
+  if (location.hash === '#preview') {
+    start(); score = 27; goals = 11; shots = 13; misses = 1; streak = 4; wind = 0.2;
+    bonus = { x: -0.6, y: 0.45, r: 0.16 };
+    shot = { tx: 0.82, ty: 0.82, curve: -0.5, t: 0.42, dur: 0.7, result: null, power: 1 };
+    keeper.tx = -0.5; keeper.ty = 0.3; keeper.t = 0.5; keeper.x = -0.32; keeper.y = 0.2; keeper.dive = 0.6;
+    update = (dt) => { time += dt; };
+  }
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__penalti = { get state() { return state; }, get score() { return score; }, get goals() { return goals; }, get misses() { return misses; }, get shot() { return shot; }, kick, start };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

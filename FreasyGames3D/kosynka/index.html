@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/i18n.js?v=3" data-game="3d-kosynka"></script>
+<script src="../../shared/fx.js" data-mute="kosynka-muted"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0d0f1c">
+<title>Косынка 3D — FreasyGames 3D</title>
+<meta name="description" content="Косынка 3D на FreasyGames: настоящие карты на зелёном сукне — переворачиваются, когда открываются, и поднимаются над столом, когда их несёшь. Те же правила и рекорды, что в обычной Косынке.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>
+  #c { touch-action: none; }
+  #ov { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: max(14px, env(safe-area-inset-bottom)); z-index: 3; display: flex; gap: 8px; }
+  .bar[hidden] { display: none; }
+  .bar button { height: 44px; padding: 0 14px; border-radius: 14px; border: 1px solid #ffffff2a; background: #1d1e31dd; color: #f8f7ff; font: 800 14px Manrope, system-ui; backdrop-filter: blur(6px); cursor: pointer; white-space: nowrap; }
+  .bar button:disabled { opacity: .4; cursor: default; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="ov"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames 3D</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+<div class="bar" id="bar" hidden><button type="button" id="undo">↶ Отменить</button><button type="button" id="hint">💡 Подсказка</button><button type="button" id="deal">🂠 Новая раздача</button></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ 3D</div>
+    <h1>Косынка <span>3D</span></h1>
+    <p>Собери все карты в четыре стопки по мастям — от туза до короля. В столбцах карты кладутся по убыванию, чередуя красные и чёрные, а на пустое место — только король.</p>
+    <p>Перетаскивай карты или просто касайся — карта сама найдёт лучшее место. Из колоды карты открываются по одной. Чем быстрее соберёшь, тем больше бонус.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · собрано пасьянсов: <b id="winsStart">0</b></p>
+    <button class="play" id="go" type="button">Разложить ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Касание — карта уходит сама · перетаскивание — куда хочешь · Z — отменить, H — подсказка · рекорды общие с обычной Косынкой</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow" id="overWhy">Пасьянс собран!</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">очков</p>
+    <p>Рекорд: <b id="bestOver">0</b> · собрано пасьянсов: <b id="winsOver">0</b></p>
+    <button class="play" id="again" type="button">Новая раздача ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<script src="../../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), ov = $('ov'), g = ov.getContext('2d');
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const pointsWord = (n) => plural(n, 'очко', 'очка', 'очков');
+  const SUITS = ['♠', '♥', '♦', '♣'], RANKS = ['', 'A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+  const red = (c) => c.s === 1 || c.s === 2;
+
+  let best = +store.get('kosynka-best', 0) || 0, wins = +store.get('kosynka-wins', 0) || 0;
+  let runs = {}; try { runs = JSON.parse(store.get('kosynka-runs', '{}')) || {}; } catch { runs = {}; }
+  let muted = store.get('kosynka-muted', '0') === '1';
+  FX.muted = () => muted || state !== 'play';
+  let W = 0, H = 0, dpr = 1, cw = 70, ch = 98, gap = 8, ox = 0, top = 130, tabY = 240;
+  // piles: stock, waste, found[4], tab[7]; a card is {s, r, up, x, y} where x, y is where it is drawn now
+  let state = 'start', stock = [], waste = [], found = [[], [], [], []], tab = [[], [], [], [], [], [], []];
+  let score = 0, moves = 0, playTime = 0, time = 0, history = [], drag = null, hintT = 0, hintCards = [], autoT = 0, finishing = false, undoUsed = 0;
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'square', v = 0.06, slide = 1, delay = 0) {
+    if (muted || state === 'start' || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  const noise = (d, v) => { if (muted || !ac) return; const b = ac.createBuffer(1, ac.sampleRate * d, ac.sampleRate), a = b.getChannelData(0); for (let i = 0; i < a.length; i++) a[i] = (Math.random() * 2 - 1) * (1 - i / a.length); const s = ac.createBufferSource(), gn = ac.createGain(), f = ac.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 2000; gn.gain.value = v; s.buffer = b; s.connect(f).connect(gn).connect(ac.destination); s.start(); };
+  const sfx = {
+    flick: () => noise(0.05, 0.15),
+    place: () => { noise(0.04, 0.12); tone(300, 0.05, 'triangle', 0.04, 0.8); },
+    found: (r) => tone(440 * Math.pow(2, (r - 1) / 12), 0.12, 'triangle', 0.06),
+    flip: () => tone(700, 0.04, 'sine', 0.04, 1.3),
+    nope: () => tone(140, 0.08, 'square', 0.04),
+    win: () => [0, 4, 7, 12, 16, 19, 24].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.16, 'triangle', 0.07, 1, i * 0.08)),
+  };
+
+  // ——— Rules ———
+  function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  function deal(seed) {
+    const rand = seed == null ? Math.random : rng(seed), deck = [];
+    for (let s = 0; s < 4; s++) for (let r = 1; r <= 13; r++) deck.push({ s, r, up: false, x: 0, y: 0 });
+    for (let i = deck.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [deck[i], deck[j]] = [deck[j], deck[i]]; }
+    found = [[], [], [], []]; tab = [[], [], [], [], [], [], []]; waste = [];
+    for (let c = 0; c < 7; c++) for (let k = 0; k <= c; k++) { const card = deck.pop(); card.up = k === c; tab[c].push(card); }
+    stock = deck;
+    layout(); for (const card of all()) { card.x = ox; card.y = top; }
+  }
+  const all = () => [...stock, ...waste, ...found.flat(), ...tab.flat()];
+  const canFound = (card, f) => (f.length ? f[f.length - 1].s === card.s && f[f.length - 1].r === card.r - 1 : card.r === 1);
+  const canTab = (card, t) => (t.length ? t[t.length - 1].up && red(t[t.length - 1]) !== red(card) && t[t.length - 1].r === card.r + 1 : card.r === 13);
+  function snapshot() { const m = new Map(); all().forEach((c) => m.set(c, c.up)); return { stock: stock.slice(), waste: waste.slice(), found: found.map((f) => f.slice()), tab: tab.map((t) => t.slice()), ups: m, score, moves }; }
+  function restore(h) { stock = h.stock; waste = h.waste; found = h.found; tab = h.tab; for (const [c, up] of h.ups) c.up = up; score = h.score; moves = h.moves + 1; }
+  // pile references: {k: 'tab'|'found'|'waste'|'stock', i}
+  const pileOf = (p) => (p.k === 'tab' ? tab[p.i] : p.k === 'found' ? found[p.i] : p.k === 'waste' ? waste : stock);
+  function move(from, n, to) {
+    history.push(snapshot());
+    const src = pileOf(from), dst = pileOf(to), cards = src.splice(src.length - n, n);
+    dst.push(...cards); moves++;
+    if (to.k === 'found') { score += 10; sfx.found(cards[0].r); const [x, y] = toScreen(cards[0].x + cw / 2, cards[0].y + ch / 2); FX.on('soft', 0, x, y); if (cards[0].r === 13) { FX.sparkle(...toScreen(slotX(to.i + 3) + cw / 2, top + ch / 2), '#ffd23f'); } }
+    else { sfx.place(); if (from.k === 'waste') score += 5; if (from.k === 'found') score = Math.max(0, score - 15); }
+    if (from.k === 'tab' && src.length && !src[src.length - 1].up) { src[src.length - 1].up = true; score += 5; sfx.flip(); }
+    hintCards = []; checkWin();
+  }
+  function drawStock() {
+    if (state !== 'play') return;
+    if (stock.length) { history.push(snapshot()); const c = stock.pop(); c.up = true; waste.push(c); moves++; sfx.flick(); }
+    else if (waste.length) { history.push(snapshot()); stock = waste.reverse().map((c) => (c.up = false, c)); waste = []; score = Math.max(0, score - 20); moves++; sfx.flick(); }
+    hintCards = [];
+  }
+  // the best place for a card: a foundation first, then a column where it uncovers or lands on a matching card
+  function bestTarget(from, n) {
+    const src = pileOf(from), card = src[src.length - n];
+    if (n === 1 && from.k !== 'found') for (let i = 0; i < 4; i++) if (canFound(card, found[i])) return { k: 'found', i };
+    let fallback = null;
+    for (let i = 0; i < 7; i++) {
+      if (from.k === 'tab' && from.i === i) continue;
+      if (!canTab(card, tab[i])) continue;
+      // a king moving from the bottom of a column to an empty one changes nothing
+      if (!tab[i].length && from.k === 'tab' && src.length === n) continue;
+      if (tab[i].length) return { k: 'tab', i };
+      fallback = fallback || { k: 'tab', i };
+    }
+    return fallback;
+  }
+  function allMoves() {
+    const out = [];
+    if (waste.length) { const t = bestTarget({ k: 'waste' }, 1); if (t) out.push({ from: { k: 'waste' }, n: 1, to: t, score: t.k === 'found' ? 3 : 2 }); }
+    for (let i = 0; i < 7; i++) {
+      const t = tab[i]; if (!t.length) continue;
+      const first = t.findIndex((c) => c.up);
+      for (let k = first; k < t.length; k++) {
+        const n = t.length - k, to = bestTarget({ k: 'tab', i }, n);
+        if (to && (to.k === 'found' || k > 0 || to.k === 'tab' && tab[to.i].length)) out.push({ from: { k: 'tab', i }, n, to, score: to.k === 'found' ? 3 : k === first && first > 0 ? 4 : 1 });
+      }
+    }
+    return out.sort((a, b) => b.score - a.score);
+  }
+  function hint() {
+    if (state !== 'play') return;
+    const m = allMoves()[0];
+    if (m) { hintCards = pileOf(m.from).slice(-m.n); hintT = 1.6; }
+    else if (stock.length || waste.length) { hintCards = ['stock']; hintT = 1.6; }
+    else { hintCards = []; FX.text(W / 2, H * 0.45, 'Ходов больше нет', '#ffd23f', 24); }
+    sfx.flip();
+  }
+  function checkWin() {
+    if (found.every((f) => f.length === 13)) return win();
+    // when every card is open the rest goes up by itself
+    if (!finishing && !stock.length && !waste.length && tab.every((t) => t.every((c) => c.up))) { finishing = true; autoT = 0.3; }
+  }
+  function win() {
+    if (state !== 'play') return;
+    state = 'won'; $('bar').hidden = true;
+    const bonus = Math.max(0, Math.round(1500 - playTime * 2)), total = score + bonus;
+    wins++; store.set('kosynka-wins', wins);
+    const record = total > best, run = { new_score: total, new_wins: wins };
+    if (record) { best = total; store.set('kosynka-best', best); }
+    runs.score = { new_score: best, new_wins: wins }; store.set('kosynka-runs', JSON.stringify(runs));
+    lb.submit(run);
+    sfx.win(); FX.win(); if (record) setTimeout(() => FX.record(), 900);
+    cascade = all().map((c, k) => ({ c, vx: (Math.random() - 0.5) * 600, vy: -Math.random() * 300, delay: k * 0.03 }));
+    setTimeout(() => {
+      state = 'over';
+      $('overWhy').textContent = 'Пасьянс собран!';
+      $('final').textContent = total;
+      const mm = Math.floor(playTime / 60), ss = String(Math.floor(playTime % 60)).padStart(2, '0');
+      $('overText').innerHTML = (record ? '<span class="new">Новый рекорд!</span> ' : '') + `${pointsWord(total)} · время ${mm}:${ss} · бонус за скорость +${bonus}`;
+      showBests(); $('over').hidden = false;
+    }, 2600);
+  }
+  let cascade = null;
+  function newGame() {
+    unlockAudio(); deal(); score = 0; moves = 0; playTime = 0; history = []; hintCards = []; finishing = false; cascade = null; undoUsed = 0;
+    state = 'play'; $('start').hidden = true; $('over').hidden = true; $('bar').hidden = false; dealAnim = 0;
+  }
+  function undo() {
+    if (state !== 'play' || !history.length || finishing) return;
+    restore(history.pop()); score = Math.max(0, score - 10); sfx.flick(); hintCards = [];
+  }
+  function giveUp() { if (state === 'play' && confirm('Начать новую раздачу? Эта игра не засчитается.')) newGame(); }
+
+  // ——— Layout & drawing ———
+  const slotX = (i) => ox + i * (cw + gap);
+  function layout() {
+    const barH = 70;
+    gap = Math.max(4, Math.min(12, W * 0.012));
+    cw = Math.floor(Math.min((W - 16 - gap * 6) / 7, 96, (H - 120 - barH) / 5.6 / 1.4));
+    ch = Math.round(cw * 1.4); ox = Math.round((W - (cw * 7 + gap * 6)) / 2);
+    top = Math.max(104, Math.min(130, H * 0.13)); tabY = top + ch + gap * 2;
+  }
+  // how far apart cards in a column sit, squeezed when the column would run off the screen
+  function fan(t) {
+    const down = t.filter((c) => !c.up).length, up = t.length - down, room = H - tabY - ch - 76;
+    let a = ch * 0.14, b = ch * 0.27;
+    const need = down * a + Math.max(0, up - 1) * b;
+    if (need > room && need > 0) { const k = room / need; a *= k; b *= k; }
+    return [a, b];
+  }
+  function targets() {
+    const out = new Map();
+    stock.forEach((c, k) => out.set(c, [slotX(0), top - Math.min(k, 6) * 0.4]));
+    waste.forEach((c, k) => { const off = Math.max(0, k - (waste.length - 3)); out.set(c, [slotX(1) + off * cw * 0.22, top]); });
+    found.forEach((f, i) => f.forEach((c) => out.set(c, [slotX(i + 3), top])));
+    tab.forEach((t, i) => { const [a, b] = fan(t); let y = tabY; t.forEach((c) => { out.set(c, [slotX(i), y]); y += c.up ? b : a; }); });
+    return out;
+  }
+  // ——— 3D ———
+  // The game lays cards out in screen pixels; the table is that same layout lying flat (1 px = 1 unit),
+  // seen from a camera tilted a little. Taps are turned back into table pixels by a ray onto the table.
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); } catch (e) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="screen"><div class="box"><h1><span>3D</span> не запускается</h1><p>Браузер не поддерживает WebGL. Сыграй в обычную Косынку.</p><a class="play" style="text-decoration:none;display:block" href="../../kosynka/">Обычная Косынка ↗</a></div></div>');
+    return;
+  }
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const scene = new THREE.Scene(); scene.background = new THREE.Color('#0b1f16');
+  const camera = new THREE.PerspectiveCamera(36, 1, 10, 20000);
+  scene.add(new THREE.HemisphereLight('#ffffff', '#204030', 0.6));
+  const lamp = new THREE.DirectionalLight('#fff3dc', 0.75); lamp.castShadow = true; lamp.shadow.mapSize.set(2048, 2048); scene.add(lamp, lamp.target);
+  // green felt with a soft vignette, on a wooden rim
+  const feltTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 512; const x = c.getContext('2d'); const gr = x.createRadialGradient(256, 220, 30, 256, 256, 360); gr.addColorStop(0, '#2a8a5a'); gr.addColorStop(1, '#0f3a26'); x.fillStyle = gr; x.fillRect(0, 0, 512, 512); for (let i = 0; i < 6000; i++) { x.fillStyle = `rgba(255,255,255,${Math.random() * 0.03})`; x.fillRect(Math.random() * 512, Math.random() * 512, 1, 1); } return new THREE.CanvasTexture(c); })();
+  const felt = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshLambertMaterial({ map: feltTex })); felt.rotation.x = -Math.PI / 2; felt.receiveShadow = true; scene.add(felt);
+  const rimM = new THREE.Mesh(new THREE.BoxGeometry(1, 30, 1), new THREE.MeshLambertMaterial({ color: '#5a3a1e' })); rimM.position.y = -16; scene.add(rimM);
+  // card faces are painted once into textures
+  const TW = 160, TH = 224, texCache = new Map();
+  const tc = document.createElement('canvas'); tc.width = TW; tc.height = TH; const tg = tc.getContext('2d');
+  function tround(x, y, w, h, r) { tg.beginPath(); if (tg.roundRect) tg.roundRect(x, y, w, h, r); else tg.rect(x, y, w, h); }
+  function paint(c, up) {
+    const key = up ? c.s * 20 + c.r : 'back';
+    if (texCache.has(key)) return texCache.get(key);
+    const cw = TW, ch = TH, r = cw * 0.09, x = 0, y = 0;
+    tg.clearRect(0, 0, TW, TH);
+    if (!up) {
+      tg.fillStyle = '#f4efe4'; tround(x, y, cw, ch, r); tg.fill();
+      const p = cw * 0.06; tg.fillStyle = '#6d4bd1'; tround(x + p, y + p, cw - 2 * p, ch - 2 * p, r * 0.6); tg.fill();
+      tg.strokeStyle = '#9d84ff'; tg.lineWidth = 2;
+      tg.save(); tround(x + p, y + p, cw - 2 * p, ch - 2 * p, r * 0.6); tg.clip();
+      for (let k = -ch; k < cw + ch; k += cw * 0.16) { tg.beginPath(); tg.moveTo(x + k, y); tg.lineTo(x + k + ch, y + ch); tg.moveTo(x + k + ch, y); tg.lineTo(x + k, y + ch); tg.stroke(); }
+      tg.restore();
+      tg.fillStyle = '#ffd23f'; tg.font = `800 ${cw * 0.3}px Manrope, system-ui`; tg.textAlign = 'center'; tg.textBaseline = 'middle'; tg.fillText('✦', x + cw / 2, y + ch / 2);
+    } else {
+      tg.fillStyle = '#fffdf8'; tround(x, y, cw, ch, r); tg.fill();
+      tg.strokeStyle = '#00000033'; tg.lineWidth = 2; tround(x + 1, y + 1, cw - 2, ch - 2, r); tg.stroke();
+      const col = red(c) ? '#d8283e' : '#1c1a2b';
+      tg.fillStyle = col; tg.textAlign = 'left'; tg.textBaseline = 'top';
+      tg.font = `800 ${Math.round(cw * 0.26)}px Manrope, system-ui`; tg.fillText(RANKS[c.r], x + cw * 0.08, y + cw * 0.06);
+      tg.font = `700 ${Math.round(cw * 0.24)}px system-ui`; tg.fillText(SUITS[c.s], x + cw * 0.08, y + cw * 0.34);
+      tg.textAlign = 'right'; tg.font = `700 ${Math.round(cw * 0.22)}px system-ui`; tg.fillText(SUITS[c.s], x + cw * 0.92, y + cw * 0.08);
+      tg.textAlign = 'center'; tg.textBaseline = 'middle';
+      if (c.r > 10) {
+        tg.fillStyle = red(c) ? '#ffe3e7' : '#e9e6f5'; tround(x + cw * 0.22, y + ch * 0.36, cw * 0.56, ch * 0.5, 10); tg.fill();
+        tg.fillStyle = col; tg.font = `800 ${Math.round(cw * 0.36)}px Manrope, system-ui`; tg.fillText(RANKS[c.r], x + cw / 2, y + ch * 0.58);
+        tg.font = `${Math.round(cw * 0.2)}px system-ui`; tg.fillText(c.r === 13 ? '♚' : c.r === 12 ? '♛' : '♝', x + cw / 2, y + ch * 0.44);
+      } else { tg.font = `${Math.round(cw * (c.r === 1 ? 0.6 : 0.46))}px system-ui`; tg.fillText(SUITS[c.s], x + cw / 2, y + ch * 0.62); }
+    }
+    const tex = new THREE.CanvasTexture(tc); tex.image = (() => { const cc = document.createElement('canvas'); cc.width = TW; cc.height = TH; cc.getContext('2d').drawImage(tc, 0, 0); return cc; })(); tex.needsUpdate = true;
+    tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    texCache.set(key, tex); return tex;
+  }
+  const cardGeo = new THREE.PlaneGeometry(1, 1), edgeGeo = new THREE.BoxGeometry(1, 1, 1), edgeM = new THREE.MeshLambertMaterial({ color: '#e8e2d4' });
+  const meshes = new Set();
+  function cardMesh(c) {
+    if (c.mesh) return c.mesh;
+    const grp = new THREE.Group(), flip = new THREE.Group(); grp.add(flip);
+    const front = new THREE.Mesh(cardGeo, new THREE.MeshLambertMaterial({ map: paint(c, true), transparent: true })); front.rotation.x = -Math.PI / 2; front.position.y = 0.6;
+    const back = new THREE.Mesh(cardGeo, new THREE.MeshLambertMaterial({ map: paint(c, false), transparent: true })); back.rotation.x = Math.PI / 2; back.position.y = -0.6;
+    const edge = new THREE.Mesh(edgeGeo, edgeM); edge.scale.set(0.97, 1.1, 0.97); edge.castShadow = true;
+    flip.add(front, back, edge); scene.add(grp); grp.userData.card = c; meshes.add(grp);
+    c.mesh = grp; c.flip = flip; c.turn = c.up ? 1 : 0; c.lift = 0;
+    return grp;
+  }
+  const glowM = new THREE.MeshBasicMaterial({ color: '#ffd23f', transparent: true, opacity: 0.8 });
+  const glow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), glowM); glow.rotation.x = -Math.PI / 2; scene.add(glow);
+  // empty slots: dashed outlines with a mark
+  const slotTex = (label) => { const c = document.createElement('canvas'); c.width = TW; c.height = TH; const x = c.getContext('2d'); x.strokeStyle = '#ffffff55'; x.lineWidth = 5; x.setLineDash([14, 10]); x.beginPath(); x.roundRect ? x.roundRect(4, 4, TW - 8, TH - 8, 14) : x.rect(4, 4, TW - 8, TH - 8); x.stroke(); x.fillStyle = '#ffffff40'; x.font = '700 64px system-ui'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(label, TW / 2, TH / 2); return new THREE.CanvasTexture(c); };
+  const slots = [];
+  const addSlot = (label) => { const m = new THREE.Mesh(cardGeo, new THREE.MeshBasicMaterial({ map: slotTex(label), transparent: true })); m.rotation.x = -Math.PI / 2; m.position.y = 0.3; scene.add(m); slots.push(m); return m; };
+  const stockSlot = addSlot('↻'), wasteSlot = addSlot(''), foundSlots = SUITS.map(() => addSlot('A')), tabSlots = [0, 1, 2, 3, 4, 5, 6].map(() => addSlot('K'));
+  const wx = (px) => px - W / 2, wz = (py) => py - H / 2;
+  function placeSlots() {
+    const put = (m, x, y) => { m.position.x = wx(x + cw / 2); m.position.z = wz(y + ch / 2); m.scale.set(cw, ch, 1); };
+    put(stockSlot, slotX(0), top); put(wasteSlot, slotX(1), top); foundSlots.forEach((m, i) => put(m, slotX(i + 3), top)); tabSlots.forEach((m, i) => put(m, slotX(i), tabY));
+    felt.scale.set(W * 1.6, H * 1.4, 1); rimM.scale.set(W * 1.62, 1, H * 1.42);
+  }
+  const ray = new THREE.Raycaster(), tablePlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hitP = new THREE.Vector3();
+  function toTable(x, y) { ray.setFromCamera({ x: x / W * 2 - 1, y: -(y / H * 2 - 1) }, camera); return ray.ray.intersectPlane(tablePlane, hitP) ? [hitP.x + W / 2, hitP.z + H / 2] : [x, y]; }
+  const P = (e) => toTable(e.clientX, e.clientY);
+  const v3 = new THREE.Vector3();
+  const toScreen = (x, y) => { v3.set(wx(x), 0, wz(y)).project(camera); return [(v3.x + 1) / 2 * W, (1 - v3.y) / 2 * H]; };
+  let dealAnim = 1, lastLayout = '';
+  function draw(dt) {
+    const lk = `${W}x${H}`; if (lk !== lastLayout) { lastLayout = lk; placeSlots(); }
+    stockSlot.material.map.needsUpdate = false;
+    stockSlot.visible = true;
+    const dragging = drag && drag.moved ? new Set(drag.cards) : new Set();
+    const order = [...stock, ...found.flat(), ...waste, ...tab.flat()];
+    if (cascade) {
+      for (const p of cascade) { if ((p.delay -= dt) > 0) continue; p.vy += 900 * dt; p.c.x += p.vx * dt; p.c.y += p.vy * dt; if (p.c.y > H - ch) { p.c.y = H - ch; p.vy *= -0.7; } p.c.lift = Math.max(p.c.lift, 30 + Math.sin(p.c.y * 0.02) * 20); }
+    } else {
+      const tg2 = targets(); let k = 0;
+      for (const c of order) {
+        const t = tg2.get(c); if (!t || dragging.has(c)) continue;
+        const late = state === 'play' && dealAnim < 1.2 && tab.flat().includes(c) ? Math.max(0, dealAnim * 30 - k++) : 1;
+        const f = Math.min(1, dt * 16) * Math.min(1, late);
+        c.x += (t[0] - c.x) * f; c.y += (t[1] - c.y) * f;
+      }
+      if (drag && drag.moved) drag.cards.forEach((c, j) => { c.x = drag.x - drag.dx; c.y = drag.y - drag.dy + j * ch * 0.27; });
+    }
+    // a new deal brings new cards: the old ones leave the table
+    const live = new Set(order);
+    for (const m of [...meshes]) if (!live.has(m.userData.card)) { scene.remove(m); meshes.delete(m); }
+    let glowCard = null;
+    order.forEach((c, n) => {
+      const m = cardMesh(c);
+      // cards turn over when they open; a card in the air rises above the rest
+      c.turn += ((c.up ? 1 : 0) - c.turn) * Math.min(1, dt * 12);
+      const travelling = Math.hypot(m.position.x - wx(c.x + cw / 2), m.position.z - wz(c.y + ch / 2)) > 4;
+      const want = dragging.has(c) ? 40 + drag.cards.indexOf(c) * 3 : travelling ? 14 : 0;
+      c.lift += (want - c.lift) * Math.min(1, dt * 14);
+      m.position.set(wx(c.x + cw / 2), 1 + n * 1.3 + c.lift + Math.sin(c.turn * Math.PI) * cw * 0.35, wz(c.y + ch / 2));
+      m.scale.set(cw, 1, ch);
+      c.flip.rotation.z = (1 - c.turn) * Math.PI;
+      if (hintT > 0 && hintCards.includes(c) && !glowCard) glowCard = c;
+    });
+    glow.visible = !!glowCard && Math.floor(time * 6) % 2 === 0;
+    if (glowCard) { glow.position.set(glowCard.mesh.position.x, glowCard.mesh.position.y - 0.5, glowCard.mesh.position.z); glow.scale.set(cw + 10, ch + 10, 1); }
+    if (hintT > 0 && hintCards[0] === 'stock' && Math.floor(time * 6) % 2 === 0) { glow.visible = true; glow.position.set(stockSlot.position.x, 0.2, stockSlot.position.z); glow.scale.set(cw + 10, ch + 10, 1); }
+    stockSlot.visible = !stock.length;
+    lamp.position.set(-W * 0.3, 1600, -H * 0.1); lamp.target.position.set(0, 0, 0);
+    Object.assign(lamp.shadow.camera, { left: -W, right: W, top: H, bottom: -H, near: 100, far: 4000 }); lamp.shadow.camera.updateProjectionMatrix();
+    renderer.render(scene, camera);
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    if (state !== 'start') {
+      g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.shadowColor = '#000a'; g.shadowBlur = 8;
+      const mm = Math.floor(playTime / 60), ss = String(Math.floor(playTime % 60)).padStart(2, '0'), [, ty] = toScreen(W / 2, top);
+      g.fillStyle = '#fff'; g.font = '800 22px Manrope, system-ui'; g.fillText(score, W / 2, ty - 40);
+      g.font = '800 13px Manrope, system-ui'; g.fillStyle = '#ffe7a8'; g.fillText(`${mm}:${ss} · ходов ${moves} · рекорд ${best}`, W / 2, ty - 20);
+      g.shadowBlur = 0;
+    }
+  }
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; time += dt; dealAnim += dt;
+    if (state === 'play') { playTime += dt; hintT = Math.max(0, hintT - dt); }
+    if (finishing && state === 'play' && (autoT -= dt) <= 0) {
+      autoT = 0.09;
+      let done = false;
+      for (let i = 0; i < 7 && !done; i++) { const t = tab[i]; if (!t.length) continue; const c = t[t.length - 1]; for (let f = 0; f < 4; f++) if (canFound(c, found[f])) { move({ k: 'tab', i }, 1, { k: 'found', i: f }); done = true; break; } }
+    }
+    $('undo').disabled = !history.length || finishing;
+    draw(dt); requestAnimationFrame(frame);
+  }
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1); W = innerWidth; H = innerHeight;
+    renderer.setPixelRatio(dpr); renderer.setSize(W, H, false); ov.width = W * dpr; ov.height = H * dpr;
+    camera.aspect = W / H; camera.updateProjectionMatrix(); layout();
+    // far enough that the whole table fits even with the tilt
+    const d = (H / 2) / Math.tan(camera.fov * Math.PI / 360) * 1.06, tilt = 0.2;
+    camera.position.set(0, d * Math.cos(tilt), d * Math.sin(tilt)); camera.lookAt(0, 0, 0);
+    lastLayout = '';
+  }
+  function showBests() { $('bestStart').textContent = $('bestOver').textContent = best; $('winsStart').textContent = $('winsOver').textContent = wins; }
+
+  const lb = FreasyLeaderboard({
+    key: 'kosynka',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Лучший счёт за один собранный пасьянс вместе с бонусом за скорость. Общая с обычной Косынкой.', format: (v) => `${v} ${pointsWord(v)}` },
+      { id: 'wins', title: 'Пасьянсы', column: 'best_wins', order: 'desc', note: 'Больше всего собранных пасьянсов.', format: (v) => `🂡 ${v}` },
+    ],
+    bests: () => (wins ? { new_score: best, new_wins: wins } : null),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  // ——— Input ———
+  function hitCard(x, y) {
+    const inside = (c) => x >= c.x && x <= c.x + cw && y >= c.y && y <= c.y + ch;
+    for (let i = 0; i < 7; i++) { const t = tab[i]; for (let k = t.length - 1; k >= 0; k--) if (inside(t[k])) return t[k].up ? { from: { k: 'tab', i }, n: t.length - k } : { none: true }; }
+    if (waste.length && inside(waste[waste.length - 1])) return { from: { k: 'waste' }, n: 1 };
+    for (let i = 0; i < 4; i++) if (found[i].length && inside(found[i][found[i].length - 1])) return { from: { k: 'found', i }, n: 1 };
+    if (x >= slotX(0) && x <= slotX(0) + cw && y >= top && y <= top + ch) return { stock: true };
+    return null;
+  }
+  function dropTarget(x, y) {
+    for (let i = 0; i < 4; i++) if (x >= slotX(i + 3) - gap && x <= slotX(i + 3) + cw + gap && y >= top - 20 && y <= top + ch + 20) return { k: 'found', i };
+    for (let i = 0; i < 7; i++) { if (x < slotX(i) - gap / 2 || x > slotX(i) + cw + gap / 2) continue; const t = tab[i], bottom = t.length ? t[t.length - 1].y + ch : tabY + ch; if (y >= tabY - 30 && y <= bottom + 40) return { k: 'tab', i }; }
+    return null;
+  }
+  cv.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); unlockAudio();
+    if (state !== 'play' || lb.isOpen() || finishing) return;
+    const h = hitCard(...P(e));
+    if (!h) return;
+    if (h.stock) return drawStock();
+    if (h.none) return;
+    const cards = pileOf(h.from).slice(-h.n);
+    const [px, py] = P(e); drag = { ...h, cards, x: px, y: py, sx: px, sy: py, dx: px - cards[0].x, dy: py - cards[0].y, moved: false };
+    cv.setPointerCapture(e.pointerId);
+  });
+  cv.addEventListener('pointermove', (e) => { if (!drag) return; [drag.x, drag.y] = P(e); if (Math.hypot(drag.x - drag.sx, drag.y - drag.sy) > 6) drag.moved = true; });
+  cv.addEventListener('pointerup', (e) => {
+    if (!drag) return; const d = drag; drag = null;
+    if (!d.moved) { const t = bestTarget(d.from, d.n); if (t) move(d.from, d.n, t); else { sfx.nope(); FX.on('nope'); } return; }
+    const cx = d.x - d.dx + cw / 2, cy = d.y - d.dy + ch / 3, t = dropTarget(cx, cy), card = d.cards[0];
+    if (t && !(t.k === d.from.k && t.i === d.from.i) && (t.k === 'found' ? d.n === 1 && canFound(card, found[t.i]) : canTab(card, tab[t.i]))) move(d.from, d.n, t);
+    else sfx.nope();
+  });
+  cv.addEventListener('pointercancel', () => { drag = null; });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.target.closest && e.target.closest('.screen button, .bar button')) return;
+    if (state === 'play' && e.code === 'KeyZ') { e.preventDefault(); undo(); return; }
+    if (state === 'play' && e.code === 'KeyH') { e.preventDefault(); hint(); return; }
+    if (state === 'play' && e.code === 'Space') { e.preventDefault(); drawStock(); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); newGame(); }
+  });
+  $('go').addEventListener('click', newGame);
+  $('again').addEventListener('click', newGame);
+  $('undo').addEventListener('click', undo);
+  $('hint').addEventListener('click', hint);
+  $('deal').addEventListener('click', giveUp);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('kosynka-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  addEventListener('resize', resize);
+  resize(); showBests(); deal(7);
+  // #preview: a game in progress, for the site's screenshot.
+  if (location.hash === '#preview') {
+    newGame(); deal(11);
+    const take = (s, r) => { for (const p of [stock, ...tab]) { const i = p.findIndex((c) => c.s === s && c.r === r); if (i >= 0) return p.splice(i, 1)[0]; } };
+    for (const [s, n] of [[1, 4], [0, 2], [2, 3], [3, 1]]) for (let r = 1; r <= n; r++) { const c = take(s, r); c.up = true; found[s].push(c); }
+    for (const t of tab) t.forEach((c, k) => { if (k >= t.length - 2) c.up = true; });
+    for (let k = 0; k < 3; k++) { const c = stock.pop(); c.up = true; waste.push(c); }
+    score = 245; moves = 38; playTime = 192; dealAnim = 5;
+    for (const [c, t] of targets()) { c.x = t[0]; c.y = t[1]; }
+    hintCards = [tab[3][tab[3].length - 1]]; hintT = 1e9; time = 0.05;
+  }
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__kosynka3d = { get tab() { return tab; }, get found() { return found; }, get stock() { return stock; }, get waste() { return waste; }, get state() { return state; }, get score() { return score; }, move, drawStock, bestTarget, allMoves, newGame, undo, win, checkWin };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

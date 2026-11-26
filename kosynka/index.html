@@ -260,7 +260,7 @@
     const bg = g.createRadialGradient(W / 2, H * 0.35, 40, W / 2, H * 0.35, Math.max(W, H)); bg.addColorStop(0, '#1f6b45'); bg.addColorStop(1, '#0c2a1c');
     g.fillStyle = bg; g.fillRect(0, 0, W, H);
     slot(slotX(0), top, stock.length ? '' : '↻'); slot(slotX(1), top, '');
-    for (let i = 0; i < 4; i++) slot(slotX(i + 3), top, SUITS[i]);
+    for (let i = 0; i < 4; i++) slot(slotX(i + 3), top, 'A');
     for (let i = 0; i < 7; i++) slot(slotX(i), tabY, 'K');
     if (cascade) {
       for (const p of cascade) { if ((p.delay -= dt) > 0) { drawCard(p.c, p.c.x, p.c.y); continue; } p.vy += 900 * dt; p.c.x += p.vx * dt; p.c.y += p.vy * dt; if (p.c.y > H - ch) { p.c.y = H - ch; p.vy *= -0.7; } drawCard(p.c, p.c.x, p.c.y); }

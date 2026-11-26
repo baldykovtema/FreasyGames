@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../shared/session.js?v=2"></script>
+<script src="../shared/i18n.js?v=3" data-game="parkovka"></script>
+<script src="../shared/fx.js" data-mute="parkovka-muted"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Парковка — FreasyGames</title>
+<meta name="description" content="Парковка на FreasyGames: двигай машины вперёд и назад и выведи красную машинку с забитой стоянки. Сотни уровней, звёзды за меньшее число ходов и подсказки.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>
+  #c { touch-action: none; }
+  .bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: max(14px, env(safe-area-inset-bottom)); z-index: 3; display: flex; gap: 8px; }
+  .bar[hidden] { display: none; }
+  .bar button { height: 44px; padding: 0 14px; border-radius: 14px; border: 1px solid #ffffff2a; background: #1d1e31dd; color: #f8f7ff; font: 800 14px Manrope, system-ui; backdrop-filter: blur(6px); cursor: pointer; white-space: nowrap; }
+  .bar button:disabled { opacity: .4; cursor: default; }
+  .stars { font-size: 34px; letter-spacing: 6px; margin: 6px 0; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+<div class="bar" id="bar" hidden><button type="button" id="undo">↶ Отменить</button><button type="button" id="restart">⟲ Заново</button><button type="button" id="hint">💡 Подсказка</button></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">🚗 Новая игра</div>
+    <h1><span>Парковка</span></h1>
+    <p>Стоянка забита машинами, а красной пора домой. Двигай машины вперёд и назад — вбок они не ездят — и освободи красной дорогу к выезду справа.</p>
+    <p>Каждый уровень решается. Уложишься в самое короткое решение — три звезды. Подсказка показывает следующий ход, но стоит звезду.</p>
+    <p>Уровень: <b id="levelStart">1</b> · звёзд: <b id="starsStart">0</b></p>
+    <button class="play" id="go" type="button">Поехали ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Тяни машину пальцем или мышью · Z — отменить, R — заново</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow" id="overWhy">Уровень пройден</div>
+    <div class="stars" id="starsOver">★★★</div>
+    <p id="overText"></p>
+    <p>Пройдено уровней: <b id="levelOver">0</b> · звёзд: <b id="starsTotal">0</b></p>
+    <button class="play" id="next" type="button">Следующий уровень ↗</button>
+    <button class="ghost" type="button" id="again">⟲ Переиграть на три звезды</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), g = cv.getContext('2d');
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const movesWord = (n) => plural(n, 'ход', 'хода', 'ходов');
+  const N = 6, EXIT_ROW = 2;
+  const COLORS = ['#3a6bff', '#ffd23f', '#2fbf74', '#a45cff', '#ff9a3d', '#6fe3ff', '#ff7eb6', '#c9ccd8', '#8a5a2e', '#5df2a5', '#f4efe4', '#3b3d4f'];
+
+  // level -> best stars; the next level to play is one past the highest solved
+  let stars = {}; try { stars = JSON.parse(store.get('parkovka-stars', '{}')) || {}; } catch { stars = {}; }
+  let level = +store.get('parkovka-level', 1) || 1;
+  let muted = store.get('parkovka-muted', '0') === '1';
+  FX.muted = () => muted || state === 'start';
+  let W = 0, H = 0, dpr = 1, cell = 60, bx = 0, by = 0;
+  // cars: {x, y, len, h (horizontal), c (colour), red, vx, vy (drawn position)}
+  let state = 'start', cars = [], optimal = 0, moves = 0, history = [], drag = null, hints = 0, hintMove = null, hintT = 0, time = 0, leaving = 0;
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'square', v = 0.06, slide = 1, delay = 0) {
+    if (muted || state === 'start' || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  const sfx = {
+    grab: () => tone(300, 0.04, 'triangle', 0.04),
+    slide: (n) => tone(160 + n * 30, 0.08, 'sawtooth', 0.025, 1.4),
+    bump: () => tone(110, 0.08, 'square', 0.05),
+    honk: () => { tone(392, 0.15, 'square', 0.04); tone(494, 0.15, 'square', 0.03); },
+    win: () => [0, 4, 7, 12].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.14, 'triangle', 0.07, 1, i * 0.08)),
+  };
+
+  // ——— Puzzles ———
+  // a seeded generator places cars at random, then a breadth-first search finds the shortest solution;
+  // the hardest of several tries is kept, and harder levels ask for longer solutions
+  function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  const occupied = (list, skip) => { const o = new Array(N * N).fill(-1); list.forEach((c, k) => { if (k === skip) return; for (let i = 0; i < c.len; i++) o[(c.y + (c.h ? 0 : i)) * N + c.x + (c.h ? i : 0)] = k; }); return o; };
+  function solve(list, limit = 60000) {
+    const key = (pos) => pos.join(','), start = list.map((c) => (c.h ? c.x : c.y));
+    const seen = new Map([[key(start), null]]), queue = [start];
+    for (let qi = 0; qi < queue.length; qi++) {
+      const pos = queue[qi];
+      if (pos[0] === N - list[0].len) { const path = []; let k = key(pos); while (seen.get(k)) { const [prev, mv] = seen.get(k); path.unshift(mv); k = prev; } return path; }
+      if (queue.length > limit) return null;
+      const occ = new Array(N * N).fill(-1);
+      list.forEach((c, k) => { for (let i = 0; i < c.len; i++) occ[c.h ? c.y * N + pos[k] + i : (pos[k] + i) * N + c.x] = k; });
+      for (let k = 0; k < list.length; k++) {
+        const c = list[k];
+        for (const dir of [-1, 1]) {
+          for (let step = 1; step < N; step++) {
+            const np = pos[k] + dir * step, edge = dir < 0 ? np : np + c.len - 1;
+            if (edge < 0 || edge >= N) break;
+            const cellIdx = c.h ? c.y * N + edge : edge * N + c.x;
+            if (occ[cellIdx] !== -1) break;
+            const next = pos.slice(); next[k] = np; const nk = key(next);
+            if (!seen.has(nk)) { seen.set(nk, [key(pos), [k, np]]); queue.push(next); }
+          }
+        }
+      }
+    }
+    return null;
+  }
+  function generate(lv) {
+    const rand = rng(lv * 7919 + 13), want = Math.min(4 + Math.floor(lv * 0.6), 22);
+    let best = null;
+    for (let tries = 0; tries < 160; tries++) {
+      const list = [{ x: Math.floor(rand() * 2), y: EXIT_ROW, len: 2, h: true, red: true, c: '#e0303f' }];
+      const count = 7 + Math.floor(rand() * 4) + Math.min(3, Math.floor(lv / 12));
+      for (let n = 0, guard = 0; n < count && guard < 200; guard++) {
+        const h = rand() < 0.5, len = rand() < 0.28 ? 3 : 2, x = Math.floor(rand() * (h ? N - len + 1 : N)), y = Math.floor(rand() * (h ? N : N - len + 1));
+        if (h && y === EXIT_ROW) continue;
+        const occ = occupied(list); let ok = true;
+        for (let i = 0; i < len; i++) if (occ[(y + (h ? 0 : i)) * N + x + (h ? i : 0)] !== -1) ok = false;
+        if (!ok) continue;
+        list.push({ x, y, len, h, red: false, c: COLORS[(list.length * 5 + lv) % COLORS.length] }); n++;
+      }
+      const sol = solve(list);
+      if (!sol || sol.length < 2) continue;
+      // the closest to the wanted length wins; a little longer is fine
+      const miss = (len) => (len < want ? (want - len) * 2 : Math.max(0, len - want - 4));
+      if (!best || miss(sol.length) < miss(best.sol.length)) best = { list, sol };
+      if (!miss(sol.length)) break;
+    }
+    return best;
+  }
+  function load(lv) {
+    const p = generate(lv);
+    cars = p.list.map((c) => ({ ...c, vx: c.x, vy: c.y })); optimal = p.sol.length;
+    moves = 0; history = []; hints = 0; hintMove = null; leaving = 0; drag = null;
+  }
+  function begin(lv) { unlockAudio(); level = lv; load(lv); state = 'play'; $('start').hidden = true; $('over').hidden = true; $('bar').hidden = false; }
+  function starsFor(m, h) { return Math.max(1, (m <= optimal ? 3 : m <= optimal + Math.max(3, Math.ceil(optimal * 0.4)) ? 2 : 1) - h); }
+  function solved() {
+    state = 'leaving'; leaving = 0; sfx.honk();
+    const st = starsFor(moves, hints), had = stars[level] || 0;
+    if (st > had) stars[level] = st;
+    store.set('parkovka-stars', JSON.stringify(stars));
+    const nextLv = Math.max(level + 1, +store.get('parkovka-level', 1) || 1); store.set('parkovka-level', nextLv);
+    const total = totalStars(), passed = maxLevel();
+    lb.submit({ new_level: passed, new_stars: total });
+    setTimeout(() => {
+      state = 'over'; $('bar').hidden = true; sfx.win(); FX.win(); if (st === 3) setTimeout(() => FX.on('big', 0, W / 2, H * 0.35), 300);
+      $('overWhy').textContent = `Уровень ${level} пройден`;
+      $('starsOver').textContent = '★'.repeat(st) + '☆'.repeat(3 - st);
+      $('overText').innerHTML = `${moves} ${movesWord(moves)} · лучшее решение — ${optimal} ${movesWord(optimal)}` + (hints ? ` · подсказок: ${hints}` : '');
+      $('again').hidden = st === 3;
+      showBests(); $('over').hidden = false;
+    }, 900);
+  }
+  const totalStars = () => Object.values(stars).reduce((a, b) => a + b, 0);
+  const maxLevel = () => Object.keys(stars).reduce((a, b) => Math.max(a, +b), 0);
+  function applyMove(k, np) {
+    const c = cars[k];
+    history.push(cars.map((q) => [q.x, q.y]));
+    if (c.h) c.x = np; else c.y = np;
+    moves++; hintMove = null;
+    if (c.red && c.x === N - c.len) solved();
+  }
+  function undo() { if (state !== 'play' || !history.length) return; history.pop().forEach(([x, y], k) => { cars[k].x = x; cars[k].y = y; }); moves++; sfx.slide(1); hintMove = null; }
+  function restart() { if (state !== 'play') return; if (history.length) { history[0].forEach(([x, y], k) => { cars[k].x = x; cars[k].y = y; }); } history = []; moves = 0; hintMove = null; sfx.slide(3); }
+  function hint() {
+    if (state !== 'play') return;
+    const sol = solve(cars); if (!sol || !sol.length) return;
+    hints++; hintMove = sol[0]; hintT = 0; sfx.grab();
+  }
+  // how far a car may slide from where it is
+  function range(k) {
+    const c = cars[k], occ = occupied(cars, k); let lo = c.h ? c.x : c.y, hi = lo;
+    const free = (p) => (c.h ? occ[c.y * N + p] : occ[p * N + c.x]) === -1;
+    while (lo - 1 >= 0 && free(lo - 1)) lo--;
+    while (hi + c.len < N && free(hi + c.len)) hi++;
+    return [lo, hi];
+  }
+
+  // ——— Drawing ———
+  function round(x, y, w, h, r) { g.beginPath(); if (g.roundRect) g.roundRect(x, y, w, h, r); else g.rect(x, y, w, h); }
+  function drawCar(c, px, py) {
+    const pad = cell * 0.08, w = (c.h ? c.len : 1) * cell - pad * 2, h = (c.h ? 1 : c.len) * cell - pad * 2, x = bx + px * cell + pad, y = by + py * cell + pad, r = cell * 0.18;
+    g.fillStyle = '#0006'; round(x + 3, y + 5, w, h, r); g.fill();
+    g.fillStyle = c.c; round(x, y, w, h, r); g.fill();
+    g.fillStyle = '#ffffff33'; round(x + 4, y + 4, c.h ? w - 8 : w * 0.3, c.h ? h * 0.25 : h - 8, r * 0.5); g.fill();
+    // the roof with front and back windows; red car's front faces the exit
+    const ins = cell * 0.16;
+    g.fillStyle = '#0000001f'; round(x + ins, y + ins, w - ins * 2, h - ins * 2, r * 0.6); g.fill();
+    g.fillStyle = '#1c2340cc';
+    if (c.h) { g.fillRect(x + w - ins - cell * 0.22, y + ins, cell * 0.14, h - ins * 2); g.fillRect(x + ins, y + ins, cell * 0.1, h - ins * 2); }
+    else { g.fillRect(x + ins, y + ins, w - ins * 2, cell * 0.12); g.fillRect(x + ins, y + h - ins - cell * 0.1, w - ins * 2, cell * 0.1); }
+    g.fillStyle = '#fff6b0';
+    if (c.h) { g.fillRect(x + w - 4, y + h * 0.18, 3, h * 0.16); g.fillRect(x + w - 4, y + h * 0.66, 3, h * 0.16); }
+    else { g.fillRect(x + w * 0.18, y + 1, w * 0.16, 3); g.fillRect(x + w * 0.66, y + 1, w * 0.16, 3); }
+    if (c.red) { g.fillStyle = '#fff'; g.font = `800 ${Math.round(cell * 0.3)}px Manrope, system-ui`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('★', x + w / 2, y + h / 2); }
+  }
+  function draw(dt) {
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.fillStyle = '#1b1d2e'; g.fillRect(0, 0, W, H);
+    const S = cell * N;
+    // the lot: asphalt, painted bays, a kerb and the exit gap
+    g.fillStyle = '#00000055'; round(bx - 14, by - 8, S + 28, S + 28, 20); g.fill();
+    g.fillStyle = '#9aa0b5'; round(bx - 14, by - 14, S + 28, S + 28, 18); g.fill();
+    g.fillStyle = '#3b3d4f'; g.fillRect(bx, by, S, S);
+    g.strokeStyle = '#ffffff18'; g.lineWidth = 2; for (let k = 1; k < N; k++) { g.beginPath(); g.moveTo(bx + k * cell, by); g.lineTo(bx + k * cell, by + S); g.moveTo(bx, by + k * cell); g.lineTo(bx + S, by + k * cell); g.stroke(); }
+    g.fillStyle = '#3b3d4f'; g.fillRect(bx + S - 2, by + EXIT_ROW * cell + 4, 20, cell - 8);
+    g.fillStyle = '#ffd23f'; for (let k = 0; k < 3; k++) { const ax = bx + S + 22 + k * 12 + (time * 20 % 12); g.beginPath(); g.moveTo(ax, by + (EXIT_ROW + 0.3) * cell); g.lineTo(ax + 8, by + (EXIT_ROW + 0.5) * cell); g.lineTo(ax, by + (EXIT_ROW + 0.7) * cell); g.fill(); }
+    // cars glide to their cells; the dragged one follows the finger
+    for (let k = 0; k < cars.length; k++) {
+      const c = cars[k];
+      if (drag && drag.k === k) { if (c.h) c.vx = drag.pos; else c.vy = drag.pos; }
+      else { c.vx += (c.x - c.vx) * Math.min(1, dt * 18); c.vy += (c.y - c.vy) * Math.min(1, dt * 18); }
+      if (c.red && state === 'leaving') c.vx = c.x + leaving * leaving * 10;
+      g.save(); if (c.red && state === 'leaving') { g.beginPath(); g.rect(0, 0, W, H); g.clip(); }
+      drawCar(c, c.vx, c.vy); g.restore();
+    }
+    if (hintMove && state === 'play') {
+      const [k, np] = hintMove, c = cars[k], a = 0.5 + Math.sin(time * 6) * 0.3;
+      g.strokeStyle = `rgba(255,210,63,${a})`; g.lineWidth = 4; g.setLineDash([8, 6]);
+      round(bx + (c.h ? np : c.x) * cell + 4, by + (c.h ? c.y : np) * cell + 4, (c.h ? c.len : 1) * cell - 8, (c.h ? 1 : c.len) * cell - 8, cell * 0.18); g.stroke(); g.setLineDash([]);
+    }
+    if (state !== 'start') {
+      g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.shadowColor = '#000a'; g.shadowBlur = 8;
+      g.fillStyle = '#fff'; g.font = '800 26px Manrope, system-ui'; g.fillText(`Уровень ${level}`, W / 2, by - 46);
+      g.font = '800 14px Manrope, system-ui'; g.fillStyle = '#ffe7a8';
+      g.fillText(`${moves} ${movesWord(moves)} · на три звезды — ${optimal} · ${'★'.repeat(starsFor(Math.max(moves, 0), hints))}`, W / 2, by - 24);
+      g.shadowBlur = 0;
+    }
+  }
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; time += dt; hintT += dt;
+    if (state === 'leaving') leaving += dt;
+    $('undo').disabled = !history.length;
+    draw(dt); requestAnimationFrame(frame);
+  }
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1); W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr;
+    cell = Math.floor(Math.min((W - 80) / N, (H - 230) / N, 84));
+    bx = Math.round((W - cell * N) / 2) - 10; by = Math.round(Math.max(130, (H - cell * N) / 2));
+  }
+  function showBests() {
+    const passed = maxLevel();
+    $('levelStart').textContent = Math.max(1, level); $('starsStart').textContent = $('starsTotal').textContent = totalStars(); $('levelOver').textContent = passed;
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'parkovka',
+    boards: [
+      { id: 'level', title: 'Уровни', column: 'best_level', order: 'desc', note: 'Самый дальний пройденный уровень.', format: (v) => `🚗 ${v}` },
+      { id: 'stars', title: 'Звёзды', column: 'best_stars', order: 'desc', note: 'Больше всего звёзд на всех уровнях: до трёх за уровень.', format: (v) => `★ ${v}` },
+    ],
+    bests: () => (maxLevel() ? { new_level: maxLevel(), new_stars: totalStars() } : null),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  // ——— Input ———
+  const carAt = (x, y) => { const c = Math.floor((x - bx) / cell), r = Math.floor((y - by) / cell); if (c < 0 || c >= N || r < 0 || r >= N) return -1; return occupied(cars)[r * N + c]; };
+  cv.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); unlockAudio();
+    if (state !== 'play' || lb.isOpen()) return;
+    const k = carAt(e.clientX, e.clientY); if (k < 0) return;
+    const c = cars[k], [lo, hi] = range(k);
+    drag = { k, start: c.h ? c.x : c.y, pos: c.h ? c.x : c.y, lo, hi, p0: c.h ? e.clientX : e.clientY };
+    sfx.grab(); cv.setPointerCapture(e.pointerId);
+  });
+  cv.addEventListener('pointermove', (e) => {
+    if (!drag) return; const c = cars[drag.k];
+    const want = drag.start + ((c.h ? e.clientX : e.clientY) - drag.p0) / cell;
+    const was = drag.pos; drag.pos = Math.max(drag.lo, Math.min(drag.hi, want));
+    if ((want < drag.lo - 0.15 || want > drag.hi + 0.15) && Math.abs(was - drag.pos) > 0.001 && !drag.bumped) { sfx.bump(); drag.bumped = true; }
+    if (want >= drag.lo && want <= drag.hi) drag.bumped = false;
+  });
+  const release = () => {
+    if (!drag) return; const d = drag; drag = null;
+    const np = Math.round(d.pos), c = cars[d.k];
+    if (c.h) c.vx = d.pos; else c.vy = d.pos;
+    if (np !== d.start) { sfx.slide(Math.abs(np - d.start)); applyMove(d.k, np); }
+  };
+  cv.addEventListener('pointerup', release); cv.addEventListener('pointercancel', release);
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.target.closest && e.target.closest('.screen button, .bar button')) return;
+    if (state === 'play' && e.code === 'KeyZ') { e.preventDefault(); undo(); return; }
+    if (state === 'play' && e.code === 'KeyR') { e.preventDefault(); restart(); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && !$('start').hidden) { e.preventDefault(); begin(level); }
+    else if ((e.code === 'Space' || e.code === 'Enter') && !$('over').hidden) { e.preventDefault(); begin(level + 1); }
+  });
+  $('go').addEventListener('click', () => begin(level));
+  $('next').addEventListener('click', () => begin(level + 1));
+  $('again').addEventListener('click', () => begin(level));
+  $('undo').addEventListener('click', undo);
+  $('restart').addEventListener('click', restart);
+  $('hint').addEventListener('click', hint);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('parkovka-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  addEventListener('resize', resize);
+  resize(); showBests(); load(level);
+  // #preview: a level in progress with a hint, for the site's screenshot.
+  if (location.hash === '#preview') { begin(14); moves = 5; hintMove = solve(cars)[0]; time = 0.1; }
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__parkovka = { get cars() { return cars; }, get state() { return state; }, get optimal() { return optimal; }, get moves() { return moves; }, solve: () => solve(cars), applyMove, begin, generate, undo };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../shared/chat-boot.js?v=5"></script>
+</body>
+</html>
