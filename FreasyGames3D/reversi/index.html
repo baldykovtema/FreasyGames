@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/i18n.js?v=3" data-game="3d-reversi"></script>
+<script src="../../shared/fx.js" data-mute="reversi-muted"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0d0f1c">
+<title>Реверси 3D — FreasyGames 3D</title>
+<meta name="description" content="Реверси 3D на FreasyGames: объёмные фишки переворачиваются в воздухе на зелёном сукне под лампой. Бот трёх уровней, те же правила и рекорды, что в обычном Реверси.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>#ov { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }</style>
+<style>
+  .levels { display: flex; gap: 8px; margin: 14px 0 4px; }
+  .levels button { flex: 1; font: inherit; font-weight: 800; font-size: 15px; padding: 12px 0; border-radius: 14px; border: 1px solid #ffffff24; background: #ffffff0d; color: #f8f7ff; cursor: pointer; }
+  .levels button[aria-pressed="true"] { background: #bca0ff; color: #171225; border-color: transparent; }
+  .bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: max(16px, env(safe-area-inset-bottom)); z-index: 3; display: flex; gap: 10px; }
+  .bar[hidden] { display: none; }
+  .bar button { height: 46px; padding: 0 16px; border-radius: 14px; border: 1px solid #ffffff2a; background: #1d1e31dd; color: #f8f7ff; font: 800 15px Manrope, system-ui; backdrop-filter: blur(6px); cursor: pointer; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="ov"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames 3D</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+<div class="bar" id="bar" hidden><button type="button" id="menu">☰ Меню</button><button type="button" id="resign">🏳 Сдаться</button></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ 3D</div>
+    <h1>Реверси <span>3D</span></h1>
+    <p>Ты играешь тёмными фишками и ходишь первым. Ставь фишку так, чтобы зажать ряд фишек соперника между своими — по прямой или по диагонали, — и они перевернутся.</p>
+    <p>Ходить можно только туда, где что-то переворачивается. Когда поле заполнится, побеждает тот, чьих фишек больше. Углы не перевернуть — бери их!</p>
+    <div class="levels" id="levels"><button type="button" data-l="0">Лёгкий</button><button type="button" data-l="1" aria-pressed="true">Средний</button><button type="button" data-l="2">Сложный</button></div>
+    <p>Побед: <b id="winsStart">0</b> · очков: <b id="pointsStart">0</b> · лучшая серия: <b id="streakStart">0</b></p>
+    <button class="play" id="go" type="button">Играть ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Касание клетки с точкой · за победу 1, 2 или 3 очка · рекорды общие с обычным Реверси</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow" id="overWhy">Партия окончена</div>
+    <div class="big" id="final">Победа!</div>
+    <p id="overText"></p>
+    <p>Побед: <b id="winsOver">0</b> · очков: <b id="pointsOver">0</b> · лучшая серия: <b id="streakOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё партию ↗</button>
+    <button class="ghost" type="button" id="toMenu">Выбрать сложность</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<script src="../../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), ov = $('ov'), g = ov.getContext('2d');
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const pointsWord = (n) => plural(n, 'очко', 'очка', 'очков');
+  const chipsWord = (n) => plural(n, 'фишка', 'фишки', 'фишек');
+  const LEVELS = [{ name: 'Лёгкий', depth: 1, pts: 1, noise: 30 }, { name: 'Средний', depth: 3, pts: 2, noise: 4 }, { name: 'Сложный', depth: 5, pts: 3, noise: 0 }];
+  const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+  // how good each square is: corners are gold, squares next to them give corners away
+  const WEIGHT = [
+    100, -20, 10, 5, 5, 10, -20, 100,
+    -20, -50, -2, -2, -2, -2, -50, -20,
+    10, -2, 1, 1, 1, 1, -2, 10,
+    5, -2, 1, 0, 0, 1, -2, 5,
+    5, -2, 1, 0, 0, 1, -2, 5,
+    10, -2, 1, 1, 1, 1, -2, 10,
+    -20, -50, -2, -2, -2, -2, -50, -20,
+    100, -20, 10, 5, 5, 10, -20, 100,
+  ];
+
+  let wins = +store.get('reversi-wins', 0) || 0, points = +store.get('reversi-points', 0) || 0, bestStreak = +store.get('reversi-best-streak', 0) || 0, streak = +store.get('reversi-streak', 0) || 0;
+  let level = Math.min(2, Math.max(0, +store.get('reversi-level', 1) || 0));
+  let muted = store.get('reversi-muted', '0') === '1';
+  FX.muted = () => muted || state === 'start';
+  let W = 0, H = 0, dpr = 1, cell = 60, bx = 0, by = 0;
+  // board[i]: 0 empty, 1 player (dark), -1 bot (light); flips: [{i, t}] animations
+  let state = 'start', board, turn = 1, flips = [], lastMove = -1, thinking = false, time = 0, passNote = null, history = [];
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'square', v = 0.06, slide = 1, delay = 0) {
+    if (muted || state === 'start' || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  const sfx = {
+    place: () => tone(220, 0.07, 'triangle', 0.09, 0.7),
+    flip: (k) => tone(500 + k * 60, 0.05, 'triangle', 0.04, 1.2, k * 0.04),
+    corner: () => [0, 4, 7, 12].forEach((s, i) => tone(660 * Math.pow(2, s / 12), 0.09, 'triangle', 0.05, 1, i * 0.05)),
+    pass: () => tone(300, 0.2, 'sine', 0.05, 0.7),
+    nope: () => tone(130, 0.08, 'square', 0.04),
+  };
+
+  // ——— Rules ———
+  function initial() { const b = new Array(64).fill(0); b[27] = b[36] = -1; b[28] = b[35] = 1; return b; }
+  function flipsFor(b, i, who) {
+    if (b[i]) return [];
+    const out = [], x0 = i % 8, y0 = Math.floor(i / 8);
+    for (const [dx, dy] of DIRS) {
+      const line = []; let x = x0 + dx, y = y0 + dy;
+      while (x >= 0 && x < 8 && y >= 0 && y < 8 && b[y * 8 + x] === -who) { line.push(y * 8 + x); x += dx; y += dy; }
+      if (line.length && x >= 0 && x < 8 && y >= 0 && y < 8 && b[y * 8 + x] === who) out.push(...line);
+    }
+    return out;
+  }
+  function moves(b, who) { const m = []; for (let i = 0; i < 64; i++) if (!b[i]) { const f = flipsFor(b, i, who); if (f.length) m.push([i, f]); } return m; }
+  function apply(b, i, f, who) { const n = b.slice(); n[i] = who; for (const j of f) n[j] = who; return n; }
+  const count = (b, who) => b.reduce((s, v) => s + (v === who), 0);
+  function evaluate(b, who) {
+    let s = 0; for (let i = 0; i < 64; i++) s += WEIGHT[i] * b[i];
+    const mob = moves(b, 1).length - moves(b, -1).length, empty = b.filter((v) => !v).length;
+    s += mob * 4 + (empty < 12 ? (count(b, 1) - count(b, -1)) * 6 : 0);
+    return s * who;
+  }
+  function search(b, who, depth, a, z) {
+    const m = moves(b, who);
+    if (!depth || (!m.length && !moves(b, -who).length)) {
+      if (!m.length && !moves(b, -who).length) { const d = (count(b, who) - count(b, -who)); return d > 0 ? 10000 + d : d < 0 ? -10000 + d : 0; }
+      return evaluate(b, who);
+    }
+    if (!m.length) return -search(b, -who, depth - 1, -z, -a);
+    m.sort((p, q) => WEIGHT[q[0]] - WEIGHT[p[0]]);
+    for (const [i, f] of m) { const v = -search(apply(b, i, f, who), -who, depth - 1, -z, -a); if (v > a) a = v; if (a >= z) break; }
+    return a;
+  }
+  function botMove(b, who, lvl) {
+    const L = LEVELS[lvl], m = moves(b, who);
+    let bestV = -Infinity, bestM = m[0];
+    for (const mv of m) {
+      const v = -search(apply(b, mv[0], mv[1], who), -who, L.depth - 1, -Infinity, Infinity) + (L.noise ? (Math.random() - 0.5) * L.noise * 2 : 0);
+      if (v > bestV) { bestV = v; bestM = mv; }
+    }
+    return bestM;
+  }
+
+  // ——— Game flow ———
+  function newGame() {
+    unlockAudio(); board = initial(); turn = 1; flips = []; lastMove = -1; thinking = false; passNote = null; history = [];
+    state = 'play'; $('start').hidden = true; $('over').hidden = true; $('bar').hidden = false; undo.hide();
+  }
+  function play(i, f, who) {
+    history.push({ board: board.slice(), turn });
+    board = apply(board, i, f, who); lastMove = i;
+    f.forEach((j, k) => { const x = j % 8 - i % 8, y = Math.floor(j / 8) - Math.floor(i / 8); flips.push({ i: j, t: -Math.max(Math.abs(x), Math.abs(y)) * 0.06, to: who }); });
+    sfx.place(); f.slice(0, 6).forEach((_, k) => sfx.flip(k));
+    const [x, y] = cellCentre(i);
+    if ([0, 7, 56, 63].includes(i)) { sfx.corner(); FX.on('coin', 1, x, y); if (who === 1) FX.text(x, y - 30, 'Угол!', '#ffd23f'); }
+    else if (who === 1 && f.length >= 5) FX.on('combo', f.length, x, y);
+    else FX.on('soft', 0, x, y);
+    next(-who);
+  }
+  function next(who) {
+    if (moves(board, who).length) { turn = who; }
+    else if (moves(board, -who).length) { turn = -who; passNote = { who, t: 0 }; sfx.pass(); }
+    else { turn = 0; setTimeout(finish, 800); return; }
+    if (turn === -1) { thinking = true; setTimeout(() => { if (state !== 'play' || turn !== -1) return; const mv = botMove(board, -1, level); thinking = false; play(mv[0], mv[1], -1); }, 520); }
+  }
+  function tap(i) {
+    if (state !== 'play' || turn !== 1 || thinking || lb.isOpen()) return;
+    const f = flipsFor(board, i, 1);
+    if (!f.length) { sfx.nope(); FX.on('nope'); return; }
+    play(i, f, 1);
+  }
+  function finish(resigned) {
+    if (state !== 'play') return;
+    state = 'over'; $('bar').hidden = true;
+    const me = count(board, 1), bot = count(board, -1), L = LEVELS[level];
+    const result = resigned ? 'lose' : me > bot ? 'win' : me < bot ? 'lose' : 'draw';
+    let record = false;
+    if (result === 'win') { wins++; points += L.pts; streak++; if (streak > bestStreak) { bestStreak = streak; record = true; } FX.win(); if (record && bestStreak > 1) setTimeout(() => FX.record(), 500); }
+    else { streak = 0; if (result === 'lose') FX.over(); }
+    store.set('reversi-wins', wins); store.set('reversi-points', points); store.set('reversi-streak', streak); store.set('reversi-best-streak', bestStreak);
+    if (result === 'win') lb.submit({ new_points: points, new_streak: bestStreak });
+    $('overWhy').textContent = resigned ? 'Ты сдался' : `${L.name} бот · ${me} : ${bot}`;
+    $('final').textContent = result === 'win' ? 'Победа!' : result === 'lose' ? 'Поражение' : 'Ничья';
+    $('overText').innerHTML = result === 'win' ? (record && bestStreak > 1 ? '<span class="new">Новая лучшая серия!</span> ' : '') + `+${L.pts} ${pointsWord(L.pts)} · серия ${streak}` : result === 'lose' ? 'Серия побед прервалась' : 'Серия побед прервалась — ничья не победа';
+    showBests(); $('over').hidden = false;
+    if (result === 'lose' && !resigned && history.length > 2) undo.show();
+  }
+  // Once a lost game, an ad takes back the last two moves and keeps the streak.
+  const undo = FreasyRewards.offer({ host: '#over .box', name: 'reversi3d-undo', label: '🎬 Переходить за рекламу', onReward: () => {
+    let h = history.pop(); while (h && h.turn !== 1 && history.length) h = history.pop();
+    if (!h) return;
+    streak = +store.get('reversi-streak-before', 0) || 0; store.set('reversi-streak', streak);
+    board = h.board; turn = 1; flips = []; lastMove = -1; state = 'play'; $('over').hidden = true; $('bar').hidden = false; showBests();
+  } });
+  function showBests() {
+    $('winsStart').textContent = $('winsOver').textContent = wins;
+    $('pointsStart').textContent = $('pointsOver').textContent = points;
+    $('streakStart').textContent = $('streakOver').textContent = bestStreak;
+  }
+
+  // ——— 3D ———
+  // Square i sits at x = col - 3.5, z = row - 3.5; the player looks from +z.
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); } catch (e) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="screen"><div class="box"><h1><span>3D</span> не запускается</h1><p>Браузер не поддерживает WebGL. Сыграй в обычное Реверси.</p><a class="play" style="text-decoration:none;display:block" href="../../reversi/">Обычное Реверси ↗</a></div></div>');
+    return;
+  }
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const scene = new THREE.Scene(); scene.background = new THREE.Color('#10182a');
+  const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
+  scene.add(new THREE.HemisphereLight('#dfe8ff', '#203020', 0.55));
+  const lamp = new THREE.SpotLight('#fff1d6', 1.15, 40, 0.8, 0.5); lamp.position.set(-2, 14, 3); lamp.castShadow = true; lamp.shadow.mapSize.set(1024, 1024); scene.add(lamp, lamp.target);
+  const mat = (c, o = {}) => new THREE.MeshStandardMaterial(Object.assign({ color: c, roughness: 0.5, metalness: 0.05 }, o));
+  const sqX = (i) => (i % 8) - 3.5, sqZ = (i) => Math.floor(i / 8) - 3.5;
+  const table = new THREE.Mesh(new THREE.CylinderGeometry(10, 10, 0.4, 48), mat('#1b2a22', { roughness: 0.95 })); table.position.y = -0.75; table.receiveShadow = true; scene.add(table);
+  const frameM = new THREE.Mesh(new THREE.BoxGeometry(9, 0.5, 9), mat('#6b4a2c', { roughness: 0.7 })); frameM.position.y = -0.3; frameM.castShadow = frameM.receiveShadow = true; scene.add(frameM);
+  const feltA = mat('#238853', { roughness: 0.9 }), feltB = mat('#1f7a4b', { roughness: 0.9 });
+  for (let i = 0; i < 64; i++) { const t = new THREE.Mesh(new THREE.BoxGeometry(0.97, 0.1, 0.97), (i + Math.floor(i / 8)) % 2 ? feltB : feltA); t.position.set(sqX(i), -0.03, sqZ(i)); t.receiveShadow = true; scene.add(t); }
+  for (const [cx, cz] of [[-2, -2], [2, -2], [-2, 2], [2, 2]]) { const d = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.02, 12), mat('#0c3a22')); d.position.set(cx, 0.03, cz); scene.add(d); }
+  // a disc is a dark half on top of a light half; flipping turns it over
+  const halfG = new THREE.CylinderGeometry(0.4, 0.4, 0.07, 32), darkM = mat('#1c1a2b', { roughness: 0.3 }), lightM = mat('#f4efe4', { roughness: 0.3 });
+  const discs = [];
+  for (let i = 0; i < 64; i++) {
+    const grp = new THREE.Group(), inner = new THREE.Group(); grp.add(inner);
+    const top = new THREE.Mesh(halfG, darkM), bot = new THREE.Mesh(halfG, lightM); top.position.y = 0.035; bot.position.y = -0.035;
+    top.castShadow = bot.castShadow = true; inner.add(top, bot);
+    grp.position.set(sqX(i), 0.08, sqZ(i)); grp.visible = false; scene.add(grp);
+    discs.push({ grp, inner, rot: 0 });
+  }
+  const ghost = new THREE.Mesh(halfG, mat('#1c1a2b', { transparent: true, opacity: 0.45 })); ghost.visible = false; scene.add(ghost);
+  const dotG = new THREE.CircleGeometry(0.12, 20), dots = [];
+  for (let i = 0; i < 64; i++) { const d = new THREE.Mesh(dotG, new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.3 })); d.rotation.x = -Math.PI / 2; d.position.set(sqX(i), 0.03, sqZ(i)); d.visible = false; scene.add(d); dots.push(d); }
+  const marker = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 8), new THREE.MeshBasicMaterial({ color: '#ff5d5d' })); scene.add(marker);
+  const v3 = new THREE.Vector3();
+  const project = (x, y, z) => { v3.set(x, y, z).project(camera); return [(v3.x + 1) / 2 * W, (1 - v3.y) / 2 * H]; };
+  const cellCentre = (i) => project(sqX(i), 0.2, sqZ(i));
+  function draw() {
+    const ang = state === 'start' ? Math.sin(time * 0.25) * 0.5 : 0;
+    camera.position.set(Math.sin(ang) * camDist * camBack, camDist * camUp, Math.cos(ang) * camDist * camBack); camera.lookAt(0, -0.4, camLookZ);
+    if (board) {
+      const anim = new Map(flips.map((f) => [f.i, f]));
+      for (let i = 0; i < 64; i++) {
+        const d = discs[i];
+        if (!board[i]) { d.grp.visible = false; continue; }
+        d.grp.visible = true;
+        const f = anim.get(i);
+        if (f) { const t = Math.max(0, Math.min(1, f.t / 0.3)); d.inner.rotation.x = (f.to === 1 ? Math.PI : 0) + (f.to === 1 ? -1 : 1) * t * Math.PI; d.grp.position.y = 0.08 + Math.sin(t * Math.PI) * 0.5; }
+        else { d.inner.rotation.x = board[i] === 1 ? 0 : Math.PI; const drop = i === lastMove ? Math.max(0, 0.5 - (time - lastT) * 3) : 0; d.grp.position.y = 0.08 + drop * drop * 2; }
+      }
+      marker.visible = lastMove >= 0; if (lastMove >= 0) marker.position.set(sqX(lastMove), 0.2 + (board[lastMove] === 1 ? 0 : 0), sqZ(lastMove));
+      const show = state === 'play' && turn === 1 && !thinking, mv = show ? moves(board, 1) : [];
+      const can = new Set(mv.map((m) => m[0]));
+      dots.forEach((d, i) => { d.visible = can.has(i); d.material.opacity = 0.25 + Math.sin(time * 4) * 0.08; });
+      ghost.visible = show && can.has(hover); if (ghost.visible) ghost.position.set(sqX(hover), 0.1, sqZ(hover));
+    }
+    renderer.render(scene, camera);
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    if (!board) return;
+    const me = count(board, 1), bot = count(board, -1);
+    g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.shadowColor = '#000a'; g.shadowBlur = 8;
+    if (state !== 'start') {
+      g.font = '800 22px Manrope, system-ui'; g.fillStyle = '#fff'; g.fillText(`⚫ ${me}  :  ${bot} ⚪`, W / 2, 98);
+      g.font = '800 13px Manrope, system-ui'; g.fillStyle = '#ffe7a8';
+      const msg = state !== 'play' ? '' : thinking || turn === -1 ? 'Бот думает…' : turn === 1 ? 'Твой ход' : 'Счёт…';
+      g.fillText(`${LEVELS[level].name} · ${msg ? msg + ' · ' : ''}серия ${streak}`, W / 2, 120);
+      if (hover >= 0 && ghost.visible) { const f = flipsFor(board, hover, 1).length, [x, y] = cellCentre(hover); g.font = '800 18px Manrope, system-ui'; g.fillStyle = '#ffd23f'; g.fillText('+' + f, x, y - 18); }
+      if (passNote && passNote.t < 1.8) { g.globalAlpha = Math.min(1, 1.8 - passNote.t); g.font = '800 20px Manrope, system-ui'; g.fillStyle = '#ffd23f'; g.fillText(passNote.who === 1 ? 'Тебе некуда ходить — пропуск' : 'Боту некуда ходить — ходи ещё', W / 2, H / 2); g.globalAlpha = 1; }
+    }
+    g.shadowBlur = 0;
+  }
+  let hover = -1, lastT = 0, last = performance.now();
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; time += dt;
+    for (const f of flips) f.t += dt; flips = flips.filter((f) => f.t < 0.3);
+    if (passNote) passNote.t += dt;
+    draw(); requestAnimationFrame(frame);
+  }
+  let camDist = 12, camLookZ = 0.6, camUp = 0.78, camBack = 0.62;
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1); W = innerWidth; H = innerHeight;
+    renderer.setPixelRatio(dpr); renderer.setSize(W, H, false); ov.width = W * dpr; ov.height = H * dpr;
+    camera.aspect = W / H; camera.updateProjectionMatrix();
+    const aspect = W / H, steep = Math.min(1, Math.max(0, (1.1 - aspect) / 0.6));
+    camUp = 0.78 + steep * 0.16; camBack = 0.62 - steep * 0.26; camLookZ = -0.5 + steep * 0.8;
+    const half = Math.atan(Math.tan(camera.fov * Math.PI / 360) * aspect);
+    camDist = Math.max(12.5, 5.1 / Math.tan(half));
+  }
+
+  const lb = FreasyLeaderboard({
+    key: 'reversi',
+    boards: [
+      { id: 'points', title: 'Очки', column: 'best_points', order: 'desc', note: 'Очки за все победы: лёгкий бот — 1, средний — 2, сложный — 3. Общая с обычным Реверси.', format: (v) => `${v} ${pointsWord(v)}` },
+      { id: 'streak', title: 'Серия', column: 'best_streak', order: 'desc', note: 'Больше всего побед подряд без поражений и ничьих.', format: (v) => `${v}` },
+    ],
+    bests: () => (wins ? { new_points: points, new_streak: bestStreak } : null),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  const ray = new THREE.Raycaster(), floor = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.02), hitP = new THREE.Vector3();
+  const cellAt = (px, py) => { ray.setFromCamera({ x: px / W * 2 - 1, y: -(py / H * 2 - 1) }, camera); if (!ray.ray.intersectPlane(floor, hitP)) return -1; const c = Math.floor(hitP.x + 4), r = Math.floor(hitP.z + 4); return c >= 0 && c < 8 && r >= 0 && r < 8 ? r * 8 + c : -1; };
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); unlockAudio(); const i = cellAt(e.clientX, e.clientY); if (i >= 0) { lastT = time; tap(i); } });
+  cv.addEventListener('pointermove', (e) => { hover = e.pointerType === 'mouse' ? cellAt(e.clientX, e.clientY) : -1; });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.target.closest && e.target.closest('.screen button')) return;
+    if ((e.code === 'Space' || e.code === 'Enter') && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); begin(); }
+  });
+  function pickLevel(l) { level = l; store.set('reversi-level', l); document.querySelectorAll('#levels button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.l === l))); }
+  document.querySelectorAll('#levels button').forEach((b) => b.addEventListener('click', () => pickLevel(+b.dataset.l)));
+  const begin = () => { store.set('reversi-streak-before', streak); newGame(); };
+  $('go').addEventListener('click', begin);
+  $('again').addEventListener('click', begin);
+  $('toMenu').addEventListener('click', () => { $('over').hidden = true; $('start').hidden = false; state = 'start'; });
+  $('menu').addEventListener('click', () => { if (confirm('Выйти в меню? Партия не засчитается.')) { state = 'start'; $('bar').hidden = true; $('start').hidden = false; } });
+  $('resign').addEventListener('click', () => { if (state === 'play' && confirm('Сдаться? Серия побед прервётся.')) finish(true); });
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('reversi-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  addEventListener('resize', resize);
+  resize(); pickLevel(level); showBests(); board = initial();
+  // #preview: a game in progress, for the site's screenshot.
+  if (location.hash === '#preview') {
+    newGame();
+    const b = new Array(64).fill(0);
+    '..ooo.....xoo....xxxoo...xxoxox..oxxxx.....xox...x.x.o'.padEnd(64, '.').slice(0, 64).split('').forEach((ch, i) => { b[i] = ch === 'x' ? 1 : ch === 'o' ? -1 : 0; });
+    board = b; lastMove = 29; streak = 4;
+  }
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__reversi3d = { get board() { return board; }, set board(b) { board = b; }, get turn() { return turn; }, get state() { return state; }, moves: (who) => moves(board, who), tap, botMove, newGame, finish };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

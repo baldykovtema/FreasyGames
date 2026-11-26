@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/i18n.js?v=3" data-game="3d-kroty"></script>
+<script src="../../shared/fx.js" data-mute="kroty-muted"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0d0f1c">
+<title>Кроты 3D — FreasyGames 3D</title>
+<meta name="description" content="Кроты 3D на FreasyGames: объёмные кроты выглядывают из норок на грядке — успей стукнуть их молотком. Те же правила и рекорды, что в обычных Кротах.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>#ov { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; } #c { touch-action: none; }</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="ov"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames 3D</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ 3D</div>
+    <h1>Кроты <span>3D</span></h1>
+    <p>Кроты выглядывают из норок на грядке — стукни каждого молотком, пока он не спрятался. Удары подряд без промаха поднимают множитель.</p>
+    <p>Золотой крот — +5, крот в каске выдерживает два удара, а ёжика бить нельзя. Упустил крота или стукнул ёжика — минус сердечко.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · лучшая серия: <b id="comboStart">0</b></p>
+    <button class="play" id="go" type="button">Стучать ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Касание или клик по норке · клавиши 1–9 или Q W E / A S D / Z X C · рекорды общие с обычными Кротами</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow" id="overWhy">Сердечки кончились</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">очков</p>
+    <p>Кротов: <b id="hitsOver">0</b> · серия: <b id="comboRun">0</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · лучшая серия: <b id="comboOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<script src="../../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), ov = $('ov'), g = ov.getContext('2d');
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const pointsWord = (n) => plural(n, 'очко', 'очка', 'очков');
+  const LIVES = 3;
+
+  let best = +store.get('kroty-best', 0) || 0, bestCombo = +store.get('kroty-best-combo', 0) || 0;
+  let runs = {}; try { runs = JSON.parse(store.get('kroty-runs', '{}')) || {}; } catch { runs = {}; }
+  let muted = store.get('kroty-muted', '0') === '1';
+  FX.muted = () => muted || state !== 'play';
+  let W = 0, H = 0, dpr = 1, cell = 100, ox = 0, oy = 0;
+  // holes[i]: {who: null|'mole'|'gold'|'helmet'|'hog', up: 0..1, t: time left, hp, hit: bonk timer, dir: 1 rising/-1 hiding}
+  let state = 'start', size = 3, holes = [], score = 0, hits = 0, combo = 0, comboRun = 0, lives = LIVES, playTime = 0, spawnT = 0, time = 0, hammer = null, popups = [], shake = 0;
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'square', v = 0.06, slide = 1, delay = 0) {
+    if (muted || state !== 'play' || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  const sfx = {
+    bonk: (n) => { tone(180, 0.08, 'square', 0.08, 0.5); tone(660 + Math.min(n, 12) * 40, 0.07, 'triangle', 0.05, 1, 0.02); },
+    gold: () => [0, 4, 7, 12].forEach((s, i) => tone(784 * Math.pow(2, s / 12), 0.1, 'triangle', 0.06, 1, i * 0.04)),
+    clank: () => { tone(1400, 0.08, 'square', 0.04, 0.8); tone(900, 0.1, 'square', 0.03, 0.7, 0.02); },
+    miss: () => tone(140, 0.07, 'sine', 0.05, 0.7),
+    ouch: () => { tone(300, 0.25, 'sawtooth', 0.07, 0.4); },
+    gone: () => tone(260, 0.18, 'triangle', 0.05, 0.6),
+    up: () => [0, 5, 9, 12, 17].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.1, 'triangle', 0.06, 1, i * 0.06)),
+  };
+
+  // ——— Game ———
+  const sizeFor = (sc) => sc >= 160 ? 5 : sc >= 50 ? 4 : 3;
+  const hard = () => Math.min(1, playTime / 120);
+  function makeHoles(n) { const old = holes; holes = []; for (let i = 0; i < n * n; i++) holes.push({ who: null, up: 0, t: 0, hp: 0, hit: 0, dir: 0 }); old.length = 0; }
+  function reset() { size = 3; makeHoles(3); score = 0; hits = 0; combo = 0; comboRun = 0; lives = LIVES; playTime = 0; spawnT = 0.6; popups = []; hammer = null; }
+  function spawn() {
+    const free = holes.map((h, i) => (h.who ? -1 : i)).filter((i) => i >= 0);
+    if (!free.length) return;
+    const k = hard(), i = free[Math.floor(Math.random() * free.length)], r = Math.random();
+    const who = r < 0.13 + k * 0.08 ? 'hog' : r < 0.21 + k * 0.08 ? 'gold' : r < 0.33 + k * 0.12 ? 'helmet' : 'mole';
+    Object.assign(holes[i], { who, up: 0, dir: 1, hp: who === 'helmet' ? 2 : 1, hit: 0, t: (who === 'gold' ? 0.75 : who === 'hog' ? 1.5 : 1.25) - k * 0.45 + Math.random() * 0.3 });
+  }
+  function popup(x, y, s, color) { popups.push({ x, y, s, color, t: 0 }); }
+  function whack(i) {
+    if (state !== 'play' || lb.isOpen() || i < 0 || i >= holes.length) return;
+    const h = holes[i], [x, y] = centre(i);
+    hammer = { i, t: 0 };
+    if (!h.who || h.hit > 0 || h.up < 0.35) { combo = 0; sfx.miss(); FX.on('soft', 0, x, y); return; }
+    if (h.who === 'hog') {
+      lives--; combo = 0; h.hit = 0.5; h.dir = -1; sfx.ouch(); shake = 0.35; FX.bad(x, y - cell * 0.1); popup(x, y - cell * 0.4, '−♥', '#ff6b6b');
+      if (lives <= 0) die('Не бей ёжика!');
+      return;
+    }
+    if (h.who === 'helmet' && h.hp > 1) { h.hp--; h.t += 0.35; sfx.clank(); FX.on('hit', 0, x, y - cell * 0.15); popup(x, y - cell * 0.45, 'Дзынь!', '#cfd6ea'); return; }
+    combo++; comboRun = Math.max(comboRun, combo); hits++;
+    const mult = Math.min(5, 1 + Math.floor(combo / 6)), pts = (h.who === 'gold' ? 5 : h.who === 'helmet' ? 2 : 1) * mult;
+    score += pts; h.hit = 0.45; h.dir = -1;
+    if (h.who === 'gold') { sfx.gold(); FX.on('coin', 1, x, y - cell * 0.2); } else { sfx.bonk(combo); FX.on('tap', 0, x, y - cell * 0.2); }
+    popup(x, y - cell * 0.45, `+${pts}`, h.who === 'gold' ? '#ffd23f' : '#fff');
+    if (combo > 0 && combo % 6 === 0 && mult > 1) { FX.on('combo', mult, x, y - cell * 0.4); popup(W / 2, H * 0.2, `×${mult}!`, '#5df2a5'); }
+    const ns = sizeFor(score);
+    if (ns > size) { size = ns; makeHoles(ns); resize(); sfx.up(); FX.text(W / 2, H * 0.4, `${ns}×${ns} норок!`, '#8dff7a', 32); }
+  }
+  function update(dt) {
+    time += dt;
+    for (const p of popups) p.t += dt; popups = popups.filter((p) => p.t < 0.8);
+    if (hammer) { hammer.t += dt; if (hammer.t > 0.22) hammer = null; }
+    shake = Math.max(0, shake - dt);
+    for (const h of holes) {
+      if (!h.who) continue;
+      if (h.hit > 0) { h.hit -= dt; if (h.hit <= 0) h.who = null, h.up = 0; continue; }
+      if (h.dir > 0) { h.up = Math.min(1, h.up + dt * 6); if (h.up >= 1) h.dir = 0; }
+      else if (h.dir === 0) { h.t -= dt; if (h.t <= 0) h.dir = -1; }
+      else { h.up -= dt * 5; if (h.up <= 0) {
+        if (state === 'play' && h.who !== 'hog') { lives--; combo = 0; sfx.gone(); const [x, y] = centre(holes.indexOf(h)); popup(x, y - cell * 0.4, 'Ушёл!', '#ff9a9a'); if (lives <= 0) die('Кроты разбежались'); }
+        h.who = null; h.up = 0;
+      } }
+    }
+    if (state !== 'play') return;
+    playTime += dt; spawnT -= dt;
+    if (spawnT <= 0) { spawn(); if (Math.random() < hard() * 0.5 + (size - 3) * 0.12) spawn(); spawnT = Math.max(0.32, 1 - hard() * 0.55) + Math.random() * 0.25; }
+  }
+  function die(text) {
+    if (state !== 'play') return;
+    state = 'dying'; why = text; FX.over(); setTimeout(over, 700);
+  }
+  let why = '';
+  function over() {
+    state = 'over';
+    const run = { new_score: score, new_combo: comboRun }, record = score > best;
+    if (record) { best = score; store.set('kroty-best', best); runs.score = run; if (score) setTimeout(() => FX.record(), 400); }
+    if (comboRun > bestCombo) { bestCombo = comboRun; store.set('kroty-best-combo', bestCombo); runs.combo = run; }
+    store.set('kroty-runs', JSON.stringify(runs));
+    if (score) lb.submit(run);
+    $('overWhy').textContent = why; $('final').textContent = score;
+    $('overText').innerHTML = (record && score ? '<span class="new">Новый рекорд!</span> ' : '') + pointsWord(score);
+    $('hitsOver').textContent = hits; $('comboRun').textContent = comboRun;
+    showBests(); $('over').hidden = false;
+    if (!chanceUsed && score >= 15) chance.show();
+  }
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'kroty3d-continue', label: '🎬 Ещё сердечко за рекламу', onReward: () => {
+    chanceUsed = true; lives = 1; for (const h of holes) { h.who = null; h.up = 0; } spawnT = 1; state = 'play'; $('over').hidden = true;
+  } });
+  function start() { unlockAudio(); reset(); resize(); state = 'play'; chanceUsed = false; chance.hide(); $('start').hidden = true; $('over').hidden = true; }
+
+  // ——— 3D ———
+  // Hole (row, col) of an n×n bed sits at x = col - (n-1)/2, z = row - (n-1)/2 (1.6 units apart); the camera looks from +z.
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); } catch (e) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="screen"><div class="box"><h1><span>3D</span> не запускается</h1><p>Браузер не поддерживает WebGL. Сыграй в обычных Кротов.</p><a class="play" style="text-decoration:none;display:block" href="../../kroty/">Обычные Кроты ↗</a></div></div>');
+    return;
+  }
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const scene = new THREE.Scene(); scene.background = new THREE.Color('#9fd8ff'); scene.fog = new THREE.Fog('#9fd8ff', 18, 40);
+  const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
+  scene.add(new THREE.HemisphereLight('#ffffff', '#3a5a2a', 0.5));
+  const sun = new THREE.DirectionalLight('#fff3d6', 0.9); sun.position.set(4, 12, 6); sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024);
+  Object.assign(sun.shadow.camera, { left: -7, right: 7, top: 7, bottom: -7 }); scene.add(sun);
+  const mat = (c, o = {}) => new THREE.MeshLambertMaterial(Object.assign({ color: c }, o));
+  const M = { grass: mat('#3a8a45'), soil: mat('#6b4a2c'), soilDark: mat('#5a3b1f'), hole: new THREE.MeshBasicMaterial({ color: '#160b04' }), fur: mat('#7a5236'), belly: mat('#c49a72'), gold: mat('#f2b92f', { emissive: '#5a3a00' }), goldBelly: mat('#ffe28a'),
+    dark: mat('#1a1020'), pink: mat('#ff7f9a'), white: mat('#ffffff'), helmet: mat('#ffcf3a'), helmetHurt: mat('#c49a2a'), spike: mat('#4a2e1c'), hogBody: mat('#6b4329'), hogFace: mat('#e8c39a'), wood: mat('#a0703c'), red: mat('#d24a4a'), star: new THREE.MeshBasicMaterial({ color: '#ffe46b' }), flower: [mat('#ff7eb6'), mat('#ffd23f'), mat('#ffffff')] };
+  const SP = 1.6;
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), M.grass); ground.rotation.x = -Math.PI / 2; ground.position.y = -0.02; ground.receiveShadow = true; scene.add(ground);
+  // flowers and grass around the bed
+  for (let i = 0; i < 70; i++) { const a = Math.random() * 6.28, r = 5 + Math.random() * 9, f = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 4), M.flower[i % 3]); f.position.set(Math.cos(a) * r, 0.1, Math.sin(a) * r - 2); scene.add(f); }
+  let field = null, fieldN = 0;
+  const moles = [];
+  function makeMole() {
+    const grp = new THREE.Group();
+    const mole = new THREE.Group(); grp.add(mole);
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.46, 0.9, 20), M.fur); body.position.y = 0.45; body.castShadow = true;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.42, 20, 14), M.fur); head.position.y = 0.9; head.castShadow = true;
+    const belly = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 10), M.belly); belly.scale.set(1, 1.3, 0.5); belly.position.set(0, 0.55, 0.3);
+    const snout = new THREE.Mesh(new THREE.SphereGeometry(0.17, 14, 10), M.belly); snout.position.set(0, 0.82, 0.36);
+    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 8), M.pink); nose.position.set(0, 0.88, 0.52);
+    const teeth = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.09, 0.03), M.white); teeth.position.set(0, 0.7, 0.5);
+    const eyes = [-1, 1].map((s) => { const e = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), M.dark); e.position.set(s * 0.15, 1.02, 0.36); return e; });
+    const xs = [-1, 1].map((s) => { const x = new THREE.Group(); for (const r of [0.8, -0.8]) { const b = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.03, 0.03), M.dark); b.rotation.z = r; x.add(b); } x.position.set(s * 0.15, 1.02, 0.4); return x; });
+    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.47, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2), M.helmet); helmet.position.y = 1.0; helmet.castShadow = true;
+    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.05, 20), M.helmet); brim.position.y = 1.0;
+    mole.add(body, head, belly, snout, nose, teeth, ...eyes, ...xs, helmet, brim);
+    // the hedgehog
+    const hog = new THREE.Group(); grp.add(hog);
+    const hb = new THREE.Mesh(new THREE.SphereGeometry(0.48, 18, 14), M.hogBody); hb.position.y = 0.6; hb.scale.set(1, 1.1, 0.95); hb.castShadow = true; hog.add(hb);
+    const spikeG = new THREE.ConeGeometry(0.07, 0.36, 6);
+    for (let k = 0; k < 40; k++) { const h = k / 40, a = k * 2.4, dir = new THREE.Vector3(Math.cos(a) * Math.sqrt(1 - h * h), h * 0.9 + 0.1, Math.sin(a) * Math.sqrt(1 - h * h) - 0.4).normalize(); if (dir.z > 0.45) continue; const s = new THREE.Mesh(spikeG, M.spike); s.position.copy(dir.clone().multiplyScalar(0.46)).add(new THREE.Vector3(0, 0.62, 0)); s.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir); hog.add(s); }
+    const hf = new THREE.Mesh(new THREE.SphereGeometry(0.3, 14, 10), M.hogFace); hf.scale.set(1, 0.9, 0.7); hf.position.set(0, 0.58, 0.32); hog.add(hf);
+    const hn = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), M.dark); hn.position.set(0, 0.6, 0.55); hog.add(hn);
+    for (const s of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), M.dark); e.position.set(s * 0.13, 0.72, 0.48); hog.add(e); }
+    const stars = new THREE.Group(); for (let k = 0; k < 3; k++) { const st = new THREE.Mesh(new THREE.OctahedronGeometry(0.09), M.star); stars.add(st); } stars.position.y = 1.45; grp.add(stars);
+    return { grp, mole, hog, body, head, helmet, brim, eyes, xs, stars };
+  }
+  function buildField(n) {
+    if (field) scene.remove(field);
+    field = new THREE.Group(); scene.add(field); fieldN = n; moles.length = 0;
+    const size = n * SP + 0.8;
+    const bed = new THREE.Mesh(new THREE.BoxGeometry(size, 0.5, size), M.soil); bed.position.y = -0.2; bed.receiveShadow = true; field.add(bed);
+    const rim = new THREE.Mesh(new THREE.BoxGeometry(size + 0.4, 0.36, size + 0.4), M.soilDark); rim.position.y = -0.3; field.add(rim);
+    for (let i = 0; i < n * n; i++) {
+      const x = (i % n - (n - 1) / 2) * SP, z = (Math.floor(i / n) - (n - 1) / 2) * SP;
+      const mound = new THREE.Mesh(new THREE.TorusGeometry(0.58, 0.13, 8, 24), M.soilDark); mound.rotation.x = Math.PI / 2; mound.position.set(x, 0.06, z); field.add(mound);
+      const hole = new THREE.Mesh(new THREE.CircleGeometry(0.55, 24), M.hole); hole.rotation.x = -Math.PI / 2; hole.position.set(x, 0.061, z); field.add(hole);
+      // the mole lives in a clipped well so it disappears below the ground
+      const m = makeMole(); m.grp.position.set(x, 0, z); field.add(m.grp); moles.push(m);
+    }
+    mallet.visible = false;
+  }
+  const mallet = new THREE.Group(); scene.add(mallet);
+  { const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.3, 10), M.wood); handle.position.y = 0.65; const head = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.6, 16), M.red); head.rotation.z = Math.PI / 2; head.position.y = 1.3; handle.castShadow = head.castShadow = true; mallet.add(handle, head); }
+  // the ground clips everything below it
+  renderer.localClippingEnabled = true;
+  const clip = [new THREE.Plane(new THREE.Vector3(0, 1, 0), 0.05)];
+  Object.values(M).flat().forEach((m) => { if (m.isMaterial && m !== M.grass && m !== M.soil && m !== M.soilDark && m !== M.hole) m.clippingPlanes = clip; });
+  const v3 = new THREE.Vector3();
+  function project(x, y, z) { v3.set(x, y, z).project(camera); return [(v3.x + 1) / 2 * W, (1 - v3.y) / 2 * H]; }
+  function centre(i) { const x = (i % size - (size - 1) / 2) * SP, z = (Math.floor(i / size) - (size - 1) / 2) * SP; return project(x, 0.6, z); }
+  function draw() {
+    if (fieldN !== size) buildField(size);
+    shakeOffset = shake > 0 ? (Math.random() - 0.5) * 0.3 * shake : 0;
+    holes.forEach((h, i) => {
+      const m = moles[i]; if (!m) return;
+      if (!h.who) { m.grp.visible = false; return; }
+      m.grp.visible = true;
+      const bonk = h.hit > 0, isHog = h.who === 'hog';
+      m.mole.visible = !isHog; m.hog.visible = isHog;
+      const lift = -1.45 + h.up * 1.45;
+      m.mole.position.y = m.hog.position.y = lift;
+      m.stars.visible = bonk; m.stars.position.y = lift + 1.5; m.stars.children.forEach((s, k) => { const a = time * 6 + k * 2.1; s.position.set(Math.cos(a) * 0.4, Math.sin(a * 2) * 0.05, Math.sin(a) * 0.4); });
+      const sq = bonk ? 0.78 : 1; m.mole.scale.set(2 - sq, sq, 2 - sq); m.hog.scale.set(2 - sq, sq, 2 - sq);
+      if (!isHog) {
+        const gold = h.who === 'gold';
+        m.body.material = m.head.material = gold ? M.gold : M.fur;
+        m.helmet.visible = m.brim.visible = h.who === 'helmet'; m.helmet.material = m.brim.material = h.hp > 1 ? M.helmet : M.helmetHurt;
+        m.eyes.forEach((e) => (e.visible = !bonk)); m.xs.forEach((x) => (x.visible = bonk));
+        m.mole.rotation.z = gold ? Math.sin(time * 10) * 0.08 : 0;
+      }
+    });
+    mallet.visible = !!hammer;
+    if (hammer) {
+      const x = (hammer.i % size - (size - 1) / 2) * SP, z = (Math.floor(hammer.i / size) - (size - 1) / 2) * SP;
+      const a = hammer.t < 0.08 ? 1.2 - hammer.t / 0.08 * 1.15 : 0.05 + (hammer.t - 0.08) * 6;
+      mallet.position.set(x + 1.25, 0, z + 0.2); mallet.rotation.set(0, 0, a);
+    }
+    camera.position.set(shakeOffset, camH, camZ); camera.lookAt(shakeOffset * 0.5, 0, camLook);
+    renderer.render(scene, camera);
+    // the flat overlay: popups and the HUD
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    g.textAlign = 'center';
+    for (const p of popups) { g.globalAlpha = 1 - p.t / 0.8; g.fillStyle = p.color; g.font = `800 ${Math.round(Math.max(18, cell * 0.2))}px Manrope, system-ui`; g.shadowColor = '#000a'; g.shadowBlur = 6; g.fillText(p.s, p.x, p.y - p.t * 40); }
+    g.globalAlpha = 1;
+    if (state !== 'start') {
+      g.shadowColor = '#000a'; g.shadowBlur = 8;
+      g.fillStyle = '#fff'; g.font = '800 34px Manrope, system-ui'; g.fillText(score, W / 2, 100);
+      const mult = Math.min(5, 1 + Math.floor(combo / 6));
+      g.font = '800 15px Manrope, system-ui'; g.fillStyle = '#ffe7a8'; g.fillText(`${'♥'.repeat(Math.max(0, lives))}${'♡'.repeat(Math.max(0, LIVES - lives))}  ·  серия ${combo}${mult > 1 ? '  ·  ×' + mult : ''}`, W / 2, 124);
+    }
+    g.shadowBlur = 0;
+  }
+  let shakeOffset = 0, camH = 9, camZ = 8, camLook = 0.4;
+  let last = performance.now();
+  function frame(now) { const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; update(dt); draw(); requestAnimationFrame(frame); }
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1); W = innerWidth; H = innerHeight;
+    renderer.setPixelRatio(dpr); renderer.setSize(W, H, false); ov.width = W * dpr; ov.height = H * dpr;
+    camera.aspect = W / H; camera.updateProjectionMatrix();
+    // step back until the whole bed fits across the screen, a little more on narrow phones
+    const span = size * SP + 1.2, half = Math.atan(Math.tan(camera.fov * Math.PI / 360) * camera.aspect);
+    const d = Math.max(span * 1.25, span * 0.62 / Math.tan(half));
+    camH = d * 0.74; camZ = d * 0.74; camLook = -0.2;
+    if (field) { const [ax] = project(-SP / 2, 0, 0), [bx] = project(SP / 2, 0, 0); cell = Math.abs(bx - ax); }
+  }
+  const ray = new THREE.Raycaster(), floor = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.5), hitP = new THREE.Vector3();
+  function holeAt(px, py) {
+    // the mole stands up to about half a unit tall, so the tap is matched at that height
+    ray.setFromCamera({ x: px / W * 2 - 1, y: -(py / H * 2 - 1) }, camera);
+    let bestI = -1, bestD = 0.95;
+    for (const hgt of [0.5, 0]) {
+      floor.constant = -hgt;
+      if (!ray.ray.intersectPlane(floor, hitP)) continue;
+      for (let i = 0; i < size * size; i++) { const x = (i % size - (size - 1) / 2) * SP, z = (Math.floor(i / size) - (size - 1) / 2) * SP, d = Math.hypot(hitP.x - x, hitP.z - z); if (d < bestD && (hgt === 0 || holes[i].who)) { bestD = d; bestI = i; } }
+      if (bestI >= 0) return bestI;
+    }
+    return bestI;
+  }
+  function showBests() { $('bestStart').textContent = $('bestOver').textContent = best; $('comboStart').textContent = $('comboOver').textContent = bestCombo; }
+
+  const lb = FreasyLeaderboard({
+    key: 'kroty',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за одну игру. Общая с обычными Кротами.', format: (v) => `${v} ${pointsWord(v)}` },
+      { id: 'combo', title: 'Серия', column: 'best_combo', order: 'desc', note: 'Самая длинная серия ударов без промаха.', format: (v) => `🔨 ${v}` },
+    ],
+    bests: () => [runs.score, runs.combo].filter(Boolean),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); unlockAudio(); const i = holeAt(e.clientX, e.clientY); if (i >= 0) whack(i); });
+  const KEYS = { Numpad7: 0, Numpad8: 1, Numpad9: 2, Numpad4: 3, Numpad5: 4, Numpad6: 5, Numpad1: 6, Numpad2: 7, Numpad3: 8, KeyQ: 0, KeyW: 1, KeyE: 2, KeyA: 3, KeyS: 4, KeyD: 5, KeyZ: 6, KeyX: 7, KeyC: 8, Digit7: 0, Digit8: 1, Digit9: 2, Digit4: 3, Digit5: 4, Digit6: 5, Digit1: 6, Digit2: 7, Digit3: 8 };
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.target.closest && e.target.closest('.screen button')) return;
+    if (state === 'play' && e.code in KEYS && size === 3) { e.preventDefault(); if (!e.repeat) whack(KEYS[e.code]); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); }
+  });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('kroty-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  addEventListener('resize', resize);
+  reset(); resize(); showBests();
+  // behind the start card a couple of moles peek out
+  Object.assign(holes[1], { who: 'mole', up: 1, dir: 0, t: 1e9 }); Object.assign(holes[5], { who: 'gold', up: 0.8, dir: 0, t: 1e9 });
+  // #preview: a game in progress, for the site's screenshot.
+  if (location.hash === '#preview') {
+    start(); size = 4; makeHoles(4); resize(); score = 87; combo = 14; lives = 2; playTime = 1e9;
+    const set = (i, who, up, extra) => Object.assign(holes[i], { who, up, dir: 0, t: 1e9, hp: who === 'helmet' ? 2 : 1 }, extra || {});
+    set(1, 'mole', 1); set(4, 'gold', 0.9); set(6, 'hog', 1); set(11, 'helmet', 0.85); set(13, 'mole', 0.6); set(9, 'mole', 1, { hit: 1e9 });
+    hammer = { i: 9, t: 0.09 }; update = (dt) => { time += dt; };
+  }
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__kroty3d = { get holes() { return holes; }, get state() { return state; }, get score() { return score; }, get lives() { return lives; }, get size() { return size; }, whack, start };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../shared/chat-boot.js?v=5"></script>
+</body>
+</html>

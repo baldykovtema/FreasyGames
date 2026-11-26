@@ -7,7 +7,7 @@
 <script src="../shared/theme.js?v=1"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0d0f1c">
-  <meta name="description" content="FreasyGames 3D — бесплатные 3D-игры прямо в браузере: RCFCG 3D, Растения против Зомби 3D, Мемный Кот: Прыг 3D, Отель «Полночь», Трасса 3D, Шариковый рекорд 3D, Лиана 3D, Слияние звёзд 3D, Звёздная башня 3D, Кирпичики 3D, Нарезка 3D, Лабиринт 3D, Блоки 3D, Лунка 3D, Аэрохоккей 3D, Бревно 3D, Колбы 3D, Танкодром 3D, Грузчик 3D, Мостик 3D, Посадка 3D, Четыре в ряд 3D, Минное поле 3D, Лампочки 3D, Цветная память 3D, Пятнашки 3D, Звездопад 3D, Бильярд 3D, Судоку 3D, Шашки 3D и Переход 3D.">
+  <meta name="description" content="FreasyGames 3D — бесплатные 3D-игры прямо в браузере: RCFCG 3D, Растения против Зомби 3D, Мемный Кот: Прыг 3D, Отель «Полночь», Трасса 3D, Шариковый рекорд 3D, Лиана 3D, Слияние звёзд 3D, Звёздная башня 3D, Кирпичики 3D, Нарезка 3D, Лабиринт 3D, Блоки 3D, Лунка 3D, Аэрохоккей 3D, Бревно 3D, Колбы 3D, Танкодром 3D, Грузчик 3D, Мостик 3D, Посадка 3D, Четыре в ряд 3D, Минное поле 3D, Лампочки 3D, Цветная память 3D, Пятнашки 3D, Звездопад 3D, Бильярд 3D, Судоку 3D, Шашки 3D, Переход 3D, Кроты 3D и Реверси 3D.">
   <title>FreasyGames 3D</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -314,6 +314,10 @@
     .art.crossing3d { background: #2f7a3c url(../images/perehod3d.jpg) 50% 50% / 140% auto no-repeat; }
     .art.draughts3d::after, .art.crossing3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, var(--card)); pointer-events: none; }
     .art .pct.draughts3dp { color: #fff; font-size: 13px; } .art .pct.crossing3dp { color: #5df2a5; font-size: 13px; }
+    .art.moles3d { background: #4fae5c url(../images/kroty3d.jpg) 50% 50% / 140% auto no-repeat; }
+    .art.reversi3d { background: #163a26 url(../images/reversi3d.jpg) 50% 50% / 140% auto no-repeat; }
+    .art.moles3d::after, .art.reversi3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, var(--card)); pointer-events: none; }
+    .art .pct.moles3dp { color: #fff; font-size: 13px; } .art .pct.reversi3dp { color: #5df2a5; font-size: 13px; }
     .art.bulbs3d { background: #120f22 url(../images/lampochki3d.jpg) 50% 45% / 150% auto no-repeat; }
     .art.memory3d { background: #121128 url(../images/pamyat3d.jpg) 50% 50% / 140% auto no-repeat; }
     .art.bulbs3d::after, .art.memory3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, var(--card)); pointer-events: none; }
@@ -377,7 +381,7 @@
     <section class="wrap hero">
       <span class="eyebrow">Только 3D</span>
       <h1>Freasy<span class="three">Games 3D</span></h1>
-      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже сорок игр, и будут ещё.</p>
+      <p>Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже сорок две игр, и будут ещё.</p>
       <a class="hero-action" href="#games">Смотреть игры ↓</a>
       <div class="hint">Двигай мышкой или пальцем — сцена повернётся</div>
     </section>
@@ -487,6 +491,10 @@
           <span class="tag live">Играть</span><h3>Шашки 3D</h3><p>Объёмная доска в деревянной раме под лампой: шашки с бороздками скользят по клеткам, при взятии подпрыгивают, а у дамок крутится золотая корона. Те же правила, сложности и рекорды, что в 2D.</p></div>
         <div class="slot game" data-game="3d-perehod" data-tags="Аркада, На реакцию, Таблица лидеров"><a class="slot-link" href="perehod/" aria-label="Играть: Переход 3D"></a><div class="art crossing3d" aria-hidden="true"><span class="pct crossing3dp">38</span></div>
           <span class="tag live">Играть</span><h3>Переход 3D</h3><p>Колючий объёмный ёжик скачет через дороги с угловатыми машинками, реки по брёвнам и рельсы, где мигает светофор и проносится поезд. Те же правила, яблоки и рекорды, что в 2D.</p></div>
+        <div class="slot game" data-game="3d-kroty" data-tags="Аркада, На реакцию, Таблица лидеров"><a class="slot-link" href="kroty/" aria-label="Играть: Кроты 3D"></a><div class="art moles3d" aria-hidden="true"><span class="pct moles3dp">×3</span></div>
+          <span class="tag live">Играть</span><h3>Кроты 3D</h3><p>Объёмные кроты вылезают из норок на грядке посреди лужайки с цветами, а молоток с размаху бьёт по каскам. Те же золотые кроты, ёжики и рекорды, что в 2D.</p></div>
+        <div class="slot game" data-game="3d-reversi" data-tags="Стратегия, Логика, Таблица лидеров"><a class="slot-link" href="reversi/" aria-label="Играть: Реверси 3D"></a><div class="art reversi3d" aria-hidden="true"><span class="pct reversi3dp">16 : 12</span></div>
+          <span class="tag live">Играть</span><h3>Реверси 3D</h3><p>Двухцветные фишки подлетают и переворачиваются в воздухе на зелёном сукне под лампой. Тот же бот трёх уровней, подсказки ходов и рекорды, что в 2D.</p></div>
       </div>
     </section>
 

@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../shared/session.js?v=2"></script>
+<script src="../shared/i18n.js?v=3" data-game="asteroidy"></script>
+<script src="../shared/fx.js" data-mute="asteroidy-muted"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111321">
+<title>Астероиды — FreasyGames</title>
+<meta name="description" content="Астероиды на FreasyGames: маленький кораблик в поясе астероидов. Разбивай камни на осколки, лови щит и тройной выстрел и проходи волну за волной.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>#c { touch-action: none; cursor: crosshair; }</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">☄️ Новая игра</div>
+    <h1><span>Астероиды</span></h1>
+    <p>Кораблик застрял в поясе астероидов. Стреляй по камням — большие раскалываются на средние, средние на мелкие. Расчисти небо, и прилетит новая волна.</p>
+    <p>Края экрана замкнуты: улетел вправо — вылетишь слева. Из камней выпадают щит, тройной выстрел и запасная жизнь. Иногда прилетает тарелка — она стреляет в ответ.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · лучшая волна: <b id="waveStart">0</b></p>
+    <button class="play" id="go" type="button">Взлёт ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Держи палец или мышь — кораблик повернётся и будет стрелять, далеко от него — полетит · стрелки или WASD и пробел</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow" id="overWhy">Корабль разбит</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">очков</p>
+    <p>Волна: <b id="waveOver">1</b> · камней разбито: <b id="rocksOver">0</b></p>
+    <p>Рекорд: <b id="bestOver">0</b> · лучшая волна: <b id="bestWaveOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="../shared/leaderboard.js"></script>
+<script src="../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), g = cv.getContext('2d');
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const pointsWord = (n) => plural(n, 'очко', 'очка', 'очков');
+  // The field is 900 units on its longer side; everything is measured in field units.
+  const SIZES = [0, 14, 26, 44], POINTS = [0, 100, 50, 20], LIVES = 3;
+
+  let best = +store.get('asteroidy-best', 0) || 0, bestWave = +store.get('asteroidy-best-wave', 0) || 0;
+  let runs = {}; try { runs = JSON.parse(store.get('asteroidy-runs', '{}')) || {}; } catch { runs = {}; }
+  let muted = store.get('asteroidy-muted', '0') === '1';
+  FX.muted = () => muted || state !== 'play';
+  let W = 0, H = 0, dpr = 1, FW = 900, FH = 600, k = 1;
+  let state = 'start', ship, rocks = [], shots = [], enemyShots = [], drops = [], parts = [], stars = [], ufo = null, score = 0, wave = 0, lives = LIVES, rocksHit = 0, time = 0, waveT = 0, ufoT = 0, shake = 0, nextLife = 10000;
+  const keys = new Set(); let pointer = null;
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'square', v = 0.06, slide = 1, delay = 0) {
+    if (muted || state !== 'play' || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  const sfx = {
+    shot: () => tone(880, 0.07, 'square', 0.025, 0.4),
+    crack: (s) => { tone([0, 300, 180, 90][s], 0.18, 'sawtooth', 0.06, 0.4); },
+    power: () => [0, 4, 7, 12].forEach((s, i) => tone(523 * Math.pow(2, s / 12), 0.1, 'triangle', 0.06, 1, i * 0.05)),
+    boom: () => { tone(90, 0.6, 'sawtooth', 0.12, 0.3); tone(50, 0.5, 'sine', 0.2, 0.5); },
+    wave: () => [0, 7, 12].forEach((s, i) => tone(392 * Math.pow(2, s / 12), 0.16, 'triangle', 0.06, 1, i * 0.1)),
+    ufo: () => tone(600 + Math.sin(time * 20) * 100, 0.05, 'sine', 0.02),
+  };
+
+  // ——— World ———
+  const wrap = (o) => { if (o.x < -30) o.x += FW + 60; if (o.x > FW + 30) o.x -= FW + 60; if (o.y < -30) o.y += FH + 60; if (o.y > FH + 30) o.y -= FH + 60; };
+  // shortest distance across the wrapped edges
+  const dist = (a, b) => { let dx = Math.abs(a.x - b.x), dy = Math.abs(a.y - b.y); dx = Math.min(dx, FW + 60 - dx); dy = Math.min(dy, FH + 60 - dy); return Math.hypot(dx, dy); };
+  function makeRock(size, x, y, speed) {
+    const a = Math.random() * Math.PI * 2, v = (speed || 40) * (1 + (3 - size) * 0.45) * (0.7 + Math.random() * 0.6), n = 9 + size * 2;
+    const shape = Array.from({ length: n }, (_, i) => 0.72 + Math.random() * 0.32);
+    return { size, x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, r: SIZES[size], rot: Math.random() * 6, spin: (Math.random() - 0.5) * 1.6, shape, hp: 1, tint: Math.random() };
+  }
+  function newWave() {
+    wave++; waveT = 2.2; sfx.wave();
+    const n = Math.min(3 + wave, 11), speed = 36 + wave * 6;
+    for (let i = 0; i < n; i++) {
+      let x, y; do { x = Math.random() * FW; y = Math.random() * FH; } while (Math.hypot(x - ship.x, y - ship.y) < 220);
+      rocks.push(makeRock(3, x, y, speed));
+    }
+    ufoT = Math.max(8, 22 - wave * 2) + Math.random() * 6;
+  }
+  function reset() {
+    ship = { x: FW / 2, y: FH / 2, vx: 0, vy: 0, a: -Math.PI / 2, cool: 0, inv: 2.5, shield: 0, triple: 0, thrust: 0, dead: 0 };
+    rocks = []; shots = []; enemyShots = []; drops = []; parts = []; ufo = null; score = 0; wave = 0; lives = LIVES; rocksHit = 0; nextLife = 10000;
+    newWave();
+  }
+  function burst(x, y, color, n, speed = 160) { for (let i = 0; i < n; i++) { const a = Math.random() * 6.28, v = speed * (0.3 + Math.random()); parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 0, life: 0.4 + Math.random() * 0.5, color }); } }
+  const scr = (x, y) => [ox + x * k, oy + y * k];
+  function hitRock(i, by) {
+    const r = rocks[i]; rocks.splice(i, 1); rocksHit++;
+    score += POINTS[r.size]; sfx.crack(r.size); burst(r.x, r.y, '#c7b7a3', 8 + r.size * 5); burst(r.x, r.y, '#ffd27a', 4);
+    const [sx, sy] = scr(r.x, r.y);
+    if (r.size === 3) FX.on('hit', 0, sx, sy); else FX.on('soft', 0, sx, sy);
+    if (r.size > 1) for (let j = 0; j < 2; j++) { const c = makeRock(r.size - 1, r.x, r.y, 50 + wave * 6); c.vx += r.vx * 0.4; c.vy += r.vy * 0.4; rocks.push(c); }
+    if (Math.random() < (r.size === 1 ? 0.07 : 0.04)) drops.push({ x: r.x, y: r.y, kind: lives < LIVES && Math.random() < 0.25 ? 'life' : Math.random() < 0.5 ? 'shield' : 'triple', t: 9 });
+    if (score >= nextLife) { nextLife += 10000; lives++; FX.text(W / 2, H * 0.3, '+1 жизнь', '#ff7eb6', 26); sfx.power(); }
+    if (!rocks.length) setTimeout(() => { if (state === 'play' && !rocks.length) newWave(); }, 900);
+  }
+  function fire() {
+    const s = ship, spread = s.triple > 0 ? [-0.22, 0, 0.22] : [0];
+    for (const d of spread) { const a = s.a + d; shots.push({ x: s.x + Math.cos(a) * 16, y: s.y + Math.sin(a) * 16, vx: Math.cos(a) * 560 + s.vx, vy: Math.sin(a) * 560 + s.vy, t: 0.85 }); }
+    s.cool = 0.17; sfx.shot();
+  }
+  function crash() {
+    if (ship.inv > 0 || ship.dead) return;
+    if (ship.shield > 0) { ship.shield = 0; ship.inv = 1; burst(ship.x, ship.y, '#6fe3ff', 20); FX.on('hit'); return; }
+    lives--; ship.dead = 1.6; sfx.boom(); shake = 0.6; burst(ship.x, ship.y, '#ffb347', 40, 240); burst(ship.x, ship.y, '#ffffff', 16, 120);
+    const [sx, sy] = scr(ship.x, ship.y); FX.explode(sx, sy); FX.shake(12, 400);
+    if (lives <= 0) { state = 'dying'; setTimeout(over, 1400); }
+  }
+  function update(dt) {
+    time += dt; shake = Math.max(0, shake - dt);
+    for (const p of parts) { p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.97; p.vy *= 0.97; } parts = parts.filter((p) => p.t < p.life);
+    for (const r of rocks) { r.x += r.vx * dt; r.y += r.vy * dt; r.rot += r.spin * dt; wrap(r); }
+    if (state === 'start') return;
+    waveT = Math.max(0, waveT - dt);
+    const s = ship;
+    if (s.dead) {
+      s.dead -= dt;
+      if (s.dead <= 0 && state === 'play') Object.assign(s, { dead: 0, x: FW / 2, y: FH / 2, vx: 0, vy: 0, inv: 2.5, a: -Math.PI / 2 });
+    } else if (state === 'play') {
+      let turn = 0, thrust = false, shoot = keys.has('fire');
+      if (keys.has('L')) turn -= 1; if (keys.has('R')) turn += 1; if (keys.has('U')) thrust = true;
+      if (pointer) {
+        const [px, py] = [(pointer.x - ox) / k, (pointer.y - oy) / k], want = Math.atan2(py - s.y, px - s.x);
+        let d = want - s.a; d = Math.atan2(Math.sin(d), Math.cos(d));
+        s.a += Math.sign(d) * Math.min(Math.abs(d), 7 * dt);
+        if (Math.hypot(px - s.x, py - s.y) > 130) thrust = true;
+        if (pointer.down) shoot = true;
+      }
+      s.a += turn * 4.4 * dt;
+      s.thrust = thrust ? Math.min(1, s.thrust + dt * 6) : Math.max(0, s.thrust - dt * 4);
+      if (thrust) { s.vx += Math.cos(s.a) * 340 * dt; s.vy += Math.sin(s.a) * 340 * dt; if (Math.random() < 0.6) parts.push({ x: s.x - Math.cos(s.a) * 12, y: s.y - Math.sin(s.a) * 12, vx: -Math.cos(s.a + (Math.random() - 0.5) * 0.5) * 140, vy: -Math.sin(s.a + (Math.random() - 0.5) * 0.5) * 140, t: 0, life: 0.3, color: Math.random() < 0.5 ? '#ffb347' : '#ffe46b' }); }
+      const sp = Math.hypot(s.vx, s.vy), max = 330; if (sp > max) { s.vx *= max / sp; s.vy *= max / sp; }
+      s.vx *= Math.pow(0.55, dt); s.vy *= Math.pow(0.55, dt);
+      s.x += s.vx * dt; s.y += s.vy * dt; wrap(s);
+      s.cool -= dt; if (shoot && s.cool <= 0) fire();
+      s.inv = Math.max(0, s.inv - dt); s.shield = Math.max(0, s.shield - dt); s.triple = Math.max(0, s.triple - dt);
+      for (const r of rocks) if (dist(r, s) < r.r * 0.85 + 10) { crash(); break; }
+      for (const d of drops) if (dist(d, s) < 24) {
+        d.t = 0; sfx.power(); const [sx, sy] = scr(d.x, d.y); FX.on('coin', 1, sx, sy);
+        if (d.kind === 'shield') { s.shield = 8; FX.text(sx, sy - 20, 'Щит!', '#6fe3ff'); } else if (d.kind === 'triple') { s.triple = 10; FX.text(sx, sy - 20, 'Тройной!', '#ffd23f'); } else { lives++; FX.text(sx, sy - 20, '+1 жизнь', '#ff7eb6'); }
+      }
+    }
+    for (const sh of shots) { sh.x += sh.vx * dt; sh.y += sh.vy * dt; sh.t -= dt; wrap(sh); }
+    for (let i = shots.length - 1; i >= 0; i--) {
+      const sh = shots[i]; let hit = false;
+      for (let j = rocks.length - 1; j >= 0; j--) if (dist(rocks[j], sh) < rocks[j].r) { hitRock(j); hit = true; break; }
+      if (!hit && ufo && dist(ufo, sh) < 22) { hit = true; score += 500; sfx.boom(); burst(ufo.x, ufo.y, '#8dff7a', 30, 220); const [sx, sy] = scr(ufo.x, ufo.y); FX.on('big', 0, sx, sy); FX.text(sx, sy - 20, '+500', '#8dff7a'); drops.push({ x: ufo.x, y: ufo.y, kind: Math.random() < 0.5 ? 'shield' : 'triple', t: 9 }); ufo = null; }
+      if (hit || sh.t <= 0) shots.splice(i, 1);
+    }
+    for (const d of drops) { d.t -= dt; } drops = drops.filter((d) => d.t > 0);
+    // the saucer crosses the screen and shoots at the ship now and then
+    if (state === 'play') { ufoT -= dt; if (ufoT <= 0 && !ufo) { const left = Math.random() < 0.5; ufo = { x: left ? -20 : FW + 20, y: 60 + Math.random() * (FH - 120), vx: (left ? 1 : -1) * (90 + wave * 6), t: 0, cool: 1.2 }; ufoT = 18 + Math.random() * 10; } }
+    if (ufo) {
+      ufo.t += dt; ufo.x += ufo.vx * dt; ufo.y += Math.sin(ufo.t * 2) * 50 * dt; ufo.cool -= dt;
+      if (Math.floor(ufo.t * 8) % 2 === 0) sfx.ufo();
+      if (ufo.cool <= 0 && !ship.dead && state === 'play') { const a = Math.atan2(ship.y - ufo.y, ship.x - ufo.x) + (Math.random() - 0.5) * 0.5; enemyShots.push({ x: ufo.x, y: ufo.y, vx: Math.cos(a) * 240, vy: Math.sin(a) * 240, t: 2.4 }); ufo.cool = Math.max(0.8, 2 - wave * 0.1); }
+      if (ufo.x < -40 || ufo.x > FW + 40) ufo = null;
+      else if (!ship.dead && dist(ufo, ship) < 26) crash();
+    }
+    for (const e of enemyShots) { e.x += e.vx * dt; e.y += e.vy * dt; e.t -= dt; if (!ship.dead && state === 'play' && dist(e, ship) < 12) { e.t = 0; crash(); } }
+    enemyShots = enemyShots.filter((e) => e.t > 0);
+  }
+  function over() {
+    state = 'over';
+    const run = { new_score: score, new_wave: wave }, record = score > best;
+    if (record) { best = score; store.set('asteroidy-best', best); runs.score = run; if (score) setTimeout(() => FX.record(), 400); }
+    if (wave > bestWave) { bestWave = wave; store.set('asteroidy-best-wave', bestWave); runs.wave = run; }
+    store.set('asteroidy-runs', JSON.stringify(runs));
+    if (score) lb.submit(run);
+    FX.over();
+    $('final').textContent = score;
+    $('overText').innerHTML = (record && score ? '<span class="new">Новый рекорд!</span> ' : '') + pointsWord(score);
+    $('waveOver').textContent = wave; $('rocksOver').textContent = rocksHit;
+    showBests(); $('over').hidden = false;
+    if (!chanceUsed && score >= 500) chance.show();
+  }
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'asteroidy-continue', label: '🎬 Ещё жизнь за рекламу', onReward: () => {
+    chanceUsed = true; lives = 1; state = 'play'; $('over').hidden = true;
+    Object.assign(ship, { dead: 0, x: FW / 2, y: FH / 2, vx: 0, vy: 0, inv: 3, a: -Math.PI / 2 });
+    rocks = rocks.filter((r) => Math.hypot(r.x - FW / 2, r.y - FH / 2) > 160); enemyShots = []; ufo = null;
+  } });
+  function start() { unlockAudio(); reset(); state = 'play'; chanceUsed = false; chance.hide(); $('start').hidden = true; $('over').hidden = true; }
+
+  // ——— Drawing ———
+  let ox = 0, oy = 0;
+  function rockPath(r) {
+    g.beginPath();
+    r.shape.forEach((m, i) => { const a = r.rot + i / r.shape.length * Math.PI * 2, x = r.x + Math.cos(a) * r.r * m, y = r.y + Math.sin(a) * r.r * m; if (i) g.lineTo(x, y); else g.moveTo(x, y); });
+    g.closePath();
+  }
+  function drawShip(s) {
+    if (s.dead) return;
+    if (s.inv > 0 && Math.floor(time * 12) % 2 === 0 && state === 'play') return;
+    g.save(); g.translate(s.x, s.y); g.rotate(s.a);
+    if (s.thrust > 0) { g.fillStyle = '#ffb347'; g.beginPath(); g.moveTo(-10, -5); g.lineTo(-10 - 14 * s.thrust - Math.random() * 6, 0); g.lineTo(-10, 5); g.fill(); }
+    g.fillStyle = '#e9e6f5'; g.beginPath(); g.moveTo(17, 0); g.lineTo(-11, -11); g.lineTo(-6, 0); g.lineTo(-11, 11); g.closePath(); g.fill();
+    g.fillStyle = '#6d4bd1'; g.beginPath(); g.moveTo(-11, -11); g.lineTo(-4, -5); g.lineTo(-6, 0); g.lineTo(-4, 5); g.lineTo(-11, 11); g.lineTo(-15, 0); g.closePath(); g.fill();
+    g.fillStyle = '#6fe3ff'; g.beginPath(); g.ellipse(4, 0, 4.5, 3, 0, 0, 7); g.fill();
+    g.restore();
+    if (s.shield > 0) { g.strokeStyle = `rgba(111,227,255,${0.5 + Math.sin(time * 8) * 0.2})`; g.lineWidth = 2; g.beginPath(); g.arc(s.x, s.y, 22, 0, 7); g.stroke(); }
+  }
+  function draw() {
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.fillStyle = '#070818'; g.fillRect(0, 0, W, H);
+    const neb = g.createRadialGradient(W * 0.3, H * 0.3, 10, W * 0.3, H * 0.3, Math.max(W, H) * 0.7); neb.addColorStop(0, '#2a1a5a55'); neb.addColorStop(1, '#07081800');
+    g.fillStyle = neb; g.fillRect(0, 0, W, H);
+    for (const st of stars) { g.globalAlpha = 0.35 + 0.35 * Math.sin(time * st.tw + st.p); g.fillStyle = '#fff'; g.fillRect(st.x * W, st.y * H, st.s, st.s); }
+    g.globalAlpha = 1;
+    const sk = shake > 0 ? (Math.random() - 0.5) * 14 * shake : 0;
+    g.setTransform(dpr * k, 0, 0, dpr * k, dpr * (ox + sk), dpr * (oy + sk * 0.6));
+    for (const r of rocks) {
+      g.fillStyle = r.tint < 0.5 ? '#5a4d44' : '#4b4558'; rockPath(r); g.fill();
+      g.strokeStyle = '#b8a998'; g.lineWidth = 2; g.stroke();
+      g.fillStyle = '#00000033'; g.beginPath(); g.arc(r.x + r.r * 0.25, r.y + r.r * 0.1, r.r * 0.22, 0, 7); g.arc(r.x - r.r * 0.3, r.y - r.r * 0.25, r.r * 0.14, 0, 7); g.fill();
+    }
+    for (const d of drops) {
+      if (d.t < 2 && Math.floor(time * 8) % 2) continue;
+      const col = d.kind === 'shield' ? '#6fe3ff' : d.kind === 'triple' ? '#ffd23f' : '#ff7eb6';
+      g.fillStyle = col + '33'; g.beginPath(); g.arc(d.x, d.y, 15 + Math.sin(time * 5) * 2, 0, 7); g.fill();
+      g.fillStyle = col; g.font = '800 15px Manrope, system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(d.kind === 'shield' ? '◎' : d.kind === 'triple' ? '⁂' : '♥', d.x, d.y + 1);
+    }
+    for (const sh of shots) { g.fillStyle = '#fff6b0'; g.beginPath(); g.arc(sh.x, sh.y, 2.6, 0, 7); g.fill(); }
+    for (const e of enemyShots) { g.fillStyle = '#8dff7a'; g.beginPath(); g.arc(e.x, e.y, 3.4, 0, 7); g.fill(); }
+    if (ufo) {
+      g.fillStyle = '#7d8aa8'; g.beginPath(); g.ellipse(ufo.x, ufo.y, 22, 8, 0, 0, 7); g.fill();
+      g.fillStyle = '#8dff7aaa'; g.beginPath(); g.ellipse(ufo.x, ufo.y - 6, 10, 8, 0, Math.PI, 0); g.fill();
+      g.fillStyle = Math.floor(time * 6) % 2 ? '#ffd23f' : '#ff5d5d'; for (const dx of [-12, 0, 12]) { g.beginPath(); g.arc(ufo.x + dx, ufo.y + 2, 2, 0, 7); g.fill(); }
+    }
+    if (ship) drawShip(ship);
+    for (const p of parts) { g.globalAlpha = 1 - p.t / p.life; g.fillStyle = p.color; g.fillRect(p.x - 1.5, p.y - 1.5, 3, 3); }
+    g.globalAlpha = 1;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (state !== 'start') {
+      g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.shadowColor = '#000a'; g.shadowBlur = 8;
+      g.fillStyle = '#fff'; g.font = '800 30px Manrope, system-ui'; g.fillText(score, W / 2, 96);
+      g.font = '800 14px Manrope, system-ui'; g.fillStyle = '#ffe7a8';
+      const buffs = (ship.shield > 0 ? ' · ◎ ' + Math.ceil(ship.shield) : '') + (ship.triple > 0 ? ' · ⁂ ' + Math.ceil(ship.triple) : '');
+      g.fillText(`волна ${wave} · ${'♥'.repeat(Math.max(0, Math.min(lives, 6)))}${buffs}`, W / 2, 118);
+      if (waveT > 0 && state === 'play') { g.globalAlpha = Math.min(1, waveT); g.font = '800 34px Manrope, system-ui'; g.fillStyle = '#bca0ff'; g.fillText(`Волна ${wave}`, W / 2, H * 0.42); g.globalAlpha = 1; }
+      g.shadowBlur = 0;
+    }
+  }
+  let last = performance.now();
+  function frame(now) { const dt = Math.max(0, Math.min(0.04, (now - last) / 1000)); last = now; update(dt); draw(); requestAnimationFrame(frame); }
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1); W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr;
+    // the field keeps the screen's shape: 900 units on the longer side
+    if (W >= H) { FW = 900; FH = Math.round(900 * H / W); } else { FH = 900; FW = Math.round(900 * W / H); }
+    FW = Math.max(FW, 420); FH = Math.max(FH, 420);
+    k = Math.min(W / FW, H / FH); ox = (W - FW * k) / 2; oy = (H - FH * k) / 2;
+    if (ship) { ship.x = Math.min(ship.x, FW); ship.y = Math.min(ship.y, FH); }
+  }
+  function showBests() { $('bestStart').textContent = $('bestOver').textContent = best; $('waveStart').textContent = $('bestWaveOver').textContent = bestWave; }
+
+  const lb = FreasyLeaderboard({
+    key: 'asteroidy',
+    boards: [
+      { id: 'score', title: 'Очки', column: 'best_score', order: 'desc', note: 'Больше всего очков за один полёт.', format: (v) => `${v} ${pointsWord(v)}` },
+      { id: 'wave', title: 'Волна', column: 'best_wave', order: 'desc', note: 'Самая дальняя волна астероидов.', format: (v) => `☄️ ${v}` },
+    ],
+    bests: () => [runs.score, runs.wave].filter(Boolean),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); unlockAudio(); pointer = { x: e.clientX, y: e.clientY, down: true, mouse: e.pointerType === 'mouse' }; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointermove', (e) => { if (pointer) { pointer.x = e.clientX; pointer.y = e.clientY; } });
+  const up = () => { pointer = null; };
+  cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+  const KEYS = { ArrowLeft: 'L', KeyA: 'L', ArrowRight: 'R', KeyD: 'R', ArrowUp: 'U', KeyW: 'U', Space: 'fire', KeyJ: 'fire' };
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.target.closest && e.target.closest('.screen button')) return;
+    if (state === 'play' && KEYS[e.code]) { e.preventDefault(); keys.add(KEYS[e.code]); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); start(); }
+  });
+  addEventListener('keyup', (e) => { if (KEYS[e.code]) keys.delete(KEYS[e.code]); });
+  addEventListener('blur', () => { keys.clear(); pointer = null; });
+  $('go').addEventListener('click', start);
+  $('again').addEventListener('click', start);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('asteroidy-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  for (let i = 0; i < 140; i++) stars.push({ x: Math.random(), y: Math.random(), s: Math.random() < 0.2 ? 2 : 1, tw: 1 + Math.random() * 3, p: Math.random() * 6 });
+  addEventListener('resize', resize);
+  resize(); showBests();
+  // behind the start card rocks drift by
+  for (let i = 0; i < 7; i++) rocks.push(makeRock(1 + (i % 3), Math.random() * FW, Math.random() * FH, 30));
+  // #preview: a game in progress, for the site's screenshot.
+  if (location.hash === '#preview') {
+    start(); rocks = []; wave = 4; score = 3870; lives = 2; waveT = 0; ship.inv = 0; ship.a = -0.5; ship.thrust = 1; ship.triple = 6; ship.x = FW * 0.45; ship.y = FH * 0.58; ufoT = 1e9;
+    const add = (size, x, y) => { const r = makeRock(size, FW * x, FH * y, 0); r.vx = r.vy = 0; r.spin = 0; rocks.push(r); };
+    add(3, 0.2, 0.25); add(3, 0.78, 0.7); add(2, 0.7, 0.22); add(2, 0.3, 0.8); add(1, 0.62, 0.38); add(1, 0.86, 0.35); add(1, 0.12, 0.6);
+    for (const d of [-0.22, 0, 0.22]) for (let j = 1; j <= 3; j++) shots.push({ x: ship.x + Math.cos(ship.a + d) * (24 + j * 40), y: ship.y + Math.sin(ship.a + d) * (24 + j * 40), vx: 0, vy: 0, t: 1e9 });
+    burst(FW * 0.62, FH * 0.38, '#c7b7a3', 18, 80); parts.forEach((p) => { p.life = 1e9; p.vx *= 0.4; p.vy *= 0.4; });
+    drops.push({ x: FW * 0.5, y: FH * 0.3, kind: 'shield', t: 1e9 });
+    ufo = { x: FW * 0.82, y: FH * 0.16, vx: 0, t: 0, cool: 1e9 };
+    update = (dt) => { time += dt; };
+  }
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__asteroidy = { get ship() { return ship; }, get rocks() { return rocks; }, get state() { return state; }, get score() { return score; }, get wave() { return wave; }, get lives() { return lives; }, start, hitRock, crash, keys };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../shared/chat-boot.js?v=5"></script>
+</body>
+</html>
