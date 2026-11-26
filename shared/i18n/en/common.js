@@ -727,6 +727,20 @@ FreasyI18n.add({
 "Играть: Судоку 3D": "Play: Sudoku 3D",
 "Открыть Шашки в новой вкладке": "Open Draughts in a new tab",
 "Открыть Переход в новой вкладке": "Open Crossing in a new tab",
-"51 бесплатная игра": "51 free games",
-"Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже тридцать восемь игр, и будут ещё.": "Free 3D games right in your browser. Nothing to download — just open and play. Thirty-eight games already, with more to come."
+"53 бесплатные игры": "53 free games",
+"Кроты": "Moles",
+"Скриншот Кротов: грядка с норками, из которых выглядывают кроты — золотой, в жёлтой каске и оглушённый под красным молотком, а рядом колючий ёжик": "Moles screenshot: a garden bed with holes where moles peek out — a golden one, one in a yellow hard hat and a dazed one under a red hammer, with a spiky hedgehog nearby",
+"Стукни молотком каждого крота, пока он не спрятался. Золотой крот даёт больше очков, крот в каске держит два удара, а ёжика бить нельзя. С ростом счёта норок становится больше.": "Bonk every mole with the hammer before it hides. A golden mole is worth more, a mole in a hard hat takes two hits, and never hit the hedgehog. The higher your score, the more holes there are.",
+"Открыть Кротов в новой вкладке": "Open Moles in a new tab",
+"Реверси": "Reversi",
+"Скриншот Реверси: зелёное поле 8 на 8 в деревянной раме, тёмные и светлые фишки, точки доступных ходов и счёт 16 : 12": "Reversi screenshot: a green 8 by 8 board in a wooden frame, dark and light discs, dots for possible moves and the score 16 : 12",
+"Зажимай фишки бота между своими, и они перевернутся. Ходить можно только туда, где что-то переворачивается, а углы не отнять. Бот трёх уровней и серия побед в таблице лидеров.": "Trap the bot's discs between yours and they flip over. You can only play where something flips, and corners can never be taken back. A bot with three levels and your win streak on the leaderboard.",
+"Открыть Реверси в новой вкладке": "Open Reversi in a new tab",
+"Бесплатные трёхмерные игры прямо в браузере. Без скачивания — открыл и играешь. Уже сорок игр, и будут ещё.": "Free 3D games right in your browser. Nothing to download — just open and play. Forty games already, with more to come.",
+"Шашки 3D": "Draughts 3D",
+"Объёмная доска в деревянной раме под лампой: шашки с бороздками скользят по клеткам, при взятии подпрыгивают, а у дамок крутится золотая корона. Те же правила, сложности и рекорды, что в 2D.": "A solid board in a wooden frame under a lamp: grooved pieces slide across the squares and leap when they capture, and kings wear a spinning gold crown. The same rules, levels and records as in 2D.",
+"Играть: Шашки 3D": "Play: Draughts 3D",
+"Переход 3D": "Crossing 3D",
+"Колючий объёмный ёжик скачет через дороги с угловатыми машинками, реки по брёвнам и рельсы, где мигает светофор и проносится поезд. Те же правила, яблоки и рекорды, что в 2D.": "A spiky solid hedgehog hops across roads full of blocky cars, rivers on logs and railways where a signal blinks and a train rushes by. The same rules, apples and records as in 2D.",
+"Играть: Переход 3D": "Play: Crossing 3D"
 });

@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/i18n.js?v=3" data-game="3d-perehod"></script>
+<script src="../../shared/fx.js" data-mute="perehod-muted"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0d0f1c">
+<title>Переход 3D — FreasyGames 3D</title>
+<meta name="description" content="Переход 3D на FreasyGames: объёмный ёжик прыгает через дороги с машинами, реки по брёвнам и рельсы под светофором. Те же правила и рекорды, что в обычном Переходе.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/game.css">
+<style>#ov { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; } #c { touch-action: none; }</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="ov"></canvas>
+<div class="hud"><a class="back" href="../">← FreasyGames 3D</a><div class="hud-right"><button class="sound" type="button" data-leaders aria-label="Таблица лидеров">🏆</button><button class="sound" id="sound" type="button" aria-label="Звук">🔊</button></div></div>
+
+<div class="screen" id="start">
+  <div class="box">
+    <div class="eyebrow">✦ 3D</div>
+    <h1>Переход <span>3D</span></h1>
+    <p>Помоги ёжику уйти как можно дальше. Перепрыгивай дороги между машинами, переплывай реки по брёвнам и не стой на рельсах, когда мигает огонёк.</p>
+    <p>Деревья не пускают, вода топит, а край экрана сам ползёт вперёд — не задерживайся. Яблоки — для таблицы лидеров.</p>
+    <p>Рекорд: <b id="bestStart">0</b> · яблок за игру: <b id="applesStart">0</b></p>
+    <button class="play" id="go" type="button">Вперёд ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="hint">Касание — прыжок вперёд, смахивание — в сторону · стрелки или WASD · рекорды общие с обычным Переходом</div>
+  </div>
+</div>
+
+<div class="screen" id="over" hidden>
+  <div class="box">
+    <div class="eyebrow" id="overWhy">Ой!</div>
+    <div class="big" id="final">0</div>
+    <p id="overText">шагов</p>
+    <p>Рекорд: <b id="bestOver">0</b> · яблок за игру: <b id="applesOver">0</b></p>
+    <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
+    <div class="small" id="onlineNote"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<script src="../../shared/rewards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const cv = $('c'), ov = $('ov'), g = ov.getContext('2d'), edges = [];
+  const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
+  const stepsWord = (n) => plural(n, 'шаг', 'шага', 'шагов');
+  const applesWord = (n) => plural(n, 'яблоко', 'яблока', 'яблок');
+  const COLS = 9, EDGE = 3, HOP = 0.13;
+  const rnd = (a, b) => a + Math.random() * (b - a), pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+  let best = +store.get('perehod-best', 0) || 0, bestApples = +store.get('perehod-best-apples', 0) || 0;
+  let runs = {}; try { runs = JSON.parse(store.get('perehod-runs', '{}')) || {}; } catch { runs = {}; }
+  let muted = store.get('perehod-muted', '0') === '1';
+  FX.muted = () => muted || state === 'start';
+  let W = 0, H = 0, dpr = 1, cell = 48, ox = 0;
+  // lanes[row]: {type: 'grass'|'road'|'river'|'rail', dir, speed, items, span, trees, apple, train…}; row 0 is the start
+  let state = 'start', lanes, p, camY = 0, score = 0, apples = 0, moved = false, time = 0, deadT = 0, why = '', queued = null, top = 0;
+
+  // ——— Sound ———
+  let ac = null;
+  function unlockAudio() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch {} }
+  function tone(f, d, type = 'square', v = 0.06, slide = 1, delay = 0) {
+    if (muted || state === 'start' || !ac) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide !== 1) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(gn).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  const sfx = {
+    hop: () => tone(520 + Math.random() * 80, 0.06, 'triangle', 0.05, 1.5),
+    bump: () => tone(120, 0.08, 'square', 0.05),
+    apple: () => { tone(880, 0.06, 'triangle', 0.06); tone(1320, 0.08, 'triangle', 0.05, 1, 0.05); },
+    honk: () => { tone(330, 0.12, 'square', 0.03); tone(415, 0.12, 'square', 0.03); },
+    bell: () => tone(1500, 0.05, 'square', 0.025),
+    squash: () => { tone(200, 0.2, 'sawtooth', 0.08, 0.4); },
+    splash: () => { tone(400, 0.25, 'sine', 0.07, 0.3); },
+    ten: () => [0, 7].forEach((s, i) => tone(784 * Math.pow(2, s / 12), 0.1, 'triangle', 0.05, 1, i * 0.06)),
+  };
+
+  // ——— World ———
+  const CAR_COLORS = ['#ff5f5f', '#3a6bff', '#ffd23f', '#a45cff', '#2fbf74', '#ff9a3d', '#6fe3ff'];
+  // difficulty grows with the row: faster traffic, more rivers and railways
+  const level = (r) => Math.min(1, r / 260);
+  function fillItems(lane, lens, gaps) {
+    lane.items = []; let x = -EDGE + rnd(0, 2);
+    while (x < COLS + EDGE) { const len = pick(lens); lane.items.push({ x, len, c: pick(CAR_COLORS) }); x += len + rnd(gaps[0], gaps[1]); }
+    lane.span = x + EDGE;
+  }
+  function makeLane(r) {
+    const lv = level(r);
+    let type = 'grass';
+    if (r >= 4) {
+      const prev = lanes[r - 1], run = prev ? prev.run : 0;
+      if (prev && prev.type !== 'grass' && run < prev.max) type = prev.type;
+      else if (prev && prev.type !== 'grass') type = 'grass';
+      else { const x = Math.random(); type = x < 0.25 - lv * 0.1 ? 'grass' : x < 0.62 - lv * 0.05 ? 'road' : x < 0.88 ? 'river' : 'rail'; }
+    }
+    const prev = lanes[r - 1];
+    const lane = { type, run: prev && prev.type === type ? prev.run + 1 : 1, max: type === 'road' ? Math.floor(rnd(1, 3 + lv * 2.5)) : type === 'river' ? Math.floor(rnd(1, 3 + lv)) : 1, dir: prev && prev.type === type ? -prev.dir : Math.random() < 0.5 ? 1 : -1, items: [], trees: new Set(), apple: -1 };
+    if (type === 'grass') {
+      if (r === 0) { for (const c of [0, COLS - 1]) lane.trees.add(c); }
+      else if (r > 2) { const n = Math.floor(rnd(0, 3.4)); for (let k = 0; k < n; k++) lane.trees.add(Math.floor(Math.random() * COLS)); lane.trees.delete(Math.floor(COLS / 2) + (r % 3) - 1); }
+      if (r > 3 && Math.random() < 0.3) { const c = Math.floor(Math.random() * COLS); if (!lane.trees.has(c)) lane.apple = c; }
+    } else if (type === 'road') {
+      lane.speed = rnd(1.4, 2.6) + lv * rnd(1, 3.2);
+      fillItems(lane, lane.speed > 3.4 ? [1.3] : [1.3, 1.3, 2.4], [2.6 - lv * 0.6, 5.5 - lv * 1.5]);
+    } else if (type === 'river') {
+      lane.speed = rnd(0.9, 1.8) + lv * 1.2;
+      fillItems(lane, [2, 3, 3, 4].map((l) => Math.max(2, l - Math.round(lv))), [1.4, 2.8 + lv]);
+    } else {
+      lane.trainT = rnd(1.5, 6); lane.train = null; lane.speed = 22;
+    }
+    return lane;
+  }
+  function ensureLanes() { const need = Math.ceil(camY + 18); while (top <= need) { lanes[top] = makeLane(top); top++; } for (const k in lanes) if (+k < camY - 3) delete lanes[k]; }
+
+  function newGame() {
+    unlockAudio(); lanes = {}; top = 0; camY = -1;
+    p = { x: Math.floor(COLS / 2), row: 0, fx: 0, fr: 0, t: 1, face: 1, squash: 0 };
+    score = 0; apples = 0; moved = false; deadT = 0; queued = null; chanceUsed = false; chance.hide();
+    state = 'play'; $('start').hidden = true; $('over').hidden = true; ensureLanes();
+  }
+  // a hop is one cell; on a log it keeps the fractional x, elsewhere it lands on a whole cell
+  function hop(dx, dr) {
+    if (state !== 'play' || lb.isOpen()) return;
+    if (p.t < 1) { queued = [dx, dr]; return; }
+    const tr = p.row + dr;
+    if (tr < 0 || tr < Math.floor(camY)) { sfx.bump(); return; }
+    let tx = p.x + dx;
+    const target = lanes[tr];
+    if (target.type !== 'river') tx = Math.round(tx);
+    if (tx < -0.2 || tx > COLS - 0.8) { sfx.bump(); return; }
+    if (target.type === 'grass' && target.trees.has(Math.round(tx))) { sfx.bump(); p.squash = 0.4; return; }
+    p.fx = p.x; p.fr = p.row; p.x = tx; p.row = tr; p.t = 0; moved = true;
+    p.look = dx ? -dx * Math.PI / 2 : dr > 0 ? 0 : Math.PI; sfx.hop();
+  }
+  function landed() {
+    const lane = lanes[p.row];
+    if (p.row > score) { score = p.row; if (score % 25 === 0) { sfx.ten(); const [sx, sy] = screen(p.x + 0.5, p.row); FX.text(sx, sy - 30, score, '#ffd23f'); } }
+    if (lane.type === 'grass' && lane.apple === Math.round(p.x)) { lane.apple = -1; apples++; sfx.apple(); const [sx, sy] = screen(p.x + 0.5, p.row); FX.on('coin', 1, sx, sy); }
+    if (queued) { const q = queued; queued = null; hop(...q); }
+  }
+  function die(kind, text) {
+    if (state !== 'play') return;
+    state = 'dead'; why = text; deadT = 0; p.dead = kind;
+    const [sx, sy] = screen(p.x + 0.5, p.row);
+    if (kind === 'water') { sfx.splash(); FX.on('splash', 1, sx, sy); } else { sfx.squash(); FX.bad(sx, sy); }
+    setTimeout(over, 900);
+  }
+  function over() {
+    state = 'over'; FX.over();
+    const record = score > best, run = { new_score: score, new_apples: apples };
+    if (record) { best = score; store.set('perehod-best', best); runs.score = run; if (score) setTimeout(() => FX.record(), 500); }
+    if (apples > bestApples) { bestApples = apples; store.set('perehod-best-apples', bestApples); runs.apples = run; }
+    store.set('perehod-runs', JSON.stringify(runs));
+    if (score) lb.submit(run);
+    $('overWhy').textContent = why;
+    $('final').textContent = score;
+    $('overText').innerHTML = (record && score ? '<span class="new">Новый рекорд!</span> ' : '') + `${stepsWord(score)} · ${apples} ${applesWord(apples)}`;
+    showBests(); $('over').hidden = false;
+    if (!chanceUsed && score >= 10) chance.show();
+  }
+  // Once a game, an ad puts the hedgehog back on the nearest safe grass and keeps the run going.
+  let chanceUsed = false;
+  const chance = FreasyRewards.offer({ host: '#over .box', name: 'perehod3d-continue', label: '🎬 Продолжить за рекламу', onReward: () => {
+    chanceUsed = true;
+    let r = p.row; while (r > 0 && lanes[r] && lanes[r].type !== 'grass') r--;
+    if (!lanes[r]) r = p.row;
+    const lane = lanes[r]; let x = Math.round(Math.max(0, Math.min(COLS - 1, p.x)));
+    if (lane.trees.has(x)) x = [...Array(COLS).keys()].find((c) => !lane.trees.has(c)) ?? x;
+    Object.assign(p, { x, row: r, t: 1, dead: null, squash: 0 }); camY = Math.min(camY, r - 2);
+    state = 'play'; $('over').hidden = true; queued = null;
+  } });
+
+  function update(dt) {
+    const lv = level(score);
+    for (const k in lanes) {
+      const lane = lanes[k];
+      for (const it of lane.items) { it.x += lane.dir * lane.speed * dt; if (lane.dir > 0 && it.x > lane.span - EDGE) it.x -= lane.span; if (lane.dir < 0 && it.x + it.len < -EDGE) it.x += lane.span; }
+      if (lane.type === 'rail') {
+        if (lane.train) { lane.train.x += lane.dir * lane.speed * dt; if (lane.train.x > COLS + 14 || lane.train.x < -26) { lane.train = null; lane.trainT = rnd(3, 7) - lv * 1.5; } }
+        else { const was = lane.trainT; lane.trainT -= dt; if (state === 'play' && was > 1.1 && lane.trainT <= 1.1 && Math.abs(+k - p.row) < 6) sfx.bell(); if (lane.trainT <= 0) lane.train = { x: lane.dir > 0 ? -14 : COLS + 2, len: 12 }; }
+      }
+    }
+    if (state !== 'play') return;
+    if (p.t < 1) { p.t = Math.min(1, p.t + dt / HOP); if (p.t >= 1) landed(); }
+    const lane = lanes[p.row], c = p.x + 0.5;
+    if (p.t >= 1 && lane.type === 'river') {
+      const log = lane.items.find((it) => c >= it.x - 0.1 && c <= it.x + it.len + 0.1);
+      if (!log) return die('water', 'Ёжик упал в воду');
+      p.x += lane.dir * lane.speed * dt;
+      if (p.x < -0.6 || p.x > COLS - 0.4) return die('water', 'Бревно унесло ёжика');
+    }
+    if (p.t > 0.5 || p.t >= 1) {
+      const hits = (a, len) => c + 0.32 > a && c - 0.32 < a + len;
+      if (lane.type === 'road' && lane.items.some((it) => hits(it.x, it.len))) return die('car', 'Ёжика сбила машина');
+      if (lane.type === 'rail' && lane.train && hits(lane.train.x, lane.train.len)) return die('car', 'Ёжика сбил поезд');
+    }
+    // the bottom edge creeps forward once the hedgehog has moved; falling behind ends the run
+    if (moved) camY += dt * Math.min(0.95, 0.32 + score * 0.004);
+    camY = Math.max(camY, p.row - 4);
+    if (p.row < camY - 0.3) die('owl', 'Ёжик отстал');
+    ensureLanes();
+  }
+
+  // ——— 3D ———
+  // A cell is 1 unit; column c sits at x = c - COLS/2 + 0.5, row r at z = -r.
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); } catch (e) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="screen"><div class="box"><h1><span>3D</span> не запускается</h1><p>Браузер не поддерживает WebGL. Сыграй в обычный Переход.</p><a class="play" style="text-decoration:none;display:block" href="../../perehod/">Обычный Переход ↗</a></div></div>');
+    return;
+  }
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const scene = new THREE.Scene(); scene.background = new THREE.Color('#8fd3ff'); scene.fog = new THREE.Fog('#8fd3ff', 14, 26);
+  const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 60);
+  scene.add(new THREE.HemisphereLight('#ffffff', '#4a6a3a', 0.6));
+  const sun = new THREE.DirectionalLight('#fff4dc', 0.85); sun.position.set(4, 10, 3); sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024); Object.assign(sun.shadow.camera, { left: -9, right: 9, top: 9, bottom: -9, near: 1, far: 30 });
+  scene.add(sun, sun.target);
+  const mat = (c, o = {}) => new THREE.MeshLambertMaterial(Object.assign({ color: c }, o));
+  const M = {
+    grassA: mat('#4aa858'), grassB: mat('#429d4f'), road: mat('#3b3d4f'), water: mat('#2f7fd0', { transparent: true, opacity: 0.92 }), rail: mat('#6b5a4a'),
+    sleeper: mat('#4a3b2e'), steel: mat('#c9ccd8'), line: mat('#ffffff', { transparent: true, opacity: 0.5 }), trunk: mat('#7a4f2a'), leaf: mat('#2fa857'), leaf2: mat('#1f7a3c'),
+    log: mat('#8a5a2e'), logEnd: mat('#d6a66d'), glass: mat('#1c2340'), light: mat('#fff6b0'), train: mat('#c33b4a'), trainWin: mat('#e9e4f5'), apple: mat('#d8283e'), stem: mat('#2fbf74'),
+    signalOff: mat('#552222'), signalOn: new THREE.MeshBasicMaterial({ color: '#ff3b3b' }), pole: mat('#222222'), edge: mat('#0e0f1c', { transparent: true, opacity: 0.55 }),
+    spike: mat('#4a2e1c'), body: mat('#6b4329'), face: mat('#e8c39a'), dark: mat('#1a1020'), nose: mat('#ff9aa8'),
+  };
+  const carMats = {}; const carMat = (c) => carMats[c] || (carMats[c] = mat(c));
+  const box = (w, h, d, m) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.castShadow = o.receiveShadow = true; return o; };
+  const X = (c) => c - COLS / 2;
+  const world = new THREE.Group(); scene.add(world);
+  // dark side curtains past the playable columns
+  for (const s of [-1, 1]) { const c = new THREE.Mesh(new THREE.BoxGeometry(6, 0.05, 80), M.edge); c.position.set(s * (COLS / 2 + 3), 0.06, -20); world.add(c); edges.push(c); }
+
+  const laneMeshes = new Map();
+  function buildLane(r, lane) {
+    const grp = new THREE.Group(); grp.position.z = -r; world.add(grp);
+    const ground = box(COLS + 30, lane.type === 'river' ? 0.1 : 0.3, 1, lane.type === 'grass' ? (r % 2 ? M.grassA : M.grassB) : lane.type === 'road' ? M.road : lane.type === 'river' ? M.water : M.rail);
+    ground.position.y = lane.type === 'river' ? -0.2 : -0.15; ground.castShadow = false; grp.add(ground);
+    const info = { grp, items: [], trees: new Map(), apple: null, train: null, signal: null };
+    if (lane.type === 'grass') {
+      for (const c of lane.trees) {
+        const t = new THREE.Group(), trunk = box(0.18, 0.4, 0.18, M.trunk); trunk.position.y = 0.2;
+        const k = 0.75 + ((c * 7 + r * 13) % 5) * 0.08;
+        const crown = box(0.7 * k, 0.6 * k, 0.7 * k, M.leaf); crown.position.y = 0.55 + 0.3 * k;
+        const top = box(0.45 * k, 0.35 * k, 0.45 * k, M.leaf2); top.position.y = 0.95 + 0.5 * k;
+        t.add(trunk, crown, top); t.position.x = X(c) + 0.5; grp.add(t); info.trees.set(c, t);
+      }
+      if (lane.apple >= 0) {
+        const a = new THREE.Group(), ball = new THREE.Mesh(new THREE.SphereGeometry(0.16, 14, 10), M.apple), leaf = box(0.12, 0.03, 0.06, M.stem);
+        ball.castShadow = true; leaf.position.set(0.05, 0.17, 0); a.add(ball, leaf); a.position.set(X(lane.apple) + 0.5, 0.3, 0); grp.add(a); info.apple = a;
+      }
+    } else if (lane.type === 'road') {
+      const prev = lanes[r - 1];
+      if (prev && prev.type === 'road') for (let x = -COLS; x < COLS; x += 1) { const l = box(0.5, 0.02, 0.06, M.line); l.castShadow = false; l.position.set(x, 0.01, 0.5); grp.add(l); }
+      for (const it of lane.items) {
+        const car = new THREE.Group(), w = it.len - 0.1;
+        const body = box(w, 0.42, 0.7, carMat(it.c)); body.position.y = 0.3; car.add(body);
+        const cab = box(Math.min(w * 0.55, 1.2), 0.3, 0.6, carMat(it.c)); cab.position.set(-lane.dir * w * 0.08, 0.66, 0); car.add(cab);
+        const win = box(0.05, 0.22, 0.52, M.glass); win.position.set(cab.position.x + lane.dir * (Math.min(w * 0.55, 1.2) / 2), 0.66, 0); car.add(win);
+        for (const z of [-0.22, 0.22]) { const hl = box(0.04, 0.08, 0.12, M.light); hl.position.set(lane.dir * w / 2, 0.34, z); car.add(hl); }
+        for (const sx of [-0.32, 0.32]) for (const z of [-0.36, 0.36]) { const wh = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.08, 12), M.dark); wh.rotation.x = Math.PI / 2; wh.position.set(sx * w, 0.13, z); car.add(wh); }
+        grp.add(car); info.items.push(car);
+      }
+    } else if (lane.type === 'river') {
+      for (const it of lane.items) {
+        const log = new THREE.Group(), w = it.len - 0.08;
+        const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, w, 14), M.log); cyl.rotation.z = Math.PI / 2; cyl.castShadow = cyl.receiveShadow = true; log.add(cyl);
+        for (const s of [-1, 1]) { const end = new THREE.Mesh(new THREE.CircleGeometry(0.28, 14), M.logEnd); end.rotation.y = s * Math.PI / 2; end.position.x = s * (w / 2 + 0.001); log.add(end); }
+        log.position.y = -0.05; grp.add(log); info.items.push(log);
+      }
+    } else {
+      for (let x = -COLS; x < COLS; x += 0.5) { const s = box(0.18, 0.05, 0.78, M.sleeper); s.castShadow = false; s.position.set(x, 0.02, 0); grp.add(s); }
+      for (const z of [-0.22, 0.22]) { const rl = box(COLS + 30, 0.06, 0.06, M.steel); rl.position.set(0, 0.08, z); grp.add(rl); }
+      const pole = box(0.08, 1, 0.08, M.pole); pole.position.set(X(0) - 0.4, 0.5, 0.42); grp.add(pole);
+      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 8), M.signalOff); lamp.position.set(X(0) - 0.4, 1.05, 0.42); grp.add(lamp); info.signal = lamp;
+      const train = new THREE.Group();
+      for (let k = 0; k < 12; k += 3) { const car = box(2.85, 0.8, 0.8, M.train); car.position.set(k + 1.5, 0.5, 0); train.add(car); const w = box(2.2, 0.25, 0.82, M.trainWin); w.position.set(k + 1.5, 0.62, 0); train.add(w); }
+      train.visible = false; grp.add(train); info.train = train;
+    }
+    laneMeshes.set(r, info); return info;
+  }
+  function syncLanes() {
+    for (const [r, info] of laneMeshes) if (!lanes || lanes[r] === undefined || info.lane !== lanes[r]) { world.remove(info.grp); info.grp.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); laneMeshes.delete(r); }
+    if (!lanes) return;
+    for (const k in lanes) { const r = +k; if (!laneMeshes.has(r)) { const info = buildLane(r, lanes[r]); info.lane = lanes[r]; } }
+  }
+  // the hedgehog: a round brown body covered in spikes, a pale face and a pink nose
+  const hog = new THREE.Group(); scene.add(hog);
+  const hogBody = new THREE.Group(); hog.add(hogBody);
+  { const b = new THREE.Mesh(new THREE.SphereGeometry(0.3, 18, 14), M.body); b.scale.set(1, 0.85, 1.1); b.castShadow = true; b.position.y = 0.28; hogBody.add(b);
+    const spikeG = new THREE.ConeGeometry(0.06, 0.24, 6);
+    for (let k = 0; k < 34; k++) { const a = k * 2.4, h = (k / 34) * 0.9 + 0.05, s = new THREE.Mesh(spikeG, M.spike); const dir = new THREE.Vector3(Math.cos(a) * Math.sqrt(1 - h * h), h, Math.sin(a) * Math.sqrt(1 - h * h)); if (dir.z < -0.35) continue; s.position.copy(dir.clone().multiplyScalar(0.3)).add(new THREE.Vector3(0, 0.28, 0.04)); s.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize()); s.castShadow = true; hogBody.add(s); }
+    const face = new THREE.Mesh(new THREE.SphereGeometry(0.2, 14, 10), M.face); face.scale.set(0.9, 0.8, 1.1); face.position.set(0, 0.24, -0.26); hogBody.add(face);
+    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), M.dark); nose.position.set(0, 0.24, -0.47); hogBody.add(nose);
+    for (const s of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), M.dark); e.position.set(s * 0.1, 0.34, -0.36); hogBody.add(e); const c = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), M.nose); c.position.set(s * 0.15, 0.23, -0.38); hogBody.add(c); } }
+  const ripple = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.3, 24), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.7 })); ripple.rotation.x = -Math.PI / 2; ripple.visible = false; scene.add(ripple);
+  const v3 = new THREE.Vector3();
+  const screen = (x, row) => { v3.set(X(x), 0.5, -row).project(camera); return [(v3.x + 1) / 2 * W, (1 - v3.y) / 2 * H]; };
+
+  function draw() {
+    syncLanes();
+    for (const [r, info] of laneMeshes) {
+      const lane = lanes[r];
+      lane.items.forEach((it, k) => { const m = info.items[k]; if (m) m.position.x = X(it.x) + it.len / 2; });
+      if (info.apple && lane.apple < 0) { info.grp.remove(info.apple); info.apple = null; }
+      if (info.apple) { info.apple.position.y = 0.3 + Math.sin(time * 3 + r) * 0.05; info.apple.rotation.y = time * 1.5; }
+      if (lane.type === 'rail') {
+        const warn = lane.train || lane.trainT < 1.1, on = warn && Math.floor(time * 6) % 2 === 0;
+        info.signal.material = on ? M.signalOn : M.signalOff;
+        info.train.visible = !!lane.train; if (lane.train) info.train.position.x = X(lane.train.x);
+      }
+    }
+    if (p) {
+      const fx = p.t < 1 ? p.fx + (p.x - p.fx) * p.t : p.x, fr = p.t < 1 ? p.fr + (p.row - p.fr) * p.t : p.row, up = p.t < 1 ? Math.sin(p.t * Math.PI) * 0.45 : 0;
+      const lane = lanes && lanes[p.row], onLog = lane && lane.type === 'river' && p.t >= 1;
+      hog.position.set(X(fx) + 0.5, up + (onLog ? 0.2 : 0), -fr);
+      const flat = p.dead && p.dead !== 'water' ? 0.25 : 1;
+      hogBody.scale.set(1 + p.squash * 0.25 + (1 - flat) * 0.5, flat * (1 - p.squash * 0.25), 1 + (1 - flat) * 0.5);
+      const face = p.look || 0;
+      hogBody.rotation.y += (face - hogBody.rotation.y) * 0.35;
+      hog.visible = p.dead !== 'water' || deadT < 0.15;
+      ripple.visible = p.dead === 'water'; if (ripple.visible) { ripple.position.set(hog.position.x, -0.08, hog.position.z); const s = 1 + deadT * 4; ripple.scale.set(s, s, s); ripple.material.opacity = Math.max(0, 0.8 - deadT); }
+    }
+    // the camera trails behind and above, following the creeping edge
+    const fy = camY + 3.2, cx = p ? Math.max(-1.5, Math.min(1.5, (X(p.x) + 0.5) * 0.35)) : 0;
+    camera.position.set(cx, 7.2, -fy + 6.2); camera.lookAt(cx * 0.6, 0, -fy - 1.6);
+    sun.position.set(cx + 4, 10, -fy + 3); sun.target.position.set(cx, 0, -fy - 2);
+    for (const e of edges) e.position.z = -fy - 4;
+    renderer.render(scene, camera);
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    if (state !== 'start') {
+      g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.shadowColor = '#000a'; g.shadowBlur = 8;
+      g.fillStyle = '#fff'; g.font = '800 34px Manrope, system-ui'; g.fillText(score, W / 2, 104);
+      g.font = '800 14px Manrope, system-ui'; g.fillStyle = '#ffe7a8'; g.fillText(`🍎 ${apples} · рекорд ${Math.max(best, score)}`, W / 2, 126);
+      g.shadowBlur = 0;
+    }
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; time += dt;
+    if (lanes) update(dt);
+    if (state === 'dead') deadT += dt;
+    p && (p.squash = Math.max(0, p.squash - dt * 2));
+    draw();
+    requestAnimationFrame(frame);
+  }
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1); W = innerWidth; H = innerHeight;
+    renderer.setPixelRatio(dpr); renderer.setSize(W, H, false); ov.width = W * dpr; ov.height = H * dpr;
+    camera.aspect = W / H; camera.fov = W < H ? 58 : 42; camera.updateProjectionMatrix();
+    if (lanes) ensureLanes();
+  }
+  function showBests() { $('bestStart').textContent = $('bestOver').textContent = best; $('applesStart').textContent = $('applesOver').textContent = bestApples; }
+
+  const lb = FreasyLeaderboard({
+    key: 'perehod',
+    boards: [
+      { id: 'score', title: 'Шаги', column: 'best_score', order: 'desc', note: 'Дальше всех ушли за одну игру. Общая с обычным Переходом.', format: (v) => `${v} ${stepsWord(v)}` },
+      { id: 'apples', title: 'Яблоки', column: 'best_apples', order: 'desc', note: 'Больше всего яблок за одну игру.', format: (v) => `${v} 🍎` },
+    ],
+    bests: () => [runs.score, runs.apples].filter(Boolean),
+    onStatus: (text) => { $('onlineNote').textContent = text; },
+  });
+
+  let down = null;
+  cv.addEventListener('pointerdown', (e) => { e.preventDefault(); unlockAudio(); down = { x: e.clientX, y: e.clientY }; });
+  cv.addEventListener('pointerup', (e) => {
+    if (!down) return; const dx = e.clientX - down.x, dy = e.clientY - down.y; down = null;
+    if (Math.hypot(dx, dy) < 24) return hop(0, 1);
+    if (Math.abs(dx) > Math.abs(dy)) hop(Math.sign(dx), 0); else hop(0, dy < 0 ? 1 : -1);
+  });
+  cv.addEventListener('pointercancel', () => { down = null; });
+  addEventListener('keydown', (e) => {
+    if (lb.isOpen()) { if (e.key === 'Escape') lb.close(); return; }
+    if (e.target.closest && e.target.closest('.screen button')) return;
+    const k = { ArrowUp: [0, 1], KeyW: [0, 1], ArrowDown: [0, -1], KeyS: [0, -1], ArrowLeft: [-1, 0], KeyA: [-1, 0], ArrowRight: [1, 0], KeyD: [1, 0] }[e.code];
+    if (k && state === 'play') { e.preventDefault(); if (!e.repeat) hop(...k); return; }
+    if (e.code === 'Space' && state === 'play') { e.preventDefault(); hop(0, 1); return; }
+    if ((e.code === 'Space' || e.code === 'Enter') && (!$('start').hidden || !$('over').hidden)) { e.preventDefault(); newGame(); }
+  });
+  $('go').addEventListener('click', newGame);
+  $('again').addEventListener('click', newGame);
+  document.querySelectorAll('[data-leaders]').forEach((b) => b.addEventListener('click', () => lb.open()));
+  $('sound').textContent = muted ? '🔇' : '🔊';
+  $('sound').addEventListener('click', () => { muted = !muted; store.set('perehod-muted', muted ? '1' : '0'); $('sound').textContent = muted ? '🔇' : '🔊'; $('sound').blur(); });
+
+  addEventListener('resize', resize);
+  resize(); showBests();
+  // behind the start card: the road ahead, a few rows in
+  lanes = {}; top = 0; camY = -1; p = { x: 4, row: 0, fx: 0, fr: 0, t: 1, face: 1, squash: 0 }; ensureLanes();
+  // #preview: a run in progress, for the site's screenshot.
+  if (location.hash === '#preview') {
+    newGame();
+    for (let r = 1; r <= 7; r++) lanes[r] = makeLane(r);
+    lanes[2] = Object.assign(makeLane(2), { type: 'road', dir: 1, speed: 2 }); fillItems(lanes[2], [1.3, 2.4], [2.5, 4]);
+    lanes[3] = Object.assign(makeLane(3), { type: 'road', dir: -1, speed: 2.5 }); fillItems(lanes[3], [1.3], [2.5, 4]);
+    lanes[4] = Object.assign(makeLane(4), { type: 'grass', trees: new Set([1, 6]), apple: 3 });
+    lanes[5] = Object.assign(makeLane(5), { type: 'river', dir: 1, speed: 1 }); fillItems(lanes[5], [3], [1.6, 2]);
+    lanes[6] = Object.assign(makeLane(6), { type: 'river', dir: -1, speed: 1.3 }); fillItems(lanes[6], [2, 3], [1.6, 2]);
+    lanes[7] = Object.assign(makeLane(7), { type: 'rail', trainT: 0.8, train: null, items: [] });
+    p.row = 4; p.x = 4; score = 38; apples = 5;
+  }
+  // On a local server tests can look inside.
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__perehod3d = { get p() { return p; }, get lanes() { return lanes; }, get state() { return state; }, get score() { return score; }, get camY() { return camY; }, hop, newGame, tick: (ms = 16) => { const r = window.requestAnimationFrame; window.requestAnimationFrame = () => 0; frame(last + ms); window.requestAnimationFrame = r; } };
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../shared/chat-boot.js?v=5"></script>
+</body>
+</html>
