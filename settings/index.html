@@ -137,6 +137,13 @@
     .sep { width: 1px; height: 26px; background: var(--line-2); }
     .grow { flex: 1; }
 
+    .langs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .lang-btn { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 16px; border-radius: 16px; border: 2px solid var(--line); background: var(--card-a); color: var(--text); cursor: pointer; font: inherit; text-align: left; }
+    .lang-btn:hover { border-color: var(--accent-a); }
+    .lang-btn[aria-pressed=true] { border-color: var(--accent); background: var(--hover); }
+    .lang-btn .flag { font-size: 28px; line-height: 1; }
+    .lang-btn b { font-size: 17px; }
+    .lang-btn small { color: var(--muted); font-size: 12px; }
     @media (max-width: 760px) {
       .presets { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .colors { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -165,13 +172,14 @@
   <main class="wrap">
     <section class="hero">
       <div class="ava" id="hero-ava" aria-hidden="true">?</div>
-      <div><h1>Настройки</h1><p id="hero-sub">Аккаунт, пароль и тема сайта и приложения</p></div>
+      <div><h1>Настройки</h1><p id="hero-sub">Аккаунт, пароль, тема и язык сайта и приложения</p></div>
     </section>
 
     <nav class="tabs" role="tablist">
       <button class="tab" role="tab" data-tab="theme" aria-selected="true">🎨 Тема</button>
       <button class="tab" role="tab" data-tab="profile" aria-selected="false">🖼️ Аватарка</button>
       <button class="tab" role="tab" data-tab="password" aria-selected="false">🔑 Пароль</button>
+      <button class="tab" role="tab" data-tab="lang" aria-selected="false">🌐 Язык</button>
     </nav>
 
     <!-- ================= ТЕМА ================= -->
@@ -274,6 +282,18 @@
       </section>
       <section class="panel login-need" id="pw-out" hidden><p>Войди в аккаунт, чтобы сменить пароль.</p><button class="btn main" data-login type="button">👤 Войти</button></section>
     </div>
+    <!-- ================= ЯЗЫК ================= -->
+    <div class="page" id="page-lang" hidden>
+      <section class="panel">
+        <h2>Язык сайта</h2>
+        <p class="sub">Выбери язык FreasyGames. Он сохранится на этом устройстве и включится на сайте, в играх, в FreasyGames 3D и в приложении.</p>
+        <div class="langs" id="langs" translate="no">
+          <button class="lang-btn" type="button" data-lang="en"><span class="flag">🇬🇧</span><b>English</b><small>English</small></button>
+          <button class="lang-btn" type="button" data-lang="ru"><span class="flag">🇷🇺</span><b>Русский</b><small>Russian</small></button>
+        </div>
+      </section>
+    </div>
+
   </main>
 
   <!-- ================= РИСОВАЛКА ================= -->
@@ -315,6 +335,13 @@
     }
     tabs.forEach((t) => t.addEventListener('click', () => showTab(t.dataset.tab)));
     showTab(location.hash.slice(1) || 'theme');
+
+    // ---------- язык ----------
+    const I = window.FreasyI18n;
+    document.querySelectorAll('.lang-btn').forEach((b) => {
+      b.setAttribute('aria-pressed', String(b.dataset.lang === (I ? I.lang : 'en')));
+      b.addEventListener('click', () => { if (I && I.lang !== b.dataset.lang) I.set(b.dataset.lang); });
+    });
 
     // ================= ТЕМА =================
     let theme = T.get() || { preset: 'night', base: 'night', colors: { ...T.PRESETS.night }, wallpaper: null, dim: 0.45, cards: 0.85, blur: 8 };
