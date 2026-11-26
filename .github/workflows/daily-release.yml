@@ -1,0 +1,67 @@
+# Daily game release: at 12:00 Belgrade time the branch daily/<today> is merged into main,
+# so the games built ahead of time appear on the site by themselves (the computer can be off).
+name: Daily release
+
+on:
+  schedule:
+    # GitHub starts scheduled runs late, so the run starts at 11:40 and waits for 12:00 Belgrade time
+    - cron: '40 9,10 * * *'
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Release date (YYYY-MM-DD), empty = today in Belgrade'
+        required: false
+
+permissions:
+  contents: write
+  pages: write
+
+concurrency:
+  group: daily-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find today's release
+        id: day
+        run: |
+          D="${{ github.event.inputs.date }}"
+          [ -z "$D" ] && D=$(TZ=Europe/Belgrade date +%F)
+          echo "date=$D" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --heads "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" "daily/$D" >/dev/null; then
+            echo "found=yes" >> "$GITHUB_OUTPUT"; echo "Release branch daily/$D found"
+          else
+            echo "found=no" >> "$GITHUB_OUTPUT"; echo "No release for $D"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.day.outputs.found == 'yes'
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Wait for 12:00 Belgrade time
+        if: steps.day.outputs.found == 'yes' && github.event_name == 'schedule'
+        run: |
+          # the cron covers both winter (UTC+1) and summer (UTC+2) time; the run an hour too early stops here
+          target=$(TZ=Europe/Belgrade date -d "$(TZ=Europe/Belgrade date +%F) 12:00" +%s)
+          now=$(date +%s)
+          if [ $((target - now)) -gt 1800 ]; then echo "Not this hour"; echo "SKIP=1" >> "$GITHUB_ENV"; exit 0; fi
+          if [ $now -lt $target ]; then echo "Waiting $((target - now)) s"; sleep $((target - now)); fi
+
+      - name: Merge into main and publish
+        if: steps.day.outputs.found == 'yes' && env.SKIP != '1'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          D=${{ steps.day.outputs.date }}
+          git config user.name "FreasyGames release"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "daily/$D"
+          if git merge-base --is-ancestor "origin/daily/$D" HEAD; then echo "Already published"; exit 0; fi
+          git merge --ff-only "origin/daily/$D" || git merge --no-edit -m "Выпуск $D" "origin/daily/$D"
+          git push origin HEAD:main
+          gh api -X POST "repos/${{ github.repository }}/pages/builds" || echo "Pages build request failed (the push may still trigger it)"
+          echo "Published daily/$D"
