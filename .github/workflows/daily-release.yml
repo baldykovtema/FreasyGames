@@ -4,8 +4,10 @@ name: Daily release
 
 on:
   schedule:
-    # GitHub starts scheduled runs late, so the run starts at 11:40 and waits for 12:00 Belgrade time
-    - cron: '40 9,10 * * *'
+    # GitHub starts scheduled runs late and sometimes skips them, so several runs are spread over the
+    # day: one waits for 12:00 Belgrade time, the later ones publish if the release is still missing
+    - cron: '40,55 9,10 * * *'
+    - cron: '*/15 11-16 * * *'
   workflow_dispatch:
     inputs:
       date:
@@ -45,10 +47,10 @@ jobs:
       - name: Wait for 12:00 Belgrade time
         if: steps.day.outputs.found == 'yes' && github.event_name == 'schedule'
         run: |
-          # the cron covers both winter (UTC+1) and summer (UTC+2) time; the run an hour too early stops here
+          # runs more than half an hour before noon (winter or summer time) stop here
           target=$(TZ=Europe/Belgrade date -d "$(TZ=Europe/Belgrade date +%F) 12:00" +%s)
           now=$(date +%s)
-          if [ $((target - now)) -gt 1800 ]; then echo "Not this hour"; echo "SKIP=1" >> "$GITHUB_ENV"; exit 0; fi
+          if [ $((target - now)) -gt 1800 ]; then echo "Too early"; echo "SKIP=1" >> "$GITHUB_ENV"; exit 0; fi
           if [ $now -lt $target ]; then echo "Waiting $((target - now)) s"; sleep $((target - now)); fi
 
       - name: Merge into main and publish
