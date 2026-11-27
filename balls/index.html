@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/guard.js?v=1"></script>
 <script src="../shared/i18n.js?v=3" data-game="balls"></script>
 <script src="../shared/fx.js"></script>
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -159,15 +160,20 @@ function draw(){
 }
 // Физика рассчитана на 60 шагов в секунду — на мониторах 120/144 Гц шарик не должен лететь быстрее.
 const STEP=1000/60;let last=performance.now(),acc=0;
-function loop(now){acc=Math.min(acc+(now-last),STEP*10);last=now;while(acc>=STEP){update();acc-=STEP}draw();requestAnimationFrame(loop)}
+// Между шагами физики шарик рисуется в промежуточной точке, иначе на 120 Гц он движется рывками.
+function loop(now){acc=Math.min(acc+(now-last),STEP*10);last=now;while(acc>=STEP){if(ball){ball.px=ball.x;ball.py=ball.y}update();acc-=STEP}
+ let keep=null;if(ball&&ball.px!==undefined){keep=[ball.x,ball.y];const a=acc/STEP;ball.x=ball.px+(ball.x-ball.px)*a;ball.y=ball.py+(ball.y-ball.py)*a}
+ draw();if(keep&&ball){ball.x=keep[0];ball.y=keep[1]}requestAnimationFrame(loop)}
 const dropBtn=document.createElement('button');dropBtn.textContent='Начать бросок';dropBtn.style.display='block';dropBtn.style.margin='12px auto';dropBtn.onclick=drop;canvas.after(dropBtn);
 $('loginBtn').onclick=()=>auth('login');$('registerBtn').onclick=()=>auth('signup');
 $('passInput').addEventListener('keydown',e=>{if(e.key==='Enter')auth('login')});
 $('guestBtn').onclick=()=>start('Гость');$('startBtn').onclick=()=>start(username());$('logoutBtn').onclick=logout;
 $('againBtn').onclick=()=>start(player);$('newGame').onclick=showStart;$('accountBtn').onclick=showStart;
 showStart();loadRecords();requestAnimationFrame(loop);
+// таблица рекордов обновляется сама, пока вкладка открыта
+setInterval(()=>{if(!document.hidden)loadRecords()},30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)loadRecords()});
 })();
 </script>
 <script src="../shared/back.js"></script>
-<script src="../shared/chat-boot.js?v=5"></script>
+<script src="../shared/chat-boot.js?v=6"></script>
 </body></html>

@@ -11,7 +11,7 @@
   const start = async () => {
     if (!window.FreasyAccount) await load(base + 'account.js?v=8');
     await load(base + 'turn.js?v=1'); // данные ретранслятора для голоса (если вписаны)
-    if (!window.FreasyChat) await load(base + 'chat.js?v=8');
+    if (!window.FreasyChat) await load(base + 'chat.js?v=9');
     if (window.FreasyChat) window.FreasyChat({ inGame });
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();

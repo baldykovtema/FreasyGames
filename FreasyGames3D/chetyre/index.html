@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/guard.js?v=1"></script>
 <script src="../../shared/i18n.js?v=3" data-game="3d-chetyre"></script>
 <script src="../../shared/fx.js" data-mute="chetyre-muted"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
@@ -28,6 +29,7 @@
     <p>Соперник — Енот, он выглядывает из-за доски. Каждая победа открывает новый раунд, и Енот думает на ход дальше. Рекорды общие с обычными Четырьмя в ряд.</p>
     <p>Рекорд: <b id="bestStart">0</b> · побед подряд: <b id="streakStart">0</b></p>
     <button class="play" id="go" type="button">Играть ↗</button>
+    <button class="ghost" type="button" data-online>🌐 Играть по сети с человеком</button>
     <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
     <div class="hint">Касание или клик по колонке · клавиши 1–7 или стрелки и пробел</div>
   </div>
@@ -41,6 +43,7 @@
     <p>Побед подряд: <b id="streakOver">0</b> · дошёл до раунда <b id="roundOver">1</b></p>
     <p>Рекорд: <b id="bestOver">0</b> · лучшая серия: <b id="bestStreakOver">0</b></p>
     <button class="play" id="again" type="button">Ещё раз ↗</button>
+    <button class="ghost" type="button" data-online>🌐 Играть по сети с человеком</button>
     <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
     <div class="small" id="onlineNote"></div>
   </div>
@@ -48,6 +51,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="../shared/leaderboard.js"></script>
+<script src="../../shared/duel.js?v=1"></script>
 <script src="../../shared/rewards.js"></script>
 <script>
 (() => {
@@ -165,18 +169,24 @@
   // ——— Game flow ———
   function newRound() {
     board = empty(); drops = []; winLine = null; moves = 0; roundTime = 0; busy = false;
+    if (online) {
+      turn = firstMine ? YOU : BOT; busy = turn === BOT;
+      banner = { text: `Партия ${round}`, sub: turn === YOU ? 'Ты ходишь первым' : `Первым ходит ${oppName}`, life: 1.6 };
+      return;
+    }
     turn = round % 2 === 1 ? YOU : BOT;
     banner = { text: `Раунд ${round}`, sub: turn === YOU ? 'Ты ходишь первым' : 'Первым ходит Енот', life: 1.6 };
     if (turn === BOT) { busy = true; setTimeout(botTurn, 1100); }
   }
   function start() {
+    if (online) { online = false; duel.leave(); }
     unlockAudio(); clearTimeout(botTimer);
     round = 1; streak = 0; score = 0; playTime = 0; state = 'play'; chanceUsed = false; chance.hide();
     $('start').hidden = true; $('over').hidden = true; newRound();
   }
   let botTimer = 0;
   function botTurn() {
-    if (state !== 'play') return;
+    if (state !== 'play' || online) return;
     thinking = 0.6;
     botTimer = setTimeout(() => { if (state === 'play') { thinking = 0; drop(botMove(), BOT); } }, 420 + Math.random() * 300);
   }
@@ -197,6 +207,14 @@
   }
   function finish(who, line) {
     winLine = line; busy = true;
+    if (online) {
+      // сетевая партия: счёт матча, и через пару секунд — следующая партия с тем же соперником
+      if (who === YOU) { myWins++; sfx.win(); FX.win(); for (const [c, r] of line) { const [px, py] = cellCenter(c, r); FX.sparkle(px, py, '#ffd23f'); } banner = { text: 'Победа!', sub: `Счёт ${myWins} : ${oppWins}`, life: 2.4 }; }
+      else if (who === BOT) { oppWins++; sfx.lose(); shake = 0.4; FX.bad(); banner = { text: `${oppName} собрал четыре`, sub: `Счёт ${myWins} : ${oppWins}`, life: 2.4 }; }
+      else { sfx.draw(); banner = { text: 'Ничья', sub: `Счёт ${myWins} : ${oppWins}`, life: 2.4 }; }
+      setTimeout(() => { if (online) duel.rematch(); }, 2500);
+      return;
+    }
     if (who === YOU) {
       streak++;
       const pts = 10 + round * 5 + Math.max(0, 21 - moves) * 2;
@@ -398,7 +416,7 @@
   function play(c) {
     if (state !== 'play' || busy || turn !== YOU || lb.isOpen()) return;
     unlockAudio(); hover = c;
-    drop(c, YOU);
+    if (drop(c, YOU) && online) duel.move({ c });
   }
 
   function showBests() {
@@ -426,6 +444,35 @@
     showBests(); $('over').hidden = false;
     if (!chanceUsed) chance.show();
   }
+
+  // ——— Игра по сети с живым соперником (shared/duel.js) ———
+  let online = false, firstMine = true, oppName = 'Соперник', myWins = 0, oppWins = 0, pending = null;
+  function applyPending() {
+    if (!pending || !online || state !== 'play' || turn !== BOT || winLine || drops.some((d) => !d.done)) return;
+    const m = pending; pending = null; hover = m.c; drop(m.c, BOT);
+  }
+  const duel = FreasyDuel({
+    key: 'chetyre',
+    onStart: ({ first, opponent, game }) => {
+      if (game === 1 || !online) { myWins = 0; oppWins = 0; }
+      online = true; firstMine = first; oppName = opponent || 'Соперник';
+      unlockAudio(); clearTimeout(botTimer); chance.hide();
+      round = game; streak = 0; score = 0; playTime = 0; state = 'play'; pending = null;
+      $('start').hidden = true; $('over').hidden = true; newRound();
+    },
+    // ход соперника может прийти, пока у нас ещё падает своя фишка: тогда он ждёт своей очереди
+    onMove: (m) => { if (m && m.c >= 0 && m.c < COLS) { pending = m; applyPending(); } },
+    onLeave: () => {
+      if (!online) return;
+      online = false; state = 'start'; banner = null; $('start').hidden = false;
+    },
+  });
+  setInterval(() => {
+    applyPending();
+    if (online && state === 'play') duel.status(`🌐 Ты ${myWins} : ${oppWins} ${oppName} · ${winLine ? 'партия окончена' : turn === YOU ? 'твой ход' : 'ходит соперник'}`);
+    else if (!online && duel.active() === false && state === 'play') duel.status('');
+  }, 300);
+  document.querySelectorAll('[data-online]').forEach((b) => b.addEventListener('click', () => duel.open()));
 
   const lb = FreasyLeaderboard({
     key: 'chetyre',
@@ -468,6 +515,6 @@
   requestAnimationFrame(frame);
 })();
 </script>
-<script src="../../shared/chat-boot.js?v=5"></script>
+<script src="../../shared/chat-boot.js?v=6"></script>
 </body>
 </html>

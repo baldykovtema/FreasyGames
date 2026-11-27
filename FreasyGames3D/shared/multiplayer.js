@@ -160,7 +160,7 @@ window.FreasyMultiplayer = (opts) => {
   document.head.appendChild(style);
 
   const board = document.createElement('div');
-  board.className = 'mp-board'; board.hidden = true; board.style.top = (opts.boardTop ?? 70) + 'px';
+  board.className = 'mp-board'; board.hidden = true; board.style.top = Math.max(118, opts.boardTop ?? 118) + 'px';
   // Right after the canvas, so start and game over screens cover it.
   const cvEl = document.querySelector('canvas');
   if (cvEl) cvEl.after(board); else document.body.appendChild(board);

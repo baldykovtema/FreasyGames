@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/guard.js?v=1"></script>
 <script src="../shared/i18n.js?v=3" data-game="orbita"></script>
 <script src="../shared/fx.js" data-mute="orbita-muted"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
@@ -278,7 +279,7 @@
   });
 
   const mp = FreasyMultiplayer({
-    key: 'orbita', sessionKey: 'orbita-session',
+    key: 'orbita', sessionKey: 'orbita-session', boardTop: innerHeight > innerWidth ? 150 : 118,
     describe: (s) => (s.st === 'play' ? `✦ ${s.score} · ${clock(s.t)}` : s.st === 'over' ? `💥 ✦ ${s.score}` : 'ждёт'),
   });
   $('settings').addEventListener('click', () => mp.openSettings());
@@ -305,6 +306,6 @@
   requestAnimationFrame(frame);
 })();
 </script>
-<script src="../shared/chat-boot.js?v=5"></script>
+<script src="../shared/chat-boot.js?v=6"></script>
 </body>
 </html>

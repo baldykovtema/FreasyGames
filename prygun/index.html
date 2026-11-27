@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/guard.js?v=1"></script>
 <script src="../shared/i18n.js?v=3" data-game="prygun"></script>
 <script src="../shared/fx.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
@@ -347,10 +348,15 @@ function draw(t){
   g.fillStyle='#0006';g.beginPath();g.roundRect(14,60,g.measureText(txt).width+30,44,12);g.fill();g.fillStyle='#fff';g.fillText(txt,28,89);
   g.textAlign='right';g.fillText(cur.kind==='test'?'Esc — в редактор':'Esc — пауза',W-20,mp.enabled()?H-20:89);g.textAlign='left';
 }
+const SMOOTH={save(l){for(const o of l)if(o){o._px=o.x;o._py=o.y;}},
+  // рисует объекты между двумя шагами физики (a от 0 до 1), потом возвращает их настоящие места
+  draw(l,a,fn){const b=[];for(const o of l)if(o&&o._px!==undefined){const dx=o.x-o._px,dy=o.y-o._py;if(Math.abs(dx)>80||Math.abs(dy)>80)continue;b.push(o,o.x,o.y);o.x=o._px+dx*a;o.y=o._py+dy*a;}
+    try{fn();}finally{for(let i=0;i<b.length;i+=3){b[i].x=b[i+1];b[i].y=b[i+2];}}}};
+const smoothList=()=>[P,cam,...ents];
 function frame(ts){const t=ts/1000;let dt=Math.min(3,(ts-lastT)/16.67);lastT=ts;
-  frame.acc=(frame.acc||0)+dt;let n=0;while(frame.acc>=1&&n<4){update(1);frame.acc-=1;n++;}if(n>=4)frame.acc=0;
+  frame.acc=(frame.acc||0)+dt;let n=0;while(frame.acc>=1&&n<4){SMOOTH.save(smoothList());update(1);frame.acc-=1;n++;}if(n>=4)frame.acc=0;
   if(state==='edit')edScroll();
-  draw(t);sendMp();requestAnimationFrame(frame);}
+  if(state==='play')SMOOTH.draw(smoothList(),frame.acc,()=>draw(t));else draw(t);sendMp();requestAnimationFrame(frame);}
 
 /* ---------- Таблица лидеров ---------- */
 // Звёзды за все встроенные уровни и время всей игры: сумма лучших времён, когда пройдены все уровни.
@@ -582,6 +588,6 @@ requestAnimationFrame(frame);
 if(location.hash==='#preview'){startLevel(1);for(let i=0;i<90;i++){keys.ArrowRight=i<70;if(i===40)jumpBuf=8;update(1);}keys={};}
 </script>
 <script src="../shared/back.js" data-pos="center"></script>
-<script src="../shared/chat-boot.js?v=5"></script>
+<script src="../shared/chat-boot.js?v=6"></script>
 </body>
 </html>

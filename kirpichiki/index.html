@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/guard.js?v=1"></script>
 <script src="../shared/i18n.js?v=3" data-game="kirpichiki"></script>
 <script src="../shared/fx.js" data-mute="kirpichiki-muted"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
@@ -46,6 +47,8 @@
 
 <script src="../shared/leaderboard.js"></script>
 <script src="../shared/rewards.js"></script>
+<script src="../shared/multiplayer.js?v=2"></script>
+<script src="../shared/room.js?v=1"></script>
 <script>
 (() => {
   'use strict';
@@ -335,8 +338,10 @@
   // #preview: a game in progress, for the site's screenshot.
   if (location.hash === '#preview') { $('start').hidden = true; level = 3; buildLevel(); state = 'play'; launch(); for (let i = 0; i < 160; i++) { pointerX = balls[0] ? balls[0].x : FW / 2; step(1 / 60); } bricks.slice(0, 18).forEach((b) => { b.hp = 0; }); score = 1840; combo = 3; }
   requestAnimationFrame(frame);
+  // Живая комната: игроки в одной комнате видят счёт друг друга (кнопка 👥)
+  FreasyRoom({ key: 'room-kirpichiki', read: () => ({ st: state, score }) });
 })();
 </script>
-<script src="../shared/chat-boot.js?v=5"></script>
+<script src="../shared/chat-boot.js?v=6"></script>
 </body>
 </html>

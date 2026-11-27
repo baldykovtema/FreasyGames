@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/guard.js?v=1"></script>
+<script src="../../shared/fx.js" data-mute="turbobol-muted"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0f1222">
+<title>Турбобол — FreasyGames 3D</title>
+<meta name="description" content="Турбобол на FreasyGames: футбол на ракетных машинах. Прыжки, буст, полёты, шесть машин, краски и аксессуары, магазин, режимы 1×1, 2×2 и 3×3, пати с друзьями, подбор игроков по сети и редактор своих карт.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="turbobol.css?v=1">
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<!-- ——— Игровой HUD ——— -->
+<div id="hud" hidden>
+  <div class="sb"><span class="t0" id="sc0">0</span><span class="clock" id="clock">3:00</span><span class="t1" id="sc1">0</span></div>
+  <div class="feed" id="feed"></div>
+  <div class="center" id="banner"></div>
+  <div class="boost"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" class="bg"/><circle cx="50" cy="50" r="42" class="fg" id="boostArc"/></svg><b id="boostNum">33</b></div>
+  <div class="hint" id="camHint">🎥 Камера на мяч</div>
+  <button class="pause" id="pauseBtn" type="button" aria-label="Пауза">⏸</button>
+  <!-- телефон: джойстик слева, кнопки справа -->
+  <div class="touch" id="touch">
+    <div class="stick" id="stick"><i></i></div>
+    <button class="tb jump" data-k="jump" type="button">⤒<small>Прыжок</small></button>
+    <button class="tb boost2" data-k="boost" type="button">🔥<small>Буст</small></button>
+    <button class="tb drift" data-k="drift" type="button">↯<small>Дрифт</small></button>
+    <button class="tb cam" data-k="cam" type="button">🎥</button>
+  </div>
+</div>
+
+<!-- ——— Меню ——— -->
+<div id="menu" class="menu">
+  <header class="top">
+    <a class="back" href="../">← FreasyGames 3D</a>
+    <div class="wallet"><span id="coins">0</span> 🪙</div>
+    <button class="icon" id="soundBtn" type="button" aria-label="Звук">🔊</button>
+  </header>
+  <div class="tabs" role="tablist">
+    <button data-tab="play" aria-selected="true">▶ Играть</button>
+    <button data-tab="garage">🚗 Гараж</button>
+    <button data-tab="shop">🛒 Магазин</button>
+    <button data-tab="party">👥 Пати</button>
+    <button data-tab="maps">🗺 Карты</button>
+    <button data-tab="help">❔</button>
+  </div>
+
+  <section class="pane" data-pane="play">
+    <h1>Турбо<span>бол</span></h1>
+    <p class="lead">Футбол на ракетных машинах. Разгоняйся бустом, прыгай, переворачивайся в воздухе и забивай огромный мяч в ворота соперника.</p>
+    <div class="group"><b>Состав</b><div class="seg" id="segSize"><button data-v="1">1 × 1</button><button data-v="2">2 × 2</button><button data-v="3">3 × 3</button></div></div>
+    <div class="group"><b>Режим</b><div class="cards" id="rules"></div></div>
+    <div class="group"><b>Арена</b><select id="arenaSel"></select></div>
+    <div class="group bots"><b>Боты</b><div class="seg" id="segBot"><button data-v="0">Новичок</button><button data-v="1">Профи</button><button data-v="2">Чемпион</button></div></div>
+    <div class="actions">
+      <button class="big" id="playBots" type="button">🤖 Играть с ботами</button>
+      <button class="big alt" id="playOnline" type="button">🌐 Подбор игроков</button>
+    </div>
+    <p class="note" id="mmNote"></p>
+    <div class="stats" id="stats"></div>
+  </section>
+
+  <section class="pane" data-pane="garage" hidden>
+    <div class="garage">
+      <div class="preview"><canvas id="pv"></canvas><div class="pvname" id="pvName"></div><div class="pvstats" id="pvStats"></div></div>
+      <div class="custom">
+        <div class="ctabs" id="ctabs">
+          <button data-c="body" aria-selected="true">Машина</button><button data-c="color">Краска</button><button data-c="accent">Отделка</button>
+          <button data-c="wheels">Колёса</button><button data-c="topper">На крышу</button><button data-c="antenna">Антенна</button><button data-c="trail">След буста</button>
+        </div>
+        <div class="items" id="items"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="pane" data-pane="shop" hidden>
+    <h2>Магазин</h2>
+    <p class="lead">Монеты даются за каждый матч: за участие, голы и победу. Предложения дня меняются каждые сутки — на них скидка 30%.</p>
+    <h3>🔥 Предложения дня <small id="dailyLeft"></small></h3>
+    <div class="shop" id="daily"></div>
+    <h3>Всё</h3>
+    <div class="shop" id="shopAll"></div>
+  </section>
+
+  <section class="pane" data-pane="party" hidden>
+    <h2>Пати</h2>
+    <p class="lead">Собери друзей в пати: вы попадёте в одну команду в подборе игроков или сыграете свой матч на любой арене, хоть на своей карте.</p>
+    <div id="partyBox"></div>
+  </section>
+
+  <section class="pane" data-pane="maps" hidden>
+    <h2>Свои карты</h2>
+    <p class="lead">Строй арены: ящики, трамплины, отбойники и бусты, размер поля, ворота, гравитация и стиль. Играй на них с ботами или с пати, делись кодом карты.</p>
+    <div class="actions"><button class="big" id="newMap" type="button">＋ Новая карта</button><button class="big alt" id="importMap" type="button">📥 Вставить код карты</button></div>
+    <div class="maplist" id="mapList"></div>
+  </section>
+
+  <section class="pane" data-pane="help" hidden>
+    <h2>Как играть</h2>
+    <div class="help">
+      <div><b>Компьютер</b>
+        <p><kbd>W</kbd><kbd>S</kbd> — газ и тормоз, в воздухе — наклон носа<br><kbd>A</kbd><kbd>D</kbd> — руль<br><kbd>Пробел</kbd> — прыжок; ещё раз в воздухе — двойной прыжок, а с направлением — кувырок-удар<br>
+        <kbd>Shift</kbd> или правая кнопка мыши — буст<br><kbd>Q</kbd> — дрифт<br><kbd>C</kbd> — камера на мяч / за машиной<br><kbd>Esc</kbd> — пауза</p></div>
+      <div><b>Телефон</b><p>Джойстик слева — руль, газ и наклон в воздухе. Справа — прыжок, буст, дрифт и камера. Удобнее держать телефон горизонтально.</p></div>
+      <div><b>Геймпад</b><p>Левый стик — руль и наклон, A — прыжок, B — буст, X — дрифт, Y — камера.</p></div>
+      <div><b>Советы</b><p>Буст собирается с жёлтых площадок на поле: большие дают 100, маленькие 12. Разогнанная до сверхзвука машина взрывает соперника при ударе. Наклони нос вверх и держи буст — машина полетит.</p></div>
+    </div>
+  </section>
+</div>
+
+<!-- ——— Пауза и итоги ——— -->
+<div class="screen" id="pause" hidden><div class="box">
+  <h1>Пауза</h1>
+  <button class="big" id="resume" type="button">Продолжить</button>
+  <button class="big alt" id="quit" type="button">Выйти в меню</button>
+</div></div>
+<div class="screen" id="over" hidden><div class="box">
+  <div class="eyebrow" id="overWho"></div>
+  <h1 id="overTitle">Победа!</h1>
+  <div class="final" id="overScore"></div>
+  <div class="table" id="overTable"></div>
+  <p class="coinsWon" id="overCoins"></p>
+  <button class="big" id="overAgain" type="button">Ещё матч</button>
+  <button class="big alt" id="overMenu" type="button">В меню</button>
+</div></div>
+
+<!-- ——— Редактор карт ——— -->
+<div id="editor" class="editor" hidden>
+  <div class="etop">
+    <input id="eName" maxlength="24" placeholder="Название карты" autocomplete="off">
+    <button id="eTest" type="button">▶ Проверить</button>
+    <button id="eSave" type="button">💾 Сохранить</button>
+    <button id="eClose" type="button">✕</button>
+  </div>
+  <div class="ebody">
+    <div class="etools" id="eTools">
+      <button data-t="box" aria-pressed="true">⬛ Ящик</button>
+      <button data-t="ramp">◢ Трамплин</button>
+      <button data-t="bumper">◉ Отбойник</button>
+      <button data-t="pad">🔥 Буст</button>
+      <button data-t="move">✋ Двигать</button>
+      <button data-t="erase">🧽 Стереть</button>
+      <hr>
+      <label>Поворот <input id="eRot" type="range" min="0" max="345" step="15" value="0"></label>
+      <label>Ширина <input id="eW" type="range" min="2" max="20" step="1" value="6"></label>
+      <label>Длина <input id="eD" type="range" min="2" max="20" step="1" value="6"></label>
+      <label>Высота <input id="eH" type="range" min="1" max="10" step="0.5" value="2"></label>
+      <hr>
+      <label>Поле <select id="eSize"><option value="S">Маленькое</option><option value="M" selected>Среднее</option><option value="L">Большое</option></select></label>
+      <label>Стиль <select id="eTheme"></select></label>
+      <label>Ворота <input id="eGoal" type="range" min="10" max="26" step="1" value="17"></label>
+      <label>Гравитация <input id="eGrav" type="range" min="0.3" max="1.5" step="0.05" value="1"></label>
+      <label class="chk"><input id="eMirror" type="checkbox" checked> Зеркально для обеих половин</label>
+      <button id="eClear" type="button">Очистить всё</button>
+    </div>
+    <canvas id="eCanvas"></canvas>
+  </div>
+  <div class="ehint" id="eHint">Нажми на поле, чтобы поставить. Ворота синих — внизу, оранжевых — вверху.</div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="tb-core.js?v=1"></script>
+<script src="tb-view.js?v=1"></script>
+<script src="tb-net.js?v=1"></script>
+<script src="tb-app.js?v=1"></script>
+<script src="../../shared/chat-boot.js?v=6"></script>
+</body>
+</html>

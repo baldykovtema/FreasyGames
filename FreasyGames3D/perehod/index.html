@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/guard.js?v=1"></script>
 <script src="../../shared/i18n.js?v=3" data-game="3d-perehod"></script>
 <script src="../../shared/fx.js" data-mute="perehod-muted"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
@@ -48,6 +49,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="../shared/leaderboard.js"></script>
 <script src="../../shared/rewards.js"></script>
+<script src="../../shared/multiplayer.js?v=2"></script>
+<script src="../../shared/room.js?v=1"></script>
 <script>
 (() => {
   'use strict';
@@ -416,8 +419,10 @@
   // On a local server tests can look inside.
   if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__perehod3d = { get p() { return p; }, get lanes() { return lanes; }, get state() { return state; }, get score() { return score; }, get camY() { return camY; }, hop, newGame, tick: (ms = 16) => { const r = window.requestAnimationFrame; window.requestAnimationFrame = () => 0; frame(last + ms); window.requestAnimationFrame = r; } };
   requestAnimationFrame(frame);
+  // Живая комната: игроки в одной комнате видят счёт друг друга (кнопка 👥)
+  FreasyRoom({ key: 'room-3d-perehod', read: () => ({ st: state, score }) });
 })();
 </script>
-<script src="../../shared/chat-boot.js?v=5"></script>
+<script src="../../shared/chat-boot.js?v=6"></script>
 </body>
 </html>

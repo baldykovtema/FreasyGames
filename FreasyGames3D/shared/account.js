@@ -80,12 +80,12 @@ window.FreasyAccount = (opts) => {
   box.className = 'fa-modal'; box.hidden = true;
   box.innerHTML = `<div class="fa-sheet" role="dialog" aria-label="Аккаунт">
     <h2><span>👤 Аккаунт</span><button class="fa-x" type="button" aria-label="Закрыть">×</button></h2>
-    <div class="fa-out"><div style="display:flex;flex-direction:column;gap:10px">
-      <input id="fa-name" placeholder="Ник" maxlength="30" autocomplete="username">
-      <input id="fa-pass" type="password" placeholder="Пароль" autocomplete="current-password">
+    <div class="fa-out"><form class="fa-form" autocomplete="on" onsubmit="return false" style="display:flex;flex-direction:column;gap:10px">
+      <input id="fa-name" name="username" placeholder="Ник" maxlength="30" autocomplete="username">
+      <input id="fa-pass" name="password" type="password" placeholder="Пароль" autocomplete="current-password">
       <button type="button" data-k="login">Войти</button><button type="button" class="alt" data-k="signup">Создать аккаунт</button>
       <div class="fa-msg"></div>
-      <div class="fa-note">Один аккаунт для всех игр FreasyGames. Он нужен, чтобы публиковать свои работы.</div></div></div>
+      <div class="fa-note">Один аккаунт для всех игр FreasyGames. Он нужен, чтобы публиковать свои работы.</div></form></div>
     <div class="fa-in"><div style="display:flex;flex-direction:column;gap:10px">
       <div class="fa-hello" style="font-size:16px;font-weight:800"></div>
       <button type="button" class="alt" data-k="logout">Выйти из аккаунта</button></div></div>

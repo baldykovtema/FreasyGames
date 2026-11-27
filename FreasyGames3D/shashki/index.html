@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/guard.js?v=1"></script>
 <script src="../../shared/i18n.js?v=3" data-game="3d-shashki"></script>
 <script src="../../shared/fx.js" data-mute="shashki-muted"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
@@ -38,6 +39,7 @@
     <div class="levels" id="levels"><button type="button" data-l="0">Лёгкий</button><button type="button" data-l="1" aria-pressed="true">Средний</button><button type="button" data-l="2">Сложный</button></div>
     <p>Побед: <b id="winsStart">0</b> · очков: <b id="pointsStart">0</b> · лучшая серия: <b id="streakStart">0</b></p>
     <button class="play" id="go" type="button">Играть ↗</button>
+    <button class="ghost" type="button" data-online>🌐 Играть по сети с человеком</button>
     <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
     <div class="hint">Касание шашки, затем клетки · за победу 1, 2 или 3 очка · рекорды общие с обычными Шашками</div>
   </div>
@@ -50,6 +52,7 @@
     <p id="overText"></p>
     <p>Побед: <b id="winsOver">0</b> · очков: <b id="pointsOver">0</b> · лучшая серия: <b id="streakOver">0</b></p>
     <button class="play" id="again" type="button">Ещё партию ↗</button>
+    <button class="ghost" type="button" data-online>🌐 Играть по сети с человеком</button>
     <button class="ghost" type="button" id="toMenu">Выбрать сложность</button>
     <button class="ghost" type="button" data-leaders>🏆 Таблица лидеров</button>
     <div class="small" id="onlineNote"></div>
@@ -58,6 +61,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="../shared/leaderboard.js"></script>
+<script src="../../shared/duel.js?v=1"></script>
 <script src="../../shared/rewards.js"></script>
 <script>
 (() => {
@@ -187,6 +191,7 @@
 
   // ——— Game ———
   function newGame() {
+    if (online) { online = false; duel.leave(); }
     unlockAudio();
     board = initial(); turn = 1; sel = -1; prefix = []; lastMove = null; anim = null; ghosts = []; quiet = 0; plies = 0; history = []; chanceUsed = false; chance.hide();
     state = 'play'; $('start').hidden = true; $('over').hidden = true; $('bar').hidden = false;
@@ -194,9 +199,9 @@
   }
   function beginTurn() {
     legal = movesFor(board, turn); sel = -1; prefix = [];
-    if (!legal.length) return finish(turn === 1 ? 'lose' : 'win', turn === 1 ? 'Ходить некуда' : 'Боту некуда ходить');
+    if (!legal.length) return finish(turn === 1 ? 'lose' : 'win', turn === 1 ? 'Ходить некуда' : online ? 'Сопернику некуда ходить' : 'Боту некуда ходить');
     if (quiet >= 30) return finish('draw', '15 ходов одними дамками без взятий');
-    if (turn === -1 && state === 'play') { thinking = true; setTimeout(() => { if (state !== 'play' || turn !== -1) return; play(botMove(board, -1, level)); thinking = false; }, 380); }
+    if (turn === -1 && state === 'play' && !online) { thinking = true; setTimeout(() => { if (state !== 'play' || turn !== -1) return; play(botMove(board, -1, level)); thinking = false; }, 380); }
   }
   // the move slides along its path; taken pieces stay as fading ghosts until the mover passes them
   function play(m) {
@@ -241,10 +246,22 @@
     if (!fit.length) { if (!prefix.length) sel = -1; else sfx.nope(); return; }
     prefix.push(i);
     const done = fit.find((m) => m.path.length === prefix.length);
-    if (done) play(done); else sfx.pick();
+    if (done) { if (online) duel.move({ from: 63 - done.from, path: done.path.map((x) => 63 - x) }); play(done); } else sfx.pick();
   }
   function finish(result, why) {
     state = 'over'; thinking = false; $('bar').hidden = true;
+    if (online) {
+      // сетевая партия: без очков и таблицы лидеров — счёт матча и реванш
+      if (why === 'Ты сдался') duel.move({ resign: true });
+      if (result === 'win') { myWins++; sfx.win(); FX.win(); } else if (result === 'lose') { oppWins++; sfx.lose(); FX.over(); } else sfx.move();
+      setTimeout(() => {
+        $('overWhy').textContent = `🌐 ${oppName} · ${why}`;
+        $('final').textContent = result === 'win' ? 'Победа!' : result === 'lose' ? 'Поражение' : 'Ничья';
+        $('overText').textContent = `Счёт матча ${myWins} : ${oppWins}`;
+        $('again').textContent = 'Реванш ↗'; chance.hide(); $('over').hidden = false;
+      }, 1000);
+      return;
+    }
     const L = LEVELS[level];
     let record = false;
     if (result === 'win') {
@@ -442,7 +459,40 @@
   document.querySelectorAll('#levels button').forEach((b) => b.addEventListener('click', () => pickLevel(+b.dataset.l)));
   function toMenu() { state = 'start'; chance.hide(); thinking = false; $('over').hidden = true; $('bar').hidden = true; $('start').hidden = false; board = initial(); turn = 1; plies = 0; quiet = 0; anim = null; ghosts = []; lastMove = null; layout(); }
   // the streak before this game, so an ad that takes back the losing move also gives the streak back
-  const begin = () => { store.set('shashki-streak-before', streak); newGame(); };
+  const begin = () => { if (online) { $('again').textContent = 'Ждём соперника…'; duel.rematch(); return; } store.set('shashki-streak-before', streak); newGame(); };
+  // ——— Игра по сети с живым соперником (shared/duel.js) ———
+  // У каждого свои шашки внизу: доска соперника повёрнута на 180° (клетка i ↔ 63 − i, цвета наоборот).
+  let online = false, oppName = 'Соперник', myWins = 0, oppWins = 0, pending = [];
+  const duel = FreasyDuel({
+    key: 'shashki',
+    onStart: ({ first, opponent, game }) => {
+      if (game === 1 || !online) { myWins = 0; oppWins = 0; }
+      online = true; oppName = opponent || 'Соперник'; pending = [];
+      unlockAudio(); chance.hide();
+      board = initial(); turn = first ? 1 : -1; sel = -1; prefix = []; lastMove = null; anim = null; ghosts = []; quiet = 0; plies = 0; history = []; thinking = false;
+      state = 'play'; $('start').hidden = true; $('over').hidden = true; $('bar').hidden = false; $('again').textContent = 'Реванш ↗';
+      beginTurn(); layout();
+    },
+    onMove: (m) => { if (m) { pending.push(m); applyPending(); } },
+    onLeave: () => { if (!online) return; online = false; $('again').textContent = 'Ещё партию ↗'; if (state === 'play') toMenu(); },
+  });
+  function applyPending() {
+    while (pending.length && online && state === 'play') {
+      const m = pending[0];
+      if (m.resign) { pending.shift(); finish('win', `${oppName} сдался`); return; }
+      if (turn !== -1 || anim) return;
+      pending.shift();
+      const mv = legal.find((x) => x.from === m.from && x.path.length === m.path.length && x.path.every((v, k) => v === m.path[k]));
+      if (mv) play(mv);
+    }
+  }
+  setInterval(() => {
+    applyPending();
+    if (online) duel.status(`🌐 Ты ${myWins} : ${oppWins} ${oppName}` + (state === 'play' ? ` · ${turn === 1 ? 'твой ход' : 'ходит соперник'}` : ''));
+  }, 300);
+  document.querySelectorAll('[data-online]').forEach((b) => b.addEventListener('click', () => duel.open()));
+  const leaveOnline = () => { if (online) { online = false; duel.leave(); $('again').textContent = 'Ещё партию ↗'; } };
+  $('toMenu').addEventListener('click', leaveOnline); $('menu').addEventListener('click', leaveOnline);
   $('go').addEventListener('click', begin);
   $('again').addEventListener('click', begin);
   $('toMenu').addEventListener('click', toMenu);
@@ -466,6 +516,6 @@
   requestAnimationFrame(frame);
 })();
 </script>
-<script src="../../shared/chat-boot.js?v=5"></script>
+<script src="../../shared/chat-boot.js?v=6"></script>
 </body>
 </html>

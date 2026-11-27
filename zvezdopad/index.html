@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../shared/session.js?v=2"></script>
+<script src="../shared/guard.js?v=1"></script>
 <script src="../shared/i18n.js?v=3" data-game="zvezdopad"></script>
 <script src="../shared/fx.js" data-mute="zvezdopad-muted"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
@@ -46,6 +47,8 @@
 
 <script src="../shared/leaderboard.js"></script>
 <script src="../shared/rewards.js"></script>
+<script src="../shared/multiplayer.js?v=2"></script>
+<script src="../shared/room.js?v=1"></script>
 <script>
 (() => {
   'use strict';
@@ -364,8 +367,10 @@
   // On a local server tests can look inside.
   if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__zvezdopad = { get fox() { return fox; }, get items() { return items; }, get state() { return state; }, get score() { return score; }, get lives() { return lives; }, get caught() { return caught; }, get mult() { return mult; } };
   requestAnimationFrame(frame);
+  // Живая комната: игроки в одной комнате видят счёт друг друга (кнопка 👥)
+  FreasyRoom({ key: 'room-zvezdopad', read: () => ({ st: state, score }) });
 })();
 </script>
-<script src="../shared/chat-boot.js?v=5"></script>
+<script src="../shared/chat-boot.js?v=6"></script>
 </body>
 </html>

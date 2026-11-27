@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script src="../../shared/session.js?v=2"></script>
+<script src="../../shared/guard.js?v=1"></script>
 <script src="../../shared/i18n.js?v=3" data-game="3d-balls"></script>
 <script src="../../shared/fx.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
@@ -376,11 +377,12 @@ function loop(now) {
   const dt = Math.min(0.1, (now - last) / 1000);
   acc = Math.min(acc + (now - last), STEP * 10); last = now; t += dt;
   while (acc >= STEP) {
+    if (ball) { ball.px = ball.x; ball.py = ball.y; }
     update(); acc -= STEP;
     if (ball) { trail.push({ x: ball.x, y: ball.y }); if (trail.length > 10) trail.shift(); }
   }
   // шарик
-  if (ball) { ballMesh.visible = true; ballMesh.position.set(X(ball.x), Y(ball.y), 0); ballMesh.rotation.z -= ball.vx * 0.08; ballMesh.rotation.x += ball.vy * 0.05; }
+  if (ball) { ballMesh.visible = true; const k = ball.px === undefined ? 1 : acc / STEP; ballMesh.position.set(X(ball.px === undefined ? ball.x : ball.px + (ball.x - ball.px) * k), Y(ball.px === undefined ? ball.y : ball.py + (ball.y - ball.py) * k), 0); ballMesh.rotation.z -= ball.vx * 0.08; ballMesh.rotation.x += ball.vy * 0.05; }
   else { ballMesh.visible = false; trail.length = 0; }
   trailMeshes.forEach((m, i) => { const p = trail[i]; m.visible = !!(ball && p); if (p) { m.position.set(X(p.x), Y(p.y), -0.2); m.scale.setScalar(0.65 * (i / trail.length)); } });
   // штырьки вспыхивают от удара
@@ -411,9 +413,11 @@ $('passInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') auth(
 $('guestBtn').onclick = () => start('Гость'); $('startBtn').onclick = () => start(username()); $('logoutBtn').onclick = logout;
 $('againBtn').onclick = () => start(player); $('menuBtn').onclick = showStart; $('accountBtn').onclick = showStart;
 showStart(); loadRecords(); requestAnimationFrame(loop);
+// таблица рекордов обновляется сама, пока вкладка открыта
+setInterval(()=>{if(!document.hidden)loadRecords()},30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)loadRecords()});
 })();
 </script>
 <script src="../shared/back.js" data-href="../"></script>
-<script src="../../shared/chat-boot.js?v=5"></script>
+<script src="../../shared/chat-boot.js?v=6"></script>
 </body>
 </html>

@@ -485,11 +485,11 @@ window.FreasyChat = (opts = {}) => {
   toastEl.addEventListener('click', () => { toastEl.classList.remove('on'); if (toastAct) toastAct(); });
   function ping() { try { const c = voice.ctx || new (window.AudioContext || window.webkitAudioContext)(); const o = c.createOscillator(), g = c.createGain(); o.frequency.value = 880; g.gain.setValueAtTime(.04, c.currentTime); g.gain.exponentialRampToValueAtTime(.0001, c.currentTime + .2); o.connect(g).connect(c.destination); o.start(); o.stop(c.currentTime + .22); } catch { /* без звука */ } }
 
-  // Кнопку можно перетащить: в играх она стоит у правого края посередине, чтобы не мешать управлению.
+  // Кнопку можно перетащить: в играх она стоит в правом верхнем углу под кнопками игры — не на поле и не под пальцами.
   function placeButton() {
     const p = store.get(posKey, null), size = ingame ? 46 : 58;
     const x = p ? Math.min(Math.max(6, p.x * innerWidth), innerWidth - size - 6) : innerWidth - size - (ingame ? 10 : 18);
-    const y = p ? Math.min(Math.max(6, p.y * innerHeight), innerHeight - size - 6) : ingame ? innerHeight * .5 - size / 2 : innerHeight - size - 18;
+    const y = p ? Math.min(Math.max(6, p.y * innerHeight), innerHeight - size - 6) : ingame ? 62 : innerHeight - size - 18;
     btn.style.left = x + 'px'; btn.style.top = y + 'px';
     placePanel();
   }

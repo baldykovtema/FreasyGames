@@ -60,6 +60,9 @@ window.FreasyCatalog = (opts) => {
   .as-field input{flex:1;min-width:0;height:100%;border:0;outline:0;background:none;color:var(--as-text);font:inherit;font-size:16px}
   .as-field input::placeholder{color:var(--as-dim)}
   .as-field input::-webkit-search-cancel-button{display:none}
+  .as-field input::-webkit-contacts-auto-fill-button,.as-field input::-webkit-credentials-auto-fill-button{visibility:hidden;display:none!important;pointer-events:none}
+  .as-field input:-webkit-autofill{animation-name:as-autofill;-webkit-box-shadow:0 0 0 40px var(--as-fill) inset;-webkit-text-fill-color:var(--as-text)}
+  @keyframes as-autofill{from{opacity:1}to{opacity:1}}
   .as-clear{all:unset;cursor:pointer;display:grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--as-dim);color:var(--as-card);font-size:11px;font-weight:800;flex:none}
   .as-clear[hidden],.as-cancel[hidden]{display:none}
   .as-cancel{all:unset;cursor:pointer;color:var(--as-acc);font-size:15px;font-weight:700;flex:none;padding:6px 2px}
@@ -257,7 +260,7 @@ window.FreasyCatalog = (opts) => {
     <div class="as-search" role="search">
       <label class="as-field">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="7"/><path d="M20 20l-4.5-4.5"/></svg>
-        <input type="search" placeholder="Игры, жанры и теги" aria-label="Поиск игр" autocomplete="off" enterkeyhint="search">
+        <input type="search" name="freasy-game-search" id="freasy-game-search" placeholder="Игры, жанры и теги" aria-label="Поиск игр" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" readonly data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other">
         <button class="as-clear" type="button" aria-label="Очистить поиск" hidden>✕</button>
       </label>
       <button class="as-cancel" type="button" hidden>Отмена</button>
@@ -501,8 +504,21 @@ window.FreasyCatalog = (opts) => {
     refit();
   }
 
+  // Поиск из адреса: …/?q=кот
+  const q = new URLSearchParams(location.search).get('q');
   const jumpToResults = () => { const top = root.getBoundingClientRect().top + scrollY - 8; if (scrollY > top + 40 || scrollY < top - 400) scrollTo({ top, behavior: 'smooth' }); };
-  input.addEventListener('input', apply);
+  // Браузер не должен сам вписывать в поиск ник или e-mail: поле только для чтения, пока игрок его не тронет,
+  // а всё, что появилось без набора с клавиатуры (автозаполнение), сразу стирается
+  let typed = false;
+  const unlock = () => { input.readOnly = false; };
+  input.addEventListener('pointerdown', unlock); input.addEventListener('touchstart', unlock, { passive: true });
+  input.addEventListener('focus', unlock);
+  input.addEventListener('keydown', () => { typed = true; });
+  input.addEventListener('beforeinput', e => { if (e.isTrusted && e.inputType) typed = true; });
+  const dropAutofill = () => { if (!typed && input.value && input.value !== (q || '')) { input.value = ''; apply(); } };
+  input.addEventListener('animationstart', e => { if (e.animationName === 'as-autofill') dropAutofill(); });
+  [300, 1000, 2500].forEach(t => setTimeout(dropAutofill, t));
+  input.addEventListener('input', () => { if (!typed && input.value) input.value = ''; apply(); });
   input.addEventListener('focus', () => { cancel.hidden = false; });
   input.addEventListener('blur', () => setTimeout(apply, 120));
   input.addEventListener('keydown', e => { if (e.key === 'Escape') { input.value = ''; input.blur(); apply(); } if (e.key === 'Enter') { input.blur(); jumpToResults(); } });
@@ -518,8 +534,6 @@ window.FreasyCatalog = (opts) => {
     setTag(b.dataset.tag === tag ? '' : b.dataset.tag);
     apply(); if (tag) jumpToResults();
   });
-  // Поиск из адреса: …/?q=кот
-  const q = new URLSearchParams(location.search).get('q');
   if (q) input.value = q;
 
   renderAll();

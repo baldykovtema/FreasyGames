@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
 <script src="../shared/session.js?v=2" data-catalog></script>
+<script src="../../shared/guard.js?v=1"></script>
 <script src="../shared/i18n.js?v=3"></script>
 <script src="../shared/theme.js?v=1"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -327,7 +328,8 @@
     .art.bridge3d::after, .art.lander3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, var(--card)); pointer-events: none; }
     .art .pct.bridgep { color: #ffd23f; font-size: 13px; } .art .pct.landerp { color: #5df2a5; font-size: 13px; }
     .art.spec3d { background: #1a2230 url(../images/specotryad.jpg) 50% 50% / cover no-repeat; }
-    .art.tank3d::after, .art.crate3d::after, .art.spec3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, var(--card)); pointer-events: none; }
+    .art.turbo3d { background: #0d0a24 url(../images/turbobol3d.jpg) 50% 50% / cover no-repeat; }
+    .art.tank3d::after, .art.crate3d::after, .art.spec3d::after, .art.turbo3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, var(--card)); pointer-events: none; }
     .art .pct.tankp { color: #5df2a5; font-size: 13px; } .art .pct.cratep { color: #f2b544; font-size: 13px; }
     .art.log3d::after, .art.tubes3d::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, var(--card)); pointer-events: none; }
     .art .pct.logp { color: #ffd23f; font-size: 13px; } .art .pct.tubep { color: #bca0ff; font-size: 13px; }
@@ -463,6 +465,8 @@
           <span class="tag live">Играть</span><h3>Грузчик 3D</h3><p>Объёмный склад с кирпичными стенами и деревянными ящиками, грузчик в каске. Те же 20 уровней, прогресс и рекорды, что в 2D.</p></div>
         <div class="slot game" data-game="3d-specotryad" data-tags="Экшен, Шутер, Онлайн, Таблица лидеров"><a class="slot-link" href="specotryad/" aria-label="Играть: Спецотряд"></a><div class="art spec3d" aria-hidden="true"><span class="pct tankp">🌐 онлайн</span></div>
           <span class="tag live">Играть</span><h3>Спецотряд</h3><p>Командный шутер от первого лица: бои 5 на 5 с ботами за закладку заряда, игра по сети, восемь видов оружия, три карты, скины и кейсы.</p></div>
+        <div class="slot game" data-game="3d-turbobol" data-tags="Спорт, Гонки, Онлайн, Мультиплеер"><a class="slot-link" href="turbobol/" aria-label="Играть: Турбобол"></a><div class="art turbo3d" aria-hidden="true"><span class="pct tankp">🌐 онлайн</span></div>
+          <span class="tag live">Играть</span><h3>Турбобол</h3><p>Футбол на ракетных машинах: буст, прыжки и полёты. Шесть машин, краски и аксессуары, магазин, режимы 1×1–3×3, пати с друзьями, подбор игроков и редактор своих карт.</p></div>
         <div class="slot game" data-game="3d-mostik" data-tags="Аркада, На точность, Таблица лидеров"><a class="slot-link" href="mostik/" aria-label="Играть: Мостик 3D"></a><div class="art bridge3d" aria-hidden="true"><span class="pct bridgep">×3 в центр</span></div>
           <span class="tag live">Играть</span><h3>Мостик 3D</h3><p>Объёмные колонны на фоне закатных гор, золотой мостик падает с тенью, герой в повязке шагает по нему. Те же правила, серии и рекорды, что в 2D.</p></div>
         <div class="slot game" data-game="3d-posadka" data-tags="Аркада, Космос, Таблица лидеров"><a class="slot-link" href="posadka/" aria-label="Играть: Посадка 3D"></a><div class="art lander3d" aria-hidden="true"><span class="pct landerp">Площадка ×3</span></div>
@@ -508,7 +512,7 @@
     </div>
   </footer>
 
-  <script src="../shared/catalog.js?v=3"></script>
+  <script src="../shared/catalog.js?v=4"></script>
   <script>FreasyCatalog({ grid: '.soon', card: '.slot.game', playLink: '.slot-link' });</script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script>
@@ -635,8 +639,8 @@
   });
   </script>
   <!-- FreasyChat: чат, личные сообщения, группы и голос -->
-  <script src="../shared/account.js?v=6"></script>
+  <script src="../shared/account.js?v=7"></script>
   <script src="../shared/site-account.js?v=5"></script>
-  <script src="../shared/chat-boot.js?v=5" data-catalog></script>
+  <script src="../shared/chat-boot.js?v=6" data-catalog></script>
 </body>
 </html>
