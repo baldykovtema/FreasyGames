@@ -69,7 +69,7 @@
   FX.muted = () => muted || state === 'start';
   let W = 0, H = 0, dpr = 1, cell = 48, ox = 0;
   // lanes[row]: {type: 'grass'|'road'|'river'|'rail', dir, speed, items, span, trees, apple, train…}; row 0 is the start
-  let state = 'start', lanes, p, camY = 0, score = 0, apples = 0, moved = false, time = 0, deadT = 0, why = '', queued = null, top = 0;
+  let state = 'start', lanes, p, camY = 0, viewY = 0, score = 0, apples = 0, moved = false, time = 0, deadT = 0, why = '', queued = null, top = 0;
 
   // ——— Sound ———
   let ac = null;
@@ -126,10 +126,10 @@
     }
     return lane;
   }
-  function ensureLanes() { const need = Math.ceil(camY + 18); while (top <= need) { lanes[top] = makeLane(top); top++; } for (const k in lanes) if (+k < camY - 3) delete lanes[k]; }
+  function ensureLanes() { const need = Math.ceil(camY + 18); while (top <= need) { lanes[top] = makeLane(top); top++; } for (const k in lanes) if (+k < Math.min(camY, viewY) - 3) delete lanes[k]; }
 
   function newGame() {
-    unlockAudio(); lanes = {}; top = 0; camY = -1;
+    unlockAudio(); lanes = {}; top = 0; camY = viewY = -1;
     p = { x: Math.floor(COLS / 2), row: 0, fx: 0, fr: 0, t: 1, face: 1, squash: 0 };
     score = 0; apples = 0; moved = false; deadT = 0; queued = null; chanceUsed = false; chance.hide();
     state = 'play'; $('start').hidden = true; $('over').hidden = true; ensureLanes();
@@ -149,6 +149,7 @@
     p.look = dx ? -dx * Math.PI / 2 : dr > 0 ? 0 : Math.PI; sfx.hop();
   }
   function landed() {
+    p.squash = Math.max(p.squash, 0.22);
     const lane = lanes[p.row];
     if (p.row > score) { score = p.row; if (score % 25 === 0) { sfx.ten(); const [sx, sy] = screen(p.x + 0.5, p.row); FX.text(sx, sy - 30, score, '#ffd23f'); } }
     if (lane.type === 'grass' && lane.apple === Math.round(p.x)) { lane.apple = -1; apples++; sfx.apple(); const [sx, sy] = screen(p.x + 0.5, p.row); FX.on('coin', 1, sx, sy); }
@@ -182,7 +183,7 @@
     if (!lanes[r]) r = p.row;
     const lane = lanes[r]; let x = Math.round(Math.max(0, Math.min(COLS - 1, p.x)));
     if (lane.trees.has(x)) x = [...Array(COLS).keys()].find((c) => !lane.trees.has(c)) ?? x;
-    Object.assign(p, { x, row: r, t: 1, dead: null, squash: 0 }); camY = Math.min(camY, r - 2);
+    Object.assign(p, { x, row: r, t: 1, dead: null, squash: 0 }); camY = Math.min(camY, r - 2); viewY = Math.min(viewY, camY);
     state = 'play'; $('over').hidden = true; queued = null;
   } });
 
@@ -326,18 +327,18 @@
       }
     }
     if (p) {
-      const fx = p.t < 1 ? p.fx + (p.x - p.fx) * p.t : p.x, fr = p.t < 1 ? p.fr + (p.row - p.fr) * p.t : p.row, up = p.t < 1 ? Math.sin(p.t * Math.PI) * 0.45 : 0;
+      const e = p.t < 1 ? 1 - (1 - p.t) * (1 - p.t) : 1, fx = p.t < 1 ? p.fx + (p.x - p.fx) * e : p.x, fr = p.t < 1 ? p.fr + (p.row - p.fr) * e : p.row, up = p.t < 1 ? Math.sin(p.t * Math.PI) * 0.45 : 0;
       const lane = lanes && lanes[p.row], onLog = lane && lane.type === 'river' && p.t >= 1;
       hog.position.set(X(fx) + 0.5, up + (onLog ? 0.2 : 0), -fr);
       const flat = p.dead && p.dead !== 'water' ? 0.25 : 1;
       hogBody.scale.set(1 + p.squash * 0.25 + (1 - flat) * 0.5, flat * (1 - p.squash * 0.25), 1 + (1 - flat) * 0.5);
       const face = p.look || 0;
-      hogBody.rotation.y += (face - hogBody.rotation.y) * 0.35;
+      hogBody.rotation.y += (face - hogBody.rotation.y) * (1 - Math.exp(-frameDt * 22));
       hog.visible = p.dead !== 'water' || deadT < 0.15;
       ripple.visible = p.dead === 'water'; if (ripple.visible) { ripple.position.set(hog.position.x, -0.08, hog.position.z); const s = 1 + deadT * 4; ripple.scale.set(s, s, s); ripple.material.opacity = Math.max(0, 0.8 - deadT); }
     }
     // the camera trails behind and above, following the creeping edge
-    const fy = camY + 3.2, cx = p ? Math.max(-1.5, Math.min(1.5, (X(p.x) + 0.5) * 0.35)) : 0;
+    const fy = viewY + 3.2, cx = p ? Math.max(-1.5, Math.min(1.5, (X(p.x) + 0.5) * 0.35)) : 0;
     camera.position.set(cx, 7.2, -fy + 6.2); camera.lookAt(cx * 0.6, 0, -fy - 1.6);
     sun.position.set(cx + 4, 10, -fy + 3); sun.target.position.set(cx, 0, -fy - 2);
     for (const e of edges) e.position.z = -fy - 4;
@@ -351,12 +352,15 @@
     }
   }
 
-  let last = performance.now();
+  let last = performance.now(), frameDt = 1 / 60;
   function frame(now) {
-    const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; time += dt;
+    const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; time += dt; frameDt = dt;
     if (lanes) update(dt);
     if (state === 'dead') deadT += dt;
     p && (p.squash = Math.max(0, p.squash - dt * 2));
+    // the picture glides after the game camera instead of jumping a whole row at once
+    viewY += (camY - viewY) * (1 - Math.exp(-dt * 12)); if (Math.abs(camY - viewY) > 6) viewY = camY;
+    if (p) p.faceS = (p.faceS ?? p.face) + (p.face - (p.faceS ?? p.face)) * (1 - Math.exp(-dt * 22));
     draw();
     requestAnimationFrame(frame);
   }
@@ -403,7 +407,7 @@
   addEventListener('resize', resize);
   resize(); showBests();
   // behind the start card: the road ahead, a few rows in
-  lanes = {}; top = 0; camY = -1; p = { x: 4, row: 0, fx: 0, fr: 0, t: 1, face: 1, squash: 0 }; ensureLanes();
+  lanes = {}; top = 0; camY = viewY = -1; p = { x: 4, row: 0, fx: 0, fr: 0, t: 1, face: 1, squash: 0 }; ensureLanes();
   // #preview: a run in progress, for the site's screenshot.
   if (location.hash === '#preview') {
     newGame();
@@ -417,7 +421,7 @@
     p.row = 4; p.x = 4; score = 38; apples = 5;
   }
   // On a local server tests can look inside.
-  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__perehod3d = { get p() { return p; }, get lanes() { return lanes; }, get state() { return state; }, get score() { return score; }, get camY() { return camY; }, hop, newGame, tick: (ms = 16) => { const r = window.requestAnimationFrame; window.requestAnimationFrame = () => 0; frame(last + ms); window.requestAnimationFrame = r; } };
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__perehod3d = { get p() { return p; }, get lanes() { return lanes; }, get state() { return state; }, get score() { return score; }, get camY() { return camY; }, get viewY() { return viewY; }, hop, newGame, tick: (ms = 16) => { const r = window.requestAnimationFrame; window.requestAnimationFrame = () => 0; frame(last + ms); window.requestAnimationFrame = r; } };
   requestAnimationFrame(frame);
   // Живая комната: игроки в одной комнате видят счёт друг друга (кнопка 👥)
   FreasyRoom({ key: 'room-3d-perehod', read: () => ({ st: state, score }) });

@@ -66,7 +66,7 @@
   FX.muted = () => muted || state === 'start';
   let W = 0, H = 0, dpr = 1, cell = 48, ox = 0;
   // lanes[row]: {type: 'grass'|'road'|'river'|'rail', dir, speed, items, span, trees, apple, train…}; row 0 is the start
-  let state = 'start', lanes, p, camY = 0, score = 0, apples = 0, moved = false, time = 0, deadT = 0, why = '', queued = null, top = 0;
+  let state = 'start', lanes, p, camY = 0, viewY = 0, score = 0, apples = 0, moved = false, time = 0, deadT = 0, why = '', queued = null, top = 0;
 
   // ——— Sound ———
   let ac = null;
@@ -123,10 +123,10 @@
     }
     return lane;
   }
-  function ensureLanes() { const need = Math.ceil(camY + H / cell + 3); while (top <= need) { lanes[top] = makeLane(top); top++; } for (const k in lanes) if (+k < camY - 3) delete lanes[k]; }
+  function ensureLanes() { const need = Math.ceil(camY + H / cell + 3); while (top <= need) { lanes[top] = makeLane(top); top++; } for (const k in lanes) if (+k < Math.min(camY, viewY) - 3) delete lanes[k]; }
 
   function newGame() {
-    unlockAudio(); lanes = {}; top = 0; camY = -1;
+    unlockAudio(); lanes = {}; top = 0; camY = viewY = -1;
     p = { x: Math.floor(COLS / 2), row: 0, fx: 0, fr: 0, t: 1, face: 1, squash: 0 };
     score = 0; apples = 0; moved = false; deadT = 0; queued = null; chanceUsed = false; chance.hide();
     state = 'play'; $('start').hidden = true; $('over').hidden = true; ensureLanes();
@@ -146,6 +146,7 @@
     if (dx) p.face = dx; sfx.hop();
   }
   function landed() {
+    p.squash = Math.max(p.squash, 0.22);
     const lane = lanes[p.row];
     if (p.row > score) { score = p.row; if (score % 25 === 0) { sfx.ten(); const [sx, sy] = screen(p.x + 0.5, p.row); FX.text(sx, sy - 30, score, '#ffd23f'); } }
     if (lane.type === 'grass' && lane.apple === Math.round(p.x)) { lane.apple = -1; apples++; sfx.apple(); const [sx, sy] = screen(p.x + 0.5, p.row); FX.on('coin', 1, sx, sy); }
@@ -179,7 +180,7 @@
     if (!lanes[r]) r = p.row;
     const lane = lanes[r]; let x = Math.round(Math.max(0, Math.min(COLS - 1, p.x)));
     if (lane.trees.has(x)) x = [...Array(COLS).keys()].find((c) => !lane.trees.has(c)) ?? x;
-    Object.assign(p, { x, row: r, t: 1, dead: null, squash: 0 }); camY = Math.min(camY, r - 2);
+    Object.assign(p, { x, row: r, t: 1, dead: null, squash: 0 }); camY = Math.min(camY, r - 2); viewY = Math.min(viewY, camY);
     state = 'play'; $('over').hidden = true; queued = null;
   } });
 
@@ -215,7 +216,7 @@
   }
 
   // ——— Drawing ———
-  const screen = (x, row) => [ox + x * cell, H - (row - camY + 0.5) * cell];
+  const screen = (x, row) => [ox + x * cell, H - (row - viewY + 0.5) * cell];
   function round(x, y, w, h, r) { g.beginPath(); if (g.roundRect) g.roundRect(x, y, w, h, r); else g.rect(x, y, w, h); }
   function drawCar(x, y, len, col, dir) {
     const w = len * cell, h = cell * 0.7, top = y - h / 2;
@@ -240,7 +241,7 @@
     if (p.dead === 'water') { g.strokeStyle = '#ffffffaa'; g.lineWidth = 2; for (let k = 0; k < 3; k++) { g.beginPath(); g.arc(x, y, s * (0.4 + k * 0.4) + deadT * 30, 0, 7); g.stroke(); } return; }
     const flat = p.dead ? 0.35 : 1;
     g.fillStyle = '#0005'; g.beginPath(); g.ellipse(x, y + s * 0.6, s, s * 0.35, 0, 0, 7); g.fill();
-    g.save(); g.translate(x, y - hopUp); g.scale(p.face * (1 + sq * 0.2 + (1 - flat) * 0.4), flat * (1 - sq * 0.2));
+    g.save(); g.translate(x, y - hopUp); g.scale((p.faceS ?? p.face) * (1 + sq * 0.2 + (1 - flat) * 0.4), flat * (1 - sq * 0.2));
     // spikes
     g.fillStyle = '#4a2e1c';
     for (let k = 0; k < 9; k++) { const a = Math.PI * (0.55 + k * 0.14); g.beginPath(); g.moveTo(Math.cos(a) * s * 0.6 - s * 0.15, Math.sin(a) * s * 0.6 * -1 + s * 0.1); g.lineTo(Math.cos(a) * s * 1.25 - s * 0.15, -Math.sin(a) * s * 1.2); g.lineTo(Math.cos(a + 0.12) * s * 0.6 - s * 0.15, -Math.sin(a + 0.12) * s * 0.6 + s * 0.1); g.fill(); }
@@ -256,7 +257,7 @@
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.fillStyle = '#16301f'; g.fillRect(0, 0, W, H);
     if (!lanes) return;
-    const first = Math.floor(camY) - 1, last = Math.ceil(camY + H / cell) + 1;
+    const first = Math.floor(viewY) - 1, last = Math.ceil(viewY + H / cell) + 1;
     for (let r = first; r <= last; r++) {
       const lane = lanes[r], [, y] = screen(0, r), yt = y - cell / 2;
       if (!lane) { if (r < 0) { g.fillStyle = r % 2 ? '#5cc46a' : '#52b860'; g.fillRect(0, yt, W, cell); } continue; }
@@ -294,7 +295,7 @@
       }
       if (lane.type === 'road') for (const it of lane.items) drawCar(ox + it.x * cell, y, it.len, it.c, lane.dir);
       if (r === p.row || (p.t < 1 && r === p.fr)) {
-        if (r === p.row) { const fx = p.t < 1 ? p.fx + (p.x - p.fx) * p.t : p.x, fr = p.t < 1 ? p.fr + (p.row - p.fr) * p.t : p.row, [hx, hy] = screen(fx + 0.5, fr); drawHedgehog(hx, hy); }
+        if (r === p.row) { const e = p.t < 1 ? 1 - (1 - p.t) * (1 - p.t) : 1, fx = p.t < 1 ? p.fx + (p.x - p.fx) * e : p.x, fr = p.t < 1 ? p.fr + (p.row - p.fr) * e : p.row, [hx, hy] = screen(fx + 0.5, fr); drawHedgehog(hx, hy); }
       }
       if (lane.type === 'rail' && lane.train) {
         const x = ox + lane.train.x * cell, w = lane.train.len * cell, h = cell * 0.8, t = y - h / 2;
@@ -320,6 +321,9 @@
     if (lanes) update(dt);
     if (state === 'dead') deadT += dt;
     p && (p.squash = Math.max(0, p.squash - dt * 2));
+    // the picture glides after the game camera instead of jumping a whole row at once
+    viewY += (camY - viewY) * (1 - Math.exp(-dt * 12)); if (Math.abs(camY - viewY) > 6) viewY = camY;
+    if (p) p.faceS = (p.faceS ?? p.face) + (p.face - (p.faceS ?? p.face)) * (1 - Math.exp(-dt * 22));
     draw();
     requestAnimationFrame(frame);
   }
@@ -365,7 +369,7 @@
   addEventListener('resize', resize);
   resize(); showBests();
   // behind the start card: the road ahead, a few rows in
-  lanes = {}; top = 0; camY = -1; p = { x: 4, row: 0, fx: 0, fr: 0, t: 1, face: 1, squash: 0 }; ensureLanes();
+  lanes = {}; top = 0; camY = viewY = -1; p = { x: 4, row: 0, fx: 0, fr: 0, t: 1, face: 1, squash: 0 }; ensureLanes();
   // #preview: a run in progress, for the site's screenshot.
   if (location.hash === '#preview') {
     newGame();
@@ -379,7 +383,7 @@
     p.row = 4; p.x = 4; score = 38; apples = 5;
   }
   // On a local server tests can look inside.
-  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__perehod = { get p() { return p; }, get lanes() { return lanes; }, get state() { return state; }, get score() { return score; }, get camY() { return camY; }, hop, newGame, tick: (ms = 16) => { const r = window.requestAnimationFrame; window.requestAnimationFrame = () => 0; frame(last + ms); window.requestAnimationFrame = r; } };
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__perehod = { get p() { return p; }, get lanes() { return lanes; }, get state() { return state; }, get score() { return score; }, get camY() { return camY; }, get viewY() { return viewY; }, hop, newGame, tick: (ms = 16) => { const r = window.requestAnimationFrame; window.requestAnimationFrame = () => 0; frame(last + ms); window.requestAnimationFrame = r; } };
   requestAnimationFrame(frame);
   // Живая комната: игроки в одной комнате видят счёт друг друга (кнопка 👥)
   FreasyRoom({ key: 'room-perehod', read: () => ({ st: state, score }) });
