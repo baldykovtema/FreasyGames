@@ -73,6 +73,8 @@ FreasyI18n.add({
 "Язык": "Language",
 "Клипы": "Clips",
 "Смотреть игры ↓": "Browse games ↓",
+"Закажи свою игру или сайт": "Order your own game or website",
+"Заказать свою игру в Freasy Makes ↗": "Order your own game at Freasy Makes ↗",
 "FreasyGames для Android": "FreasyGames for Android",
 "Скачай приложение и открывай любимые игры прямо с телефона. Все игры FreasyGames и FreasyGames 3D, работает без интернета и само обновляется, есть голосовой чат. Версия 2.1 · APK-файл · около 9 МБ.": "Get the app and open your favourite games right from your phone. Every FreasyGames and FreasyGames 3D game, works offline, updates itself and has voice chat. Version 2.1 · APK file · about 9 MB.",
 "Скачать APK ↓": "Download APK ↓",

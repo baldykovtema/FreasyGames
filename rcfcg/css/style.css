@@ -1,0 +1,721 @@
+* {
+    box-sizing: border-box
+}
+
+html,
+body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #111;
+    font-family: Arial, sans-serif
+}
+
+#authScreen {
+    position: fixed;
+    inset: 0;
+    background: #111;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000
+}
+
+#authBox {
+    width: 360px;
+    max-width: 90vw;
+    padding: 30px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, .18);
+    background: rgba(255, 255, 255, .08);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 15px 50px rgba(0, 0, 0, .5);
+    text-align: center
+}
+
+#authTitle {
+    margin: 0 0 28px;
+    color: #fff;
+    font-size: 30px;
+    font-weight: bold
+}
+
+.authInput {
+    width: 100%;
+    height: 44px;
+    margin-bottom: 12px;
+    padding: 0 14px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, .15);
+    outline: none;
+    background: rgba(0, 0, 0, .35);
+    color: #fff;
+    font-size: 16px
+}
+
+.authInput::placeholder {
+    color: rgba(255, 255, 255, .55)
+}
+
+.authInput:focus {
+    border-color: rgba(255, 255, 255, .4)
+}
+
+#loginButton,
+#registerButton {
+    width: 100%;
+    height: 44px;
+    border: 1px solid rgba(255, 255, 255, .18);
+    border-radius: 8px;
+    color: #fff;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: .2s
+}
+
+#loginButton {
+    background: rgba(36, 107, 206, .25);
+    margin-top: 8px
+}
+
+#loginButton:hover {
+    background: rgba(36, 107, 206, .35)
+}
+
+#registerButton {
+    background: rgba(123, 63, 198, .2);
+    margin-top: 10px
+}
+
+#registerButton:hover {
+    background: rgba(123, 63, 198, .3)
+}
+
+#loginButton:active,
+#registerButton:active {
+    transform: scale(.98)
+}
+
+#authMessage {
+    min-height: 22px;
+    margin-top: 15px;
+    color: #ff7777;
+    font-size: 14px;
+    line-height: 1.4
+}
+
+#backToLogin {
+    display: none;
+    width: 100%;
+    margin-top: 10px;
+    padding: 11px;
+    border: 1px solid rgba(255, 255, 255, .15);
+    border-radius: 8px;
+    color: #fff;
+    background: rgba(255, 255, 255, .08);
+    cursor: pointer
+}
+
+#game {
+    display: none;
+    width: 100%;
+    height: 100%
+}
+
+#gameArea {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 92vw;
+    height: 88vh;
+    display: flex;
+    justify-content: center;
+    align-items: center
+}
+
+#cubes {
+    display: grid;
+    justify-content: center;
+    align-content: center;
+    gap: 10px
+}
+
+.cube {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1/1;
+    background: #000;
+    overflow: hidden
+}
+
+canvas {
+    display: block;
+    width: 100%;
+    height: 100%
+}
+
+.percentage {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    color: #fff;
+    font-size: clamp(45px, 10vw, 105px);
+    font-weight: bold;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, .9), 0 0 8px rgba(0, 0, 0, .9);
+    pointer-events: none;
+    z-index: 10;
+    display: none
+}
+
+#controls {
+    position: fixed;
+    left: 20px;
+    bottom: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 100
+}
+
+#autoClickMode {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #fff;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    user-select: none;
+    margin-bottom: 2px
+}
+
+#autoClickMode input {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    cursor: pointer
+}
+
+#autoClickMode .autoClickHint {
+    font-size: 12px;
+    font-weight: normal;
+    color: rgba(255, 255, 255, .55)
+}
+
+#fastMode {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #fff;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    user-select: none;
+    margin-bottom: 2px
+}
+
+#fastMode input {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    cursor: pointer
+}
+
+#disableAllMode {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #fff;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    user-select: none;
+    margin-bottom: 2px
+}
+
+#disableAllMode input {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    cursor: pointer
+}
+
+button {
+    border: 1px solid rgba(255, 255, 255, .18);
+    border-radius: 8px;
+    padding: 12px 18px;
+    font-size: 16px;
+    font-weight: bold;
+    color: #fff;
+    background: rgba(255, 255, 255, .06);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    cursor: pointer;
+    transition: .2s
+}
+
+button:hover {
+    border-color: rgba(255, 255, 255, .28)
+}
+
+button:active {
+    transform: scale(.98)
+}
+
+button:disabled {
+    opacity: .4;
+    cursor: default
+}
+
+#addCube {
+    background: rgba(36, 107, 206, .2)
+}
+
+#addCube:hover {
+    background: rgba(36, 107, 206, .3)
+}
+
+#removeCube {
+    background: rgba(181, 43, 43, .2)
+}
+
+#removeCube:hover {
+    background: rgba(181, 43, 43, .3)
+}
+
+#restart {
+    background: rgba(68, 68, 68, .2)
+}
+
+#restart:hover {
+    background: rgba(68, 68, 68, .3)
+}
+
+#leaderboardButton {
+    background: rgba(46, 139, 87, .2)
+}
+
+#leaderboardButton:hover {
+    background: rgba(46, 139, 87, .3)
+}
+
+#topRightControls {
+    position: fixed;
+    top: 15px;
+    right: 15px;
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    gap: 10px
+}
+
+#donutTimer {
+    color: #ffd700;
+    font-size: 14px;
+    font-weight: bold;
+    background: rgba(0, 0, 0, .6);
+    border: 1px solid rgba(255, 215, 0, .3);
+    border-radius: 8px;
+    padding: 9px 14px;
+    white-space: nowrap;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, .8)
+}
+
+#logoutButton {
+    padding: 9px 14px;
+    font-size: 14px;
+    background: rgba(181, 43, 43, .2)
+}
+
+#logoutButton:hover {
+    background: rgba(181, 43, 43, .3)
+}
+
+#playerStats {
+    position: fixed;
+    top: 15px;
+    left: 15px;
+    z-index: 150;
+    color: #fff;
+    background: rgba(255, 255, 255, .08);
+    border: 1px solid rgba(255, 255, 255, .15);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-radius: 12px;
+    padding: 12px 15px;
+    min-width: 190px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, .25)
+}
+
+#playerStatsName {
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 7px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 220px
+}
+
+.statLine {
+    font-size: 14px;
+    margin-top: 4px;
+    color: rgba(255, 255, 255, .8)
+}
+
+#bestPercentageStat {
+    font-weight: bold
+}
+
+#unlockInfo {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    z-index: 150;
+    color: #fff;
+    background: rgba(255, 255, 255, .08);
+    border: 1px solid rgba(255, 255, 255, .15);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 14px;
+    text-align: right
+}
+
+#donut {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 500;
+    font-size: 80px;
+    cursor: pointer;
+    user-select: none;
+    display: none;
+    animation: donutFloat 2s ease-in-out infinite;
+    filter: drop-shadow(0 0 20px rgba(255, 200, 100, .8));
+    transition: transform .15s
+}
+
+#donut:hover {
+    transform: translate(-50%, -50%) scale(1.15)
+}
+
+#donut:active {
+    transform: translate(-50%, -50%) scale(.9)
+}
+
+@keyframes donutFloat {
+    0%,
+    100% {
+        margin-top: 0
+    }
+
+    50% {
+        margin-top: -15px
+    }
+}
+
+#donutBoostInfo {
+    position: fixed;
+    left: 50%;
+    top: 15px;
+    transform: translateX(-50%);
+    z-index: 500;
+    color: #ffd700;
+    font-size: 18px;
+    font-weight: bold;
+    background: rgba(0, 0, 0, .6);
+    border: 1px solid rgba(255, 215, 0, .4);
+    border-radius: 10px;
+    padding: 8px 16px;
+    display: none;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, .8)
+}
+
+#adminPanel {
+    display: none;
+    position: fixed;
+    right: 20px;
+    top: 65px;
+    z-index: 300;
+    width: 270px;
+    padding: 16px;
+    border-radius: 12px;
+    background: rgba(20, 20, 20, .9);
+    border: 1px solid rgba(255, 255, 255, .2);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, .5);
+    color: #fff
+}
+
+#adminPanelTitle {
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 12px
+}
+
+#adminCubeInput {
+    width: 100%;
+    height: 42px;
+    padding: 0 10px;
+    border-radius: 7px;
+    border: 1px solid rgba(255, 255, 255, .2);
+    background: rgba(0, 0, 0, .5);
+    color: #fff;
+    font-size: 16px;
+    margin-bottom: 8px
+}
+
+#adminSaveButton {
+    width: 100%;
+    background: rgba(46, 139, 87, .25)
+}
+
+#adminResetButton {
+    width: 100%;
+    margin-top: 7px;
+    background: rgba(181, 43, 43, .2)
+}
+
+#adminMessage {
+    font-size: 13px;
+    color: rgba(255, 255, 255, .7);
+    margin-top: 8px;
+    min-height: 18px
+}
+
+#leaderboardScreen {
+    position: fixed;
+    inset: 0;
+    background: #111;
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 900;
+    padding: 20px
+}
+
+#leaderboardTitle {
+    color: #fff;
+    font-size: clamp(24px, 4vw, 40px);
+    font-weight: bold;
+    margin-bottom: 20px
+}
+
+#leaderboardTabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 30px;
+    flex-wrap: wrap;
+    justify-content: center
+}
+
+.lbTab {
+    padding: 10px 20px;
+    background: rgba(255, 255, 255, .06)
+}
+
+.lbTab.active {
+    background: rgba(123, 63, 198, .3)
+}
+
+#podium {
+    display: flex;
+    gap: 40px;
+    justify-content: center;
+    align-items: flex-start;
+    flex-wrap: wrap
+}
+
+.lbSlot {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: min(26vw, 240px);
+    min-width: 150px
+}
+
+.lbRank {
+    font-size: clamp(28px, 5vw, 52px);
+    font-weight: bold;
+    margin-bottom: 12px;
+    text-shadow: 0 2px 6px rgba(0, 0, 0, .8)
+}
+
+.lbCubeWrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1/1;
+    background: #000;
+    overflow: hidden
+}
+
+.lbCubeWrap canvas {
+    display: block;
+    width: 100%;
+    height: 100%
+}
+
+.lbPercentage {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    font-size: clamp(45px, 10vw, 105px);
+    font-weight: bold;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, .9), 0 0 8px rgba(0, 0, 0, .9);
+    pointer-events: none
+}
+
+.lbName {
+    margin-top: 12px;
+    color: #fff;
+    font-size: clamp(14px, 2vw, 20px);
+    font-weight: bold;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap
+}
+
+#leaderboardMessage {
+    min-height: 22px;
+    margin-top: 25px;
+    color: rgba(255, 255, 255, .6);
+    font-size: 15px
+}
+
+#leaderboardBack {
+    margin-top: 10px;
+    background: rgba(68, 68, 68, .2)
+}
+
+#leaderboardBack:hover {
+    background: rgba(68, 68, 68, .3)
+}
+
+@media(max-width:600px) {
+    #playerStats {
+        min-width: 155px;
+        padding: 9px 11px
+    }
+
+    #playerStatsName {
+        font-size: 16px
+    }
+
+    .statLine {
+        font-size: 12px
+    }
+
+    #controls {
+        left: 10px;
+        bottom: 10px
+    }
+
+    #unlockInfo {
+        right: 10px;
+        bottom: 10px;
+        font-size: 12px;
+        max-width: 180px
+    }
+
+    #adminPanel {
+        right: 10px;
+        top: 60px;
+        width: 240px
+    }
+
+    button {
+        padding: 10px 13px;
+        font-size: 14px
+    }
+}
+.donutTimers { display: flex; flex-direction: column; gap: 5px; }
+#goldenDonutTimer { color: #ffe46b; font-size: 14px; font-weight: bold; background: #0009; border: 1px solid #ffd70066; border-radius: 8px; padding: 9px 14px; white-space: nowrap; }
+#adminPanel { top: 115px; max-height: calc(100dvh - 130px); overflow-y: auto; }
+#goldenDonut {
+    position: fixed; left: calc(50% + 100px); top: 50%; transform: translate(-50%, -50%);
+    z-index: 500; display: none; width: 78px; height: 78px; border-radius: 50%;
+    background: radial-gradient(circle, transparent 0 17%, #fff3a0 18% 24%, #ffe04b 25% 49%, #dba21a 50% 65%, transparent 66%);
+    filter: drop-shadow(0 0 18px #ffd700); cursor: pointer; animation: donutFloat 2s ease-in-out infinite;
+}
+#goldenDonut:hover { transform: translate(-50%, -50%) scale(1.15); }
+#goldenDonut:active { transform: translate(-50%, -50%) scale(.9); }
+/* Телефон боком: окно входа выше экрана, поэтому оно прокручивается и становится компактнее. */
+#authScreen{overflow-y:auto;padding:12px 0}
+#authBox{max-height:none;margin:auto}
+@media(max-height:520px) and (orientation:landscape){
+    #authBox{padding:16px 22px}
+    #authTitle{margin-bottom:12px;font-size:24px}
+    .authInput,#loginButton,#registerButton{height:40px}
+    #authMessage{min-height:0;margin-top:8px}
+}
+
+/* Телефон: кубы занимают свободное место между верхними плашками и кнопками и не прячутся под ними. */
+@media(max-width:600px) and (orientation:portrait){
+    #gameArea{top:150px;transform:translateX(-50%);width:calc(100vw - 20px);height:calc(100dvh - 150px - 285px)}
+    #controls{left:10px;right:10px;bottom:10px}
+    #controls button{width:100%}
+    #unlockInfo{top:110px;bottom:auto;left:10px;right:10px;max-width:none;text-align:center;padding:6px 10px}
+    #playerStats{top:10px;left:10px;min-width:0;padding:7px 10px}
+    #playerStatsName{font-size:14px}
+    .statLine{font-size:11px}
+    #topRightControls{top:10px;right:10px;gap:6px}
+    #donutTimer,#goldenDonutTimer{font-size:12px;padding:5px 8px}
+    #logoutButton{padding:8px 10px;font-size:13px}
+}
+@media(max-height:520px) and (orientation:landscape){
+    #playerStats{top:8px;left:8px;min-width:0;padding:6px 10px}
+    #playerStatsName{font-size:14px}
+    .statLine{font-size:11px}
+    #controls{left:8px;bottom:8px;width:220px;gap:5px}
+    #controls button{width:100%;padding:8px 12px;font-size:14px}
+    #topRightControls{top:8px;right:8px}
+    #unlockInfo{right:8px;bottom:8px;max-width:180px;font-size:12px}
+    #gameArea{left:240px;right:200px;top:60px;bottom:8px;width:auto;height:auto;transform:none}
+    #donutBoostInfo{top:8px;font-size:14px}
+}
+
+/* Место для «← FreasyGames» в левом верхнем углу. */
+#playerStats{top:56px}
+#authScreen{padding-top:56px}
+@media(max-width:600px) and (orientation:portrait){
+    #playerStats{top:54px}
+    #unlockInfo{top:154px}
+    #gameArea{top:194px;height:calc(100dvh - 194px - 285px)}
+}
+@media(max-height:520px) and (orientation:landscape){
+    #playerStats{top:8px}
+    .fg-back{left:50% !important;transform:translateX(-50%)}
+}
+
+#offlineButton {
+    width: 100%;
+    height: 44px;
+    margin-top: 6px;
+    border: 1px dashed rgba(255, 255, 255, .3);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, .06);
+    color: #fff;
+    font-size: 15px;
+    font-weight: bold;
+    cursor: pointer
+}
+
+#offlineButton:hover {
+    background: rgba(255, 255, 255, .12)
+}
+
+#offlineNote {
+    margin-top: 6px;
+    color: rgba(255, 255, 255, .55);
+    font-size: 12px
+}

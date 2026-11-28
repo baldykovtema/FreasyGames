@@ -32,6 +32,8 @@
     .brand { flex: none; white-space: nowrap; }
     .nav-link { white-space: nowrap; }
     .nav-3d { color: var(--accent2-hi); border-color: var(--accent2-line); background: var(--accent2-soft); }
+    .nav-makes { color: #ffd479; border-color: #ffd47955; background: #ffd4791a; }
+    @media (max-width: 760px) { .nav-makes { display: none; } }
     .hero-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
     .hero-action.hero-3d { background: linear-gradient(120deg, var(--accent), var(--accent-2)); }
     .hero-action.hero-3d:hover { background: linear-gradient(120deg, var(--accent-hi), var(--accent2-hi)); }
@@ -77,7 +79,7 @@
     .apk-offer p { margin: 0; color: var(--soft); font-size: 14px; line-height: 1.65; }
     .apk-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 16px; }
     .apk-dismiss { font: inherit; font-size: 13px; color: var(--soft); background: transparent; border: 1px solid var(--line-2); padding: 12px 17px; border-radius: 10px; cursor: pointer; }
-    .apk-link { text-decoration: underline; text-underline-offset: 3px; }
+    .apk-link, .makes-link { text-decoration: underline; text-underline-offset: 3px; }
     @media (max-width: 760px) { .hero { padding: 62px 0 72px; } .games { grid-template-columns: 1fr; } .section-note { display: none; } .shot { height: clamp(205px,50vw,320px); } }
     @media (max-width: 450px) { .wrap { width: min(100% - 28px,1120px); } .topbar { min-height: 70px; } .brand { font-size: 17px; } .nav-link { padding: 9px 11px; font-size: 11px; } .content { padding: 19px; } .description { min-height: 0; } .card-bottom { align-items: stretch; flex-direction: column; } .play { justify-content: center; } footer .wrap { align-items: flex-start; flex-direction: column; } }
     @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; } }
@@ -88,6 +90,7 @@
     <a class="brand" href="#top" aria-label="FreasyGames — наверх"><span class="brand-icon" aria-hidden="true">✦</span> FreasyGames</a>
     <nav class="top-nav">
       <a class="nav-link nav-3d" href="FreasyGames3D/">FreasyGames 3D ↗</a>
+      <a class="nav-link nav-makes" href="https://baldykovtema.github.io/Freasy-Makes/" target="_blank" rel="noopener noreferrer" title="Закажи свою игру или сайт">Freasy Makes ↗</a>
       <a class="nav-link nav-games" href="#games">Смотреть игры ↓</a>
     </nav>
   </header>
@@ -131,11 +134,11 @@
       <div class="games">
         <article class="card" data-game="rcfcg" data-tags="Аркада, Кубы">
           <div class="shot"><img src="images/rcfcg-game.png" alt="Скриншот RCFCG: разноцветный куб, прогресс 9% и статистика игрока Player12345" width="1280" height="720"><span class="shot-label">Скриншот из игры</span></div>
-          <div class="content"><div class="meta">Аркада <span></span> Кубы</div><h3>RCFCG</h3><p class="description">Открывай яркие кубы, следи за прогрессом и улучшай свой лучший результат. Заглядывай в таблицу лидеров и соревнуйся с другими игроками.</p><div class="card-bottom"><span class="player">На скриншоте: <strong>Player12345</strong></span><a class="play" href="https://baldykovtema.github.io/RCFCG-Webgame/" target="_blank" rel="noopener noreferrer" aria-label="Открыть RCFCG в новой вкладке">Играть сейчас ↗</a></div></div>
+          <div class="content"><div class="meta">Аркада <span></span> Кубы</div><h3>RCFCG</h3><p class="description">Открывай яркие кубы, следи за прогрессом и улучшай свой лучший результат. Заглядывай в таблицу лидеров и соревнуйся с другими игроками.</p><div class="card-bottom"><span class="player">На скриншоте: <strong>Player12345</strong></span><a class="play" href="rcfcg/" target="_blank" rel="noopener noreferrer" aria-label="Открыть RCFCG в новой вкладке">Играть сейчас ↗</a></div></div>
         </article>
         <article class="card" data-game="pvz" data-tags="Стратегия, Растения против зомби">
           <div class="shot"><img src="images/pvz-game.png" alt="Скриншот PvZ: горохострел защищает сад от зомби, игрок Player12345" width="1280" height="720"><span class="shot-label">Скриншот из игры</span></div>
-          <div class="content"><div class="meta">Стратегия <span></span> Растения против зомби</div><h3>Растения против Зомби</h3><p class="description">Выбирай растения и защищай сад от волн зомби. Проходи кампанию, пробуй мини-игры и бесконечный режим или играй онлайн с друзьями.</p><div class="card-bottom"><span class="player">На скриншоте: <strong>Player12345</strong></span><a class="play" href="https://baldykovtema.github.io/PVZ-Webgame/" target="_blank" rel="noopener noreferrer" aria-label="Открыть Растения против Зомби в новой вкладке">Играть сейчас ↗</a></div></div>
+          <div class="content"><div class="meta">Стратегия <span></span> Растения против зомби</div><h3>Растения против Зомби</h3><p class="description">Выбирай растения и защищай сад от волн зомби. Проходи кампанию, пробуй мини-игры и бесконечный режим или играй онлайн с друзьями.</p><div class="card-bottom"><span class="player">На скриншоте: <strong>Player12345</strong></span><a class="play" href="pvz/" target="_blank" rel="noopener noreferrer" aria-label="Открыть Растения против Зомби в новой вкладке">Играть сейчас ↗</a></div></div>
         </article>
         <article class="card" data-game="memecat" data-tags="Раннер, Редактор уровней">
           <div class="shot"><img src="images/memecat-game.jpg" alt="Скриншот игры Мемный Кот: Прыг: оранжевый кот в прыжке над красными буквами А" width="1280" height="720"><span class="shot-label">Скриншот из игры</span></div>
@@ -344,7 +347,7 @@
       </div>
     </section>
   </main>
-  <footer><div class="wrap"><strong>✦ FreasyGames</strong><a class="apk-link" href="FreasyGames-WebView.apk" download="FreasyGames-WebView.apk">Скачать APK для Android</a><a class="apk-link" href="FreasyGames.dmg" download="FreasyGames.dmg">Скачать DMG для macOS</a><a class="apk-link" href="https://github.com/baldykovtema/FreasyGames/releases/download/windows-v2.1.0/FreasyGames-Windows-x64.zip">Скачать для Windows</a><span>Бесплатные игры для хорошего настроения</span></div></footer>
+  <footer><div class="wrap"><strong>✦ FreasyGames</strong><a class="apk-link" href="FreasyGames-WebView.apk" download="FreasyGames-WebView.apk">Скачать APK для Android</a><a class="apk-link" href="FreasyGames.dmg" download="FreasyGames.dmg">Скачать DMG для macOS</a><a class="apk-link" href="https://github.com/baldykovtema/FreasyGames/releases/download/windows-v2.1.0/FreasyGames-Windows-x64.zip">Скачать для Windows</a><a class="makes-link" href="https://baldykovtema.github.io/Freasy-Makes/" target="_blank" rel="noopener noreferrer">Заказать свою игру в Freasy Makes ↗</a><span>Бесплатные игры для хорошего настроения</span></div></footer>
   <script>
     (() => {
       const offer = document.getElementById('apk-offer');
